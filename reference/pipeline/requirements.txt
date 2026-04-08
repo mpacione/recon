@@ -1,0 +1,21 @@
+# P4 Synthesis Pipeline Dependencies
+# Install: pip install -r requirements.txt
+
+# Vector database (local, no server needed)
+chromadb>=0.4.22
+
+# Local embeddings (runs on CPU, no API key needed)
+sentence-transformers>=2.2.2
+
+# Markdown/YAML parsing
+pyyaml>=6.0
+python-frontmatter>=1.0.0
+
+# Anthropic API for Opus synthesis
+anthropic>=0.18.0
+
+# Progress bars
+tqdm>=4.66.0
+
+# Optional: faster CPU inference
+# torch>=2.0.0  # Uncomment if you want GPU support

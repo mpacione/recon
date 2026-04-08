@@ -1,0 +1,123 @@
+# P4 Synthesis Pipeline Configuration
+
+# Paths (relative to CompetitiveLandscape-2025 directory)
+paths:
+  competitors_dir: "Competitors"
+  atlassian_dir: "Atlassian"
+  themes_dir: "Themes"
+  chroma_db: ".chroma_db"  # Hidden directory for vector store
+
+# Embedding model (runs locally, no API key)
+embedding:
+  model: "all-MiniLM-L6-v2"  # Fast, good quality, 384 dimensions
+  # Alternative: "all-mpnet-base-v2"  # Better quality, slower
+
+# Chunking settings
+chunking:
+  chunk_size: 500  # tokens per chunk
+  chunk_overlap: 50  # overlap between chunks
+
+# Retrieval settings
+retrieval:
+  top_k: 50  # chunks per query
+  queries_per_theme: 4  # multiple queries for better coverage
+
+# Synthesis settings
+synthesis:
+  # model: "claude-sonnet-4-20250514"  # Use Sonnet for cost efficiency, Opus for quality
+  model: "claude-opus-4-20250514"  # Highest quality
+  max_tokens: 8192
+  temperature: 0.3  # Lower = more focused
+
+# Theme definitions
+themes:
+  agentic_shift:
+    title: "The Agentic Shift"
+    output_file: "_AgenticShift.md"
+    queries:
+      - "autonomous agents executing coding tasks without human approval"
+      - "plan-and-execute workflows where AI proposes and human approves"
+      - "L4 L5 autonomy level fully autonomous coding agents"
+      - "risks failures and limitations of autonomous AI coding"
+      - "human oversight patterns in AI-assisted development"
+
+  platform_wars:
+    title: "Platform Wars: Who Owns the Orchestration Layer"
+    output_file: "_PlatformWars.md"
+    queries:
+      - "platform strategy developer ecosystem lock-in"
+      - "IDE control surface integration ambient AI"
+      - "orchestration layer workflow ownership developer tools"
+      - "extension marketplace plugin ecosystem moat"
+      - "multi-tool interoperability vs walled garden"
+
+  trust_and_governance:
+    title: "Trust & Governance: Enterprise Control Plane"
+    output_file: "_TrustGovernance.md"
+    queries:
+      - "enterprise compliance audit trail SOC2 AI tools"
+      - "AI explainability transparency decision logging"
+      - "permissions access control admin governance AI"
+      - "data residency privacy security certifications"
+      - "human oversight approval workflows guardrails"
+
+  workflow_embedding:
+    title: "Workflow Embedding: Where AI Lives"
+    output_file: "_WorkflowEmbedding.md"
+    queries:
+      - "sidecar assistant inline suggestions ambient AI"
+      - "agentic autonomous background execution patterns"
+      - "IDE-native vs external tool integration pattern"
+      - "context awareness workspace understanding AI"
+      - "user interaction model chat command palette trigger"
+
+  time_to_value:
+    title: "Time to Value: First 5 Minutes"
+    output_file: "_TimeToValue.md"
+    queries:
+      - "onboarding setup friction getting started developer tools"
+      - "free tier trial self-serve activation PLG"
+      - "hello world first task demo experience"
+      - "configuration complexity learning curve"
+      - "quick wins immediate value demonstration"
+
+  developer_love:
+    title: "Developer Love Trends"
+    output_file: "_DeveloperLoveTrends.md"
+    queries:
+      - "developer experience and satisfaction with coding tools"
+      - "speed performance and responsiveness in developer tools"
+      - "keyboard shortcuts and CLI-first developer workflows"
+      - "opinionated defaults versus configuration flexibility"
+      - "developer complaints frustrations pain points"
+
+  consolidation_patterns:
+    title: "Platform Consolidation Patterns"
+    output_file: "_ConsolidationPatterns.md"
+    queries:
+      - "platform expansion and feature bundling strategies"
+      - "GitHub expanding beyond code repository"
+      - "all-in-one developer platforms versus best-of-breed"
+      - "acquisition targets in developer tools space"
+      - "enterprise bundling and platform lock-in"
+
+  alignment_infrastructure:
+    title: "Alignment Infrastructure: The New System of Record"
+    output_file: "_AlignmentInfrastructure.md"
+    queries:
+      - "specs to code traceability audit trail AI agents"
+      - "decision logging reasoning capture AI development"
+      - "human intervention tracking agent runs debugging"
+      - "alignment artifacts requirements documentation AI"
+      - "intent capture knowledge management AI coding"
+      - "code review evolving intent review AI"
+
+  conductor_model:
+    title: "The Conductor Model: Engineers as Reviewers"
+    output_file: "_ConductorModel.md"
+    queries:
+      - "engineer role shifting code review AI generated"
+      - "human in the loop AI coding approval workflows"
+      - "architect reviewer orchestrator AI development"
+      - "code review automation AI assistance"
+      - "developer productivity AI pair programming review"
