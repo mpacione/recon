@@ -9,6 +9,7 @@ from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.containers import Vertical
 from textual.widgets import DataTable, Static
 
+from recon.tui.curation import ThemeCurationModel  # noqa: TCH001
 from recon.tui.screens import DashboardData  # noqa: TCH001
 
 
@@ -99,3 +100,48 @@ class ProgressBar(Static):
     def update_progress(self, progress: float) -> None:
         self._progress = max(0.0, min(1.0, progress))
         self.update(self._render_bar())
+
+
+def format_theme_list(model: ThemeCurationModel) -> list[str]:
+    """Format the theme curation model as displayable lines."""
+    lines: list[str] = []
+    for i, entry in enumerate(model.entries):
+        checkbox = "[x]" if entry.enabled else "[ ]"
+        lines.append(
+            f"{checkbox} {i + 1}. {entry.label}  "
+            f"({entry.chunk_count} chunks, {entry.evidence_strength})"
+        )
+    return lines
+
+
+class ThemeCurationPanel(Vertical):
+    """Interactive theme curation panel for the TUI."""
+
+    DEFAULT_CSS = """
+    ThemeCurationPanel {
+        height: auto;
+        padding: 1 2;
+        border: solid #3a3a3a;
+        margin: 1;
+    }
+    """
+
+    def __init__(self, model: ThemeCurationModel) -> None:
+        super().__init__()
+        self._model = model
+
+    def compose(self) -> ComposeResult:
+        yield Static("[bold #e0a044]THEME DISCOVERY[/]")
+        yield Static(f"[#a89984]{len(self._model.entries)} themes discovered, "
+                      f"{self._model.selected_count} selected[/]")
+        yield Static("")
+
+        lines = format_theme_list(self._model)
+        for line in lines:
+            yield Static(line)
+
+        yield Static("")
+        yield Static(
+            "[#a89984][Space] Toggle  [E] Edit name  [V] View evidence  "
+            "[D] Done -- synthesize selected[/]"
+        )
