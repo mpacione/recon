@@ -429,6 +429,74 @@ def _build_discovery_chunks(ws, profiles: list[dict]) -> list[dict]:
 
 
 @main.command()
+@click.option("--rounds", default=3, help="Number of discovery rounds")
+@click.option("--batch-size", default=15, help="Candidates per round")
+@click.option("--seed", multiple=True, help="Seed competitor names")
+@click.option("--auto-accept", is_flag=True, help="Accept all candidates (non-interactive)")
+@click.option("--dry-run", is_flag=True, help="Show discovery plan")
+@click.option("--workspace", "workspace_dir", default=".", help="Workspace directory")
+def discover(rounds, batch_size, seed, auto_accept, dry_run, workspace_dir):
+    """Discover competitors in the market domain."""
+    from recon.workspace import Workspace
+
+    ws = Workspace.open(Path(workspace_dir))
+    domain = ws.schema.domain if ws.schema else "Unknown"
+
+    if dry_run:
+        click.echo(f"Discovery plan for domain: {domain}")
+        click.echo(f"  Rounds: {rounds}, batch size: {batch_size}")
+        if seed:
+            click.echo(f"  Seed competitors: {', '.join(seed)}")
+        click.echo("  Requires ANTHROPIC_API_KEY for LLM-powered discovery.")
+        return
+
+    client, error = _try_create_client()
+    if error:
+        click.echo(f"ANTHROPIC_API_KEY not set. {error}")
+        return
+
+    from recon.discovery import DiscoveryAgent, DiscoveryState
+
+    agent = DiscoveryAgent(
+        llm_client=client,
+        domain=domain,
+        seed_competitors=list(seed),
+    )
+    state = DiscoveryState()
+
+    for round_num in range(1, rounds + 1):
+        click.echo(f"\n--- Round {round_num}/{rounds} ---")
+        candidates = _run_async(agent.search(state=state if round_num > 1 else None))
+
+        if not candidates:
+            click.echo("No new candidates found.")
+            break
+
+        state.add_round(candidates)
+        click.echo(f"Found {len(candidates)} candidates:")
+        for c in state.all_candidates[-len(candidates):]:
+            click.echo(f"  [x] {c.name}  {c.url}")
+            click.echo(f"      {c.blurb}")
+            click.echo(f"      Found via: {c.provenance} | Tier: {c.suggested_tier}")
+
+        if not auto_accept and round_num < rounds:
+            suggestion = _run_async(agent.analyze_patterns(state))
+            click.echo(f"\nSuggestion: {suggestion}")
+
+    accepted = state.accepted_candidates
+    click.echo(f"\n{len(accepted)} competitors accepted.")
+
+    for candidate in accepted:
+        try:
+            ws.create_profile(candidate.name)
+            click.echo(f"  Created: {candidate.name}")
+        except FileExistsError:
+            click.echo(f"  Skipped (exists): {candidate.name}")
+
+    click.echo(f"Discovery complete. {len(accepted)} profiles created.")
+
+
+@main.command()
 @click.option("--from", "from_stage", type=click.Choice(["research", "enrich", "index", "synthesize"]), help="Start from stage")
 @click.option("--deep", is_flag=True, help="Use deep synthesis")
 @click.option("--dry-run", is_flag=True, help="Show plan + cost estimate")
