@@ -54,14 +54,14 @@ graph LR
     F --> G[Synthesize]
     G --> H[Deliver]
 
-    style A fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
-    style B fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
-    style C fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
-    style D fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
-    style E fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
-    style F fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
-    style G fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
-    style H fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
+    style A fill:#fff7e6,stroke:#c88a2e,color:#333
+    style B fill:#fff7e6,stroke:#c88a2e,color:#333
+    style C fill:#fff7e6,stroke:#c88a2e,color:#333
+    style D fill:#fff7e6,stroke:#c88a2e,color:#333
+    style E fill:#fff7e6,stroke:#c88a2e,color:#333
+    style F fill:#fff7e6,stroke:#c88a2e,color:#333
+    style G fill:#fff7e6,stroke:#c88a2e,color:#333
+    style H fill:#fff7e6,stroke:#c88a2e,color:#333
 ```
 
 **1. Discover** -- An LLM agent searches for competitors in batches. Users review candidates, toggle accept/reject, and the agent refines its search based on the pattern. Deduplication by URL domain across rounds.
@@ -118,9 +118,9 @@ graph LR
     TUI --> Engine
     Engine --> Data
 
-    style Interface fill:#0d0d0d,stroke:#e0a044,color:#efe5c0
-    style Engine fill:#0d0d0d,stroke:#e0a044,color:#efe5c0
-    style Data fill:#0d0d0d,stroke:#e0a044,color:#efe5c0
+    style Interface fill:#fff7e6,stroke:#c88a2e,color:#333
+    style Engine fill:#fff7e6,stroke:#c88a2e,color:#333
+    style Data fill:#fff7e6,stroke:#c88a2e,color:#333
 ```
 
 All LLM calls go through a single async client wrapper with token counting. The worker pool uses semaphore-controlled concurrency. The pipeline orchestrator tracks state in SQLite so runs can resume from any phase.
