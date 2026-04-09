@@ -85,37 +85,32 @@ graph LR
 Three layers with strict separation:
 
 ```mermaid
-block-beta
-    columns 3
-
-    block:Interface["Interface Layer"]:1
+graph LR
+    subgraph Interface["Interface Layer"]
         CLI["CLI (Click)"]
         TUI["TUI (Textual)"]
     end
 
-    block:Engine["Engine Layer"]:1
+    subgraph Engine["Engine Layer"]
         Discovery["Discovery"]
-        Research["Research"]
-        Verification["Verification"]
+        Research["Research + Verification"]
         Enrichment["Enrichment"]
-        Synthesis["Synthesis"]
-        Themes["Themes"]
-        Indexer["Indexer"]
-        Tagging["Tagging"]
-        Pipeline["Pipeline"]
-        Workers["Workers"]
-        Prompts["Prompts"]
-        Validator["Validator"]
-        Cost["Cost"]
+        Index["Index + Themes"]
+        Synthesis["Synthesis + Delivery"]
+        Pipeline["Pipeline Orchestrator"]
     end
 
-    block:Data["Data Layer"]:1
+    subgraph Data["Data Layer"]
         Workspace["Workspace (.md)"]
-        ChromaDB["ChromaDB"]
-        SQLite["SQLite"]
+        Vectors["ChromaDB"]
+        State["SQLite"]
     end
 
-    Interface --> Engine --> Data
+    CLI --> Engine
+    TUI --> Engine
+    Engine --> Workspace
+    Engine --> Vectors
+    Engine --> State
 
     style Interface fill:#fff7e6,stroke:#c88a2e,color:#333
     style Engine fill:#fff7e6,stroke:#c88a2e,color:#333
