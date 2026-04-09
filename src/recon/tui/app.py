@@ -9,8 +9,8 @@ from pathlib import Path  # noqa: TCH003 -- used at runtime
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.widgets import Footer, Header, Input, Static
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Button, Footer, Header, Input, Static
 
 from recon.tui.theme import RECON_CSS
 
@@ -59,6 +59,14 @@ class _WorkspaceDashboard(Vertical):
     _WorkspaceDashboard {
         padding: 1 2;
     }
+    .action-bar {
+        height: auto;
+        margin: 1 0;
+        layout: horizontal;
+    }
+    .action-bar Button {
+        margin: 0 1 0 0;
+    }
     #activity-log {
         height: auto;
         max-height: 12;
@@ -81,13 +89,11 @@ class _WorkspaceDashboard(Vertical):
         yield Static("")
         yield Static(self._api_key_status())
         yield Static("")
-        yield Static(
-            "[bold #e0a044]ACTIONS[/]  "
-            "[#efe5c0][A][/][#a89984] Add competitor  [/]"
-            "[#efe5c0][R][/][#a89984] Research all  [/]"
-            "[#efe5c0][I][/][#a89984] Index profiles  [/]"
-            "[#efe5c0][Q][/][#a89984] Quit[/]"
-        )
+        with Horizontal(classes="action-bar"):
+            yield Button("Add Competitor", id="btn-add", variant="primary")
+            yield Button("Research All", id="btn-research", variant="warning")
+            yield Button("Index Profiles", id="btn-index")
+            yield Button("Quit", id="btn-quit", variant="error")
         yield Static("", id="add-input-slot")
         yield Static("")
         yield Static("[bold #e0a044]ACTIVITY[/]", id="activity-header")
@@ -120,9 +126,6 @@ class ReconApp(App):
         Binding("?", "help", "Help"),
         Binding("d", "switch_dashboard", "Dashboard"),
         Binding("t", "switch_themes", "Themes"),
-        Binding("a", "add_competitor", "Add"),
-        Binding("r", "run_research", "Research"),
-        Binding("i", "run_index", "Index"),
     ]
 
     def __init__(self, workspace_path: Path | None = None) -> None:
@@ -196,9 +199,21 @@ class ReconApp(App):
     def title(self, value: str) -> None:
         self.TITLE = value
 
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Route dashboard button clicks to actions."""
+        button_id = event.button.id
+        if button_id == "btn-add":
+            self.action_add_competitor()
+        elif button_id == "btn-research":
+            self.action_run_research()
+        elif button_id == "btn-index":
+            self.action_run_index()
+        elif button_id == "btn-quit":
+            self.action_quit()
+
     def action_help(self) -> None:
         self.notify(
-            "A=Add  R=Research  I=Index  D=Dashboard  T=Themes  Q=Quit",
+            "D=Dashboard  T=Themes  Q=Quit",
             title="Keybinds",
         )
 
