@@ -190,19 +190,32 @@ class TestInitWizardFlow:
         assert "Acme Corp" in result.output
 
 
-class TestInitBackwardCompatibility:
-    def test_original_init_still_works(self, tmp_path: Path) -> None:
+class TestInitHeadlessMode:
+    def test_headless_init_with_prompts(self, tmp_path: Path) -> None:
         ws_dir = tmp_path / "myproject"
         runner = CliRunner()
 
         result = runner.invoke(
             main,
-            ["init", str(ws_dir)],
+            ["init", str(ws_dir), "--headless"],
             input="\n".join([
                 "Developer Tools",
                 "Acme Corp",
                 "Acme CI",
             ]),
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert (ws_dir / "recon.yaml").exists()
+
+    def test_headless_init_with_flags(self, tmp_path: Path) -> None:
+        ws_dir = tmp_path / "myproject"
+        runner = CliRunner()
+
+        result = runner.invoke(
+            main,
+            ["init", str(ws_dir), "--domain", "Tools", "--company", "Acme", "--products", "X"],
             catch_exceptions=False,
         )
 

@@ -34,13 +34,22 @@ def main():
 @click.option("--domain", default=None, help="Research domain (e.g., 'Developer Tools')")
 @click.option("--company", default=None, help="Your company name")
 @click.option("--products", default=None, help="Your products (comma-separated)")
-@click.option("--wizard", is_flag=True, help="Run guided setup wizard")
-def init(directory, domain, company, products, wizard):
+@click.option("--headless", is_flag=True, help="Non-interactive mode (Click prompts instead of TUI)")
+@click.option("--wizard", is_flag=True, hidden=True, help="(deprecated, use --headless for prompt-based flow)")
+def init(directory, domain, company, products, headless, wizard):
     """Initialize a new recon workspace."""
-    if wizard:
-        _run_wizard(Path(directory))
+    if headless or wizard or (domain and company and products):
+        if wizard:
+            _run_headless_wizard(Path(directory))
+        else:
+            _run_headless_init(Path(directory), domain, company, products)
         return
 
+    _run_tui_wizard(Path(directory))
+
+
+def _run_headless_init(root: Path, domain: str | None, company: str | None, products: str | None) -> None:
+    """Non-interactive init using Click prompts."""
     from recon.workspace import Workspace
 
     domain = domain or click.prompt("Domain")
@@ -49,7 +58,7 @@ def init(directory, domain, company, products, wizard):
 
     product_list = [p.strip() for p in products.split(",")]
     ws = Workspace.init(
-        root=Path(directory),
+        root=root,
         domain=domain,
         company_name=company,
         products=product_list,
@@ -57,7 +66,27 @@ def init(directory, domain, company, products, wizard):
     click.echo(f"Workspace initialized at {ws.root}")
 
 
-def _run_wizard(root: Path) -> None:
+def _run_tui_wizard(root: Path) -> None:
+    """Launch the Textual TUI wizard for workspace creation."""
+    import yaml
+
+    from recon.tui.wizard import WizardApp
+    from recon.workspace import Workspace
+
+    app = WizardApp(output_dir=root)
+    app.run()
+
+    if app.result_schema is None:
+        click.echo("Wizard cancelled.")
+        return
+
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "recon.yaml").write_text(yaml.dump(app.result_schema, default_flow_style=False, sort_keys=False))
+    ws = Workspace.init(root=root)
+    click.echo(f"Workspace initialized at {ws.root}")
+
+
+def _run_headless_wizard(root: Path) -> None:
     """Run the guided schema wizard for workspace creation."""
     import yaml
 
