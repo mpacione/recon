@@ -85,33 +85,37 @@ graph LR
 Three layers with strict separation:
 
 ```mermaid
-graph LR
-    subgraph Interface["Interface Layer"]
-        direction TB
-        CLI["CLI (Click)"] ~~~ TUI["TUI (Textual)"]
+block-beta
+    columns 3
+
+    block:Interface["Interface Layer"]:1
+        CLI["CLI (Click)"]
+        TUI["TUI (Textual)"]
     end
 
-    subgraph Engine["Engine Layer"]
-        direction TB
-        Discovery["Discovery"] ~~~ Research["Research"] ~~~ Verify["Verification"]
-        Enrich["Enrichment"] ~~~ Synthesize["Synthesis"] ~~~ Deliver["Delivery"]
-        Index["Indexer"] ~~~ Themes["Themes"] ~~~ Tags["Tagging"]
-        Pipeline["Pipeline"] ~~~ Workers["Workers"] ~~~ Prompts["Prompts"]
-        Validator["Validator"] ~~~ Cost["Cost"]
-
-        Verify ~~~ Enrich
-        Deliver ~~~ Index
-        Tags ~~~ Pipeline
-        Prompts ~~~ Validator
+    block:Engine["Engine Layer"]:1
+        Discovery["Discovery"]
+        Research["Research"]
+        Verification["Verification"]
+        Enrichment["Enrichment"]
+        Synthesis["Synthesis"]
+        Themes["Themes"]
+        Indexer["Indexer"]
+        Tagging["Tagging"]
+        Pipeline["Pipeline"]
+        Workers["Workers"]
+        Prompts["Prompts"]
+        Validator["Validator"]
+        Cost["Cost"]
     end
 
-    subgraph Data["Data Layer"]
-        direction TB
-        Workspace["Workspace (.md)"] ~~~ Vectors["ChromaDB"] ~~~ State["SQLite"]
+    block:Data["Data Layer"]:1
+        Workspace["Workspace (.md)"]
+        ChromaDB["ChromaDB"]
+        SQLite["SQLite"]
     end
 
-    Interface --> Engine
-    Engine --> Data
+    Interface --> Engine --> Data
 
     style Interface fill:#fff7e6,stroke:#c88a2e,color:#333
     style Engine fill:#fff7e6,stroke:#c88a2e,color:#333
