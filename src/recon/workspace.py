@@ -69,8 +69,16 @@ class Workspace:
         """Initialize a new workspace directory structure."""
         root.mkdir(parents=True, exist_ok=True)
         (root / "competitors").mkdir(exist_ok=True)
+        (root / "themes").mkdir(exist_ok=True)
+        (root / "own-products").mkdir(exist_ok=True)
         (root / ".recon").mkdir(exist_ok=True)
         (root / ".recon" / "logs").mkdir(exist_ok=True)
+
+        gitignore = root / ".gitignore"
+        if not gitignore.exists():
+            gitignore.write_text(
+                ".recon/\n.vectordb/\n.retrieved/\n.env\n"
+            )
 
         schema_path = root / "recon.yaml"
         if not schema_path.exists() and domain:

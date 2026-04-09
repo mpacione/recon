@@ -88,8 +88,11 @@ class TestInitWizardFlow:
         )
 
         assert (ws_dir / "competitors").is_dir()
+        assert (ws_dir / "themes").is_dir()
+        assert (ws_dir / "own-products").is_dir()
         assert (ws_dir / ".recon").is_dir()
         assert (ws_dir / ".recon" / "logs").is_dir()
+        assert (ws_dir / ".gitignore").exists()
 
     def test_wizard_stores_own_product_flag(self, tmp_path: Path) -> None:
         ws_dir = tmp_path / "myproject"

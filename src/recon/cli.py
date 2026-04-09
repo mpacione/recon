@@ -132,13 +132,14 @@ def _run_wizard(root: Path) -> None:
         return
 
     schema_dict = state.to_schema_dict()
+
     root.mkdir(parents=True, exist_ok=True)
-    (root / "competitors").mkdir(exist_ok=True)
-    (root / ".recon").mkdir(exist_ok=True)
-    (root / ".recon" / "logs").mkdir(exist_ok=True)
     (root / "recon.yaml").write_text(yaml.dump(schema_dict, default_flow_style=False, sort_keys=False))
 
-    click.echo(f"Workspace initialized at {root}")
+    from recon.workspace import Workspace
+
+    ws = Workspace.init(root=root)
+    click.echo(f"Workspace initialized at {ws.root}")
 
 
 @main.command()

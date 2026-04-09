@@ -31,6 +31,35 @@ class TestWorkspaceInit:
 
         assert (ws.root / "competitors" / "existing.md").read_text() == "keep me"
 
+    def test_creates_themes_directory(self, tmp_path: Path) -> None:
+        ws = Workspace.init(tmp_path / "myproject", domain="Tools", company_name="X", products=["Y"])
+
+        assert (ws.root / "themes").is_dir()
+
+    def test_creates_own_products_directory(self, tmp_path: Path) -> None:
+        ws = Workspace.init(tmp_path / "myproject", domain="Tools", company_name="X", products=["Y"])
+
+        assert (ws.root / "own-products").is_dir()
+
+    def test_creates_gitignore(self, tmp_path: Path) -> None:
+        ws = Workspace.init(tmp_path / "myproject", domain="Tools", company_name="X", products=["Y"])
+
+        gitignore = ws.root / ".gitignore"
+        assert gitignore.exists()
+        content = gitignore.read_text()
+        assert ".recon/" in content
+        assert ".vectordb/" in content
+        assert ".env" in content
+
+    def test_does_not_overwrite_existing_gitignore(self, tmp_path: Path) -> None:
+        root = tmp_path / "myproject"
+        root.mkdir()
+        (root / ".gitignore").write_text("custom rules\n")
+
+        Workspace.init(root, domain="Tools", company_name="X", products=["Y"])
+
+        assert (root / ".gitignore").read_text() == "custom rules\n"
+
     def test_creates_recon_yaml_with_schema(self, tmp_path: Path) -> None:
         ws = Workspace.init(
             tmp_path / "myproject",
