@@ -44,6 +44,9 @@ def tmp_workspace(tmp_path: Path) -> Path:
     """Create a temporary workspace directory with a minimal recon.yaml."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
+    (workspace / "competitors").mkdir()
+    (workspace / ".recon").mkdir()
+    (workspace / ".recon" / "logs").mkdir()
     schema_path = workspace / "recon.yaml"
     schema_path.write_text(yaml.dump(MINIMAL_SCHEMA_DICT, default_flow_style=False))
     return workspace
