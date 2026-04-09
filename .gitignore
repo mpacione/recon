@@ -7,6 +7,9 @@ build/
 .venv/
 venv/
 
+# code-graph-rag MCP
+.code-graph-rag/
+
 # recon workspace artifacts
 .vectordb/
 .retrieved/
