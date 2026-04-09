@@ -66,10 +66,6 @@ class _WorkspaceDashboard(Vertical):
     }
     #add-input {
         margin: 1 0;
-        display: none;
-    }
-    #add-input.visible {
-        display: block;
     }
     """
 
@@ -92,7 +88,7 @@ class _WorkspaceDashboard(Vertical):
             "[#efe5c0][I][/][#a89984] Index profiles  [/]"
             "[#efe5c0][Q][/][#a89984] Quit[/]"
         )
-        yield Input(placeholder="Competitor name (Enter to add, Esc to cancel)", id="add-input")
+        yield Static("", id="add-input-slot")
         yield Static("")
         yield Static("[bold #e0a044]ACTIVITY[/]", id="activity-header")
         yield Static("[#a89984]Ready.[/]", id="activity-log")
@@ -214,11 +210,12 @@ class ReconApp(App):
 
     def action_add_competitor(self) -> None:
         """Show the add-competitor input."""
-        if self.current_view != ViewMode.DASHBOARD:
+        if self.current_view != ViewMode.DASHBOARD or self._adding:
             return
         try:
-            add_input = self.query_one("#add-input", Input)
-            add_input.add_class("visible")
+            slot = self.query_one("#add-input-slot", Static)
+            add_input = Input(placeholder="Competitor name (Enter to add, Esc to cancel)", id="add-input")
+            slot.mount(add_input)
             add_input.focus()
             self._adding = True
         except Exception:
@@ -258,11 +255,10 @@ class ReconApp(App):
     def _hide_add_input(self) -> None:
         try:
             add_input = self.query_one("#add-input", Input)
-            add_input.remove_class("visible")
-            add_input.value = ""
+            add_input.remove()
             self._adding = False
         except Exception:
-            pass
+            self._adding = False
 
     def action_run_research(self) -> None:
         """Kick off research on all scaffold profiles."""
