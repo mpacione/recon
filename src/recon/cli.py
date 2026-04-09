@@ -228,5 +228,16 @@ def run(from_stage, deep, dry_run):
     click.echo("Full pipeline requires API key. Set ANTHROPIC_API_KEY.")
 
 
+@main.command()
+@click.option("--workspace", default=".", help="Workspace directory")
+def tui(workspace):
+    """Launch the interactive TUI."""
+    from recon.tui.app import ReconApp
+
+    ws_path = Path(workspace)
+    app = ReconApp(workspace_path=ws_path if (ws_path / "recon.yaml").exists() else None)
+    app.run()
+
+
 if __name__ == "__main__":
     main()
