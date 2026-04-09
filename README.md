@@ -1,74 +1,167 @@
 # recon
 
-Competitive intelligence CLI and TUI. Structured research, multi-agent verification, local vector search, LLM-powered synthesis.
+A CLI and TUI for competitive intelligence research. recon orchestrates LLM agents to discover competitors, research them section-by-section against a structured schema, verify findings through multi-agent consensus, and synthesize the results into thematic analyses and executive summaries -- all stored locally as Obsidian-compatible markdown.
 
-**Status:** Engine complete (202 tests), TUI foundation in place. Discovery wizard and live run monitor coming next.
+Extracted from a production system that analyzed 288 competitors across 9 strategic themes for Atlassian's developer tools portfolio.
+
+## Dependencies and setup
+
+**Requires Python 3.11+** and an [Anthropic API key](https://console.anthropic.com/) for LLM-powered features.
+
+```bash
+# Clone and install
+git clone <repo-url> && cd recon
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+
+# Set your API key
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Verify
+pytest tests/ -q
+recon --version
+```
+
+### Core dependencies
+
+| Package | Purpose |
+|---------|---------|
+| [click](https://click.palletsprojects.com/) | CLI framework |
+| [textual](https://textual.textualize.io/) | Terminal UI (warm amber retro aesthetic) |
+| [anthropic](https://docs.anthropic.com/en/api) | Claude API client (async) |
+| [chromadb](https://docs.trychroma.com/) | Local vector database for semantic search |
+| [fastembed](https://qdrant.github.io/fastembed/) | Local embedding model (no API calls for indexing) |
+| [pydantic](https://docs.pydantic.dev/) v2 | Schema validation |
+| [aiosqlite](https://aiosqlite.omnilib.dev/) | Async SQLite for run/task state |
+| [python-frontmatter](https://python-frontmatter.readthedocs.io/) | YAML frontmatter in markdown profiles |
+
+### Dev dependencies
+
+pytest, pytest-asyncio, pytest-cov, ruff
+
+## How it works
+
+recon is schema-driven. A `recon.yaml` file defines every aspect of the research: sections, allowed output formats, rating scales, source preferences, and verification tiers. Worker prompts are auto-generated from this schema at composition time -- there are no hardcoded prompts.
+
+The pipeline has 8 phases:
+
+```
+discover -> research -> verify -> enrich -> index -> themes -> synthesize -> deliver
+```
+
+**1. Discover** -- An LLM agent searches for competitors in batches. Users review candidates, toggle accept/reject, and the agent refines its search based on the pattern. Deduplication by URL domain across rounds.
+
+**2. Research** -- Section-by-section batching across all competitors (not competitor-by-competitor). Each section is researched for every competitor before moving to the next, which produces more consistent and comparable output.
+
+**3. Verify** -- Multi-agent consensus at three tiers: standard (single pass), verified (2-agent agreement), and deep (3-agent + reconciliation). Verification tier is set per-section in the schema.
+
+**4. Enrich** -- Three progressive passes over the raw research: format cleanup (fix structure, sources, tables), developer sentiment (community perception, NPS signals), and strategic analysis (moats, risks, trajectory).
+
+**5. Index** -- Profiles are chunked by section, embedded locally with fastembed, and stored in ChromaDB. Incremental indexing via SHA-256 file hashes in SQLite skips unchanged files on re-runs.
+
+**6. Discover themes** -- K-means clustering on the embeddings surfaces themes from the data (not user-defined). Themes are ranked by evidence strength. Users curate: toggle, rename, investigate topics the clustering missed.
+
+**7. Synthesize** -- Single-pass or deep 4-pass mode. Deep synthesis runs four agents in sequence: strategist, devil's advocate, gap analyst, and executive integrator. Each pass builds on the previous.
+
+**8. Deliver** -- Distills each theme into an executive 1-pager, then runs cross-theme meta-synthesis to produce the final executive summary.
+
+### Architecture
+
+Three layers with strict separation:
+
+```
+Interface Layer           Engine Layer                 Data Layer
++-------------------+     +------------------------+   +--------------------+
+| CLI (Click)       | --> | Discovery Agent        |   | Workspace (.md)    |
+| TUI (Textual)     |     | Research Orchestrator  |   | ChromaDB vectors   |
+|   d = Dashboard   |     | Verification Engine    |   | SQLite state       |
+|   t = Themes      |     | Enrichment Pipeline    |   +--------------------+
+|   r = Monitor     |     | Synthesis Engine        |
++-------------------+     | Theme Discovery (K-means)|
+                          | Tag Assignment          |
+                          | Incremental Indexer     |
+                          | Pipeline Orchestrator   |
+                          | Cost Tracker            |
+                          | Prompt Composer         |
+                          | Format Validator        |
+                          | Worker Pool (async)     |
+                          +------------------------+
+```
+
+All LLM calls go through a single async client wrapper with token counting. The worker pool uses semaphore-controlled concurrency. The pipeline orchestrator tracks state in SQLite so runs can resume from any phase.
 
 ## What it does
 
-1. **Discover** -- iterative competitor discovery with LLM agents and user checkpoints
-2. **Research** -- section-by-section LLM research across all competitors, driven by a YAML schema
-3. **Verify** -- multi-agent consensus verification (standard / verified / deep) with per-source status tracking
-4. **Enrich** -- three progressive passes: format cleanup, developer sentiment, strategic analysis
-5. **Index** -- chunk profiles by section, embed locally with fastembed, store in ChromaDB
-6. **Discover themes** -- K-means clustering on embeddings surfaces themes from the data (not user-defined)
-7. **Synthesize** -- single-pass or deep 4-pass analysis (strategist, devil's advocate, gap analyst, executive integrator)
-8. **Deliver** -- distill to executive 1-pagers, cross-theme meta-synthesis
-
-## Quick start
+### CLI commands
 
 ```bash
-pip install -e ".[dev]"
+# Workspace setup
+recon init <dir> --domain "Developer Tools" --company "Acme" --products "Acme CI"
+recon add "Cursor"                    # add a competitor
+recon add "Acme CI" --own-product     # research your own product through the same lens
+recon status                          # workspace dashboard
 
-# Initialize a workspace
-recon init my-landscape --domain "Developer Tools" --company "Acme Corp" --products "Acme IDE"
-cd my-landscape
+# Discovery
+recon discover --rounds 3 --seed "VS Code" --seed "Cursor"
+recon discover --auto-accept          # non-interactive mode
 
-# Add competitors
-recon add "GitHub Copilot"
-recon add "Cursor"
-recon add "Acme IDE" --own-product
+# Research and enrichment
+recon research --all --dry-run        # preview research plan
+recon research --all --workers 10     # run with 10 parallel workers
+recon enrich --all --pass cleanup     # format cleanup pass
+recon enrich --all --pass sentiment   # developer sentiment pass
+recon enrich --all --pass strategic   # strategic analysis pass
 
-# Check workspace status
-recon status
+# Indexing and search
+recon index                           # incremental by default
+recon index --full                    # re-index everything
+recon retrieve --query "pricing model" --n-results 20
 
-# See what research would do (dry run)
-recon research --all --dry-run
+# Theme discovery and tagging
+recon tag --n-themes 7                # discover themes and tag profiles
+recon tag --dry-run --threshold 0.4   # preview tag assignments
 
-# Index profiles into the local vector DB
-recon index
+# Synthesis and delivery
+recon synthesize --theme "Platform Consolidation"
+recon synthesize --theme "Developer Experience" --deep
+recon distill --theme all
+recon summarize                       # cross-theme executive summary
 
-# Semantic search across all profiles
-recon retrieve --query "AI code generation"
+# Full pipeline
+recon run --dry-run                   # show plan + cost estimate
+recon run                             # execute everything
+recon run --from research --deep      # resume from a stage, deep synthesis
 
-# Launch the interactive TUI
-recon tui
-
-# See full pipeline plan
-recon run --dry-run
+# TUI
+recon tui                             # interactive terminal UI
 ```
 
-## Architecture
+### Profiles are plain markdown
 
-Three-layer design with clear separation of concerns:
+Every competitor is a markdown file with YAML frontmatter, compatible with Obsidian and any markdown editor:
 
+```markdown
+---
+name: Cursor
+type: competitor
+research_status: verified
+domain: Developer Tools
+themes:
+  - AI-First Development
+  - Developer Experience
+---
+
+## Overview
+
+AI-native code editor built on VS Code...
+
+## Capabilities
+
+| Dimension | Rating | Evidence |
+|-----------|--------|----------|
+| ...       | ...    | ...      |
 ```
-Interface Layer        Engine Layer              Data Layer
-+-----------------+    +---------------------+   +------------------+
-| CLI (Click)     | -> | Pipeline Orchestrator|   | Workspace (.md)  |
-| TUI (Textual)   |    | Research Orchestrator|   | ChromaDB vectors |
-|   warm amber    |    | Verification Engine |   | SQLite state     |
-|   retro theme   |    | Enrichment Pipeline |   | Evidence store   |
-+-----------------+    | Synthesis Engine    |   +------------------+
-                       | Cost Tracker        |
-                       | Prompt Composer     |
-                       | Format Validator    |
-                       | Worker Pool (async) |
-                       | Theme Discovery     |
-                       +---------------------+
-```
-
-**Schema drives everything.** The `recon.yaml` schema defines sections, allowed formats, rating scales, source preferences, and verification tiers. Worker prompts are auto-generated from schema metadata at composition time.
 
 ## Modules
 
@@ -81,48 +174,61 @@ Interface Layer        Engine Layer              Data Layer
 | `validation.py` | Deterministic format checks (emoji, sources, tables, word counts) |
 | `cost.py` | Token estimation, model pricing, verification tier multipliers |
 | `llm.py` | Async Anthropic client wrapper with usage tracking |
+| `client_factory.py` | API key validation and client creation |
 | `workers.py` | Semaphore-controlled async worker pool |
 | `research.py` | Section-by-section research orchestrator |
 | `verification.py` | Multi-agent consensus (standard/verified/deep) |
 | `enrichment.py` | Cleanup, sentiment, and strategic enrichment passes |
 | `index.py` | Markdown chunking + ChromaDB vector index + semantic retrieval |
-| `themes.py` | K-means clustering theme discovery |
+| `incremental.py` | SHA-256 hash-based incremental indexing |
+| `themes.py` | K-means clustering theme discovery (custom, no sklearn) |
+| `tag.py` | Theme tagging via retrieval relevance aggregation |
 | `synthesis.py` | Single-pass + deep 4-pass synthesis engine |
 | `deliver.py` | Distillation + cross-theme meta-synthesis |
+| `discovery.py` | Iterative competitor discovery with LLM agent |
 | `pipeline.py` | Full pipeline orchestrator with state tracking |
-| `tui/` | Textual app with warm amber retro terminal aesthetic |
-
-## Design
-
-Full design documentation lives in `design/`:
-
-- `pipeline.md` -- 6-phase pipeline (setup, research, verify, enrich, synthesize, deliver)
-- `architecture.md` -- three-layer system architecture, TUI design, state management
-- `research-and-verification.md` -- research model, verification protocol, format constraints
-- `setup-and-discovery.md` -- wizard, discovery, theme discovery, own-product research
-- `operations.md` -- run planner, incremental runs, cost estimation
-- `README.md` -- design principles overview
+| `tui/app.py` | Textual app with view switching (dashboard/themes/monitor) |
+| `tui/theme.py` | Warm amber retro terminal theme |
+| `tui/screens.py` | Dashboard data preparation |
+| `tui/widgets.py` | Status panel, competitor table, progress bar, curation/monitor panels |
+| `tui/curation.py` | Theme curation data model (toggle, rename, filter by strength) |
+| `tui/monitor.py` | Run monitor data model (phase, workers, cost, activity feed) |
 
 ## Development
 
 ```bash
-# Create venv and install
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-
-# Run tests
-pytest tests/ -v
+# Run tests (305 tests, ~9s)
+pytest tests/ -q
 
 # Run with coverage
 pytest tests/ --cov=recon --cov-report=term-missing
 
 # Lint
 ruff check src/ tests/
+
+# Type check (optional)
+mypy src/recon/
 ```
 
 TDD is non-negotiable. Every line of production code responds to a failing test.
 
+## Design docs
+
+Full design documentation lives in [`design/`](design/):
+
+| Document | Covers |
+|----------|--------|
+| [`design/README.md`](design/README.md) | Design principles (schema-driven, verification-first, local-first) |
+| [`design/pipeline.md`](design/pipeline.md) | 8-phase pipeline, state machine, phase dependencies |
+| [`design/architecture.md`](design/architecture.md) | Three-layer architecture, TUI design, SQLite state schema |
+| [`design/research-and-verification.md`](design/research-and-verification.md) | Section-by-section batching, multi-agent consensus protocol, format constraints |
+| [`design/setup-and-discovery.md`](design/setup-and-discovery.md) | Discovery flow, schema wizard, theme discovery, own-product research |
+| [`design/operations.md`](design/operations.md) | Run planner, incremental runs, diff updates, cost estimation |
+
 ## Prior art
 
-Extracted from a production system that analyzed 288 competitors across 9 strategic themes for Atlassian's developer tools portfolio. The original system's 12 brittleness points are documented in `design/` and systematically addressed in the redesign.
+Extracted from a production system that analyzed 288 competitors across 9 strategic themes for Atlassian's developer tools portfolio. The original system's 12 brittleness points are documented in [`design/`](design/) and systematically addressed in the redesign.
+
+## License
+
+MIT
