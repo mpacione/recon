@@ -10,6 +10,7 @@ from textual.containers import Vertical
 from textual.widgets import DataTable, Static
 
 from recon.tui.curation import ThemeCurationModel  # noqa: TCH001
+from recon.tui.monitor import RunMonitorModel, WorkerStatus  # noqa: TCH001
 from recon.tui.screens import DashboardData  # noqa: TCH001
 
 
@@ -145,3 +146,73 @@ class ThemeCurationPanel(Vertical):
             "[#a89984][Space] Toggle  [E] Edit name  [V] View evidence  "
             "[D] Done -- synthesize selected[/]"
         )
+
+
+def format_worker_list(model: RunMonitorModel) -> list[str]:
+    """Format worker status lines for the run monitor."""
+    lines: list[str] = []
+    for w in model.workers:
+        status_display = w.status.value
+        if w.status == WorkerStatus.COMPLETE:
+            status_display = "Y complete"
+        elif w.status == WorkerStatus.FAILED:
+            status_display = "X failed"
+        lines.append(f"  {w.worker_id}  {w.competitor} ... {status_display}")
+    return lines
+
+
+def format_progress_bar(progress: float, width: int = 40) -> str:
+    """Format an ASCII progress bar string."""
+    progress = max(0.0, min(1.0, progress))
+    filled = int(progress * width)
+    empty = width - filled
+    pct = f"{progress * 100:.0f}%"
+    return f"[{'=' * filled}{'-' * empty}] {pct}"
+
+
+class RunMonitorPanel(Vertical):
+    """Live pipeline execution monitor for the TUI."""
+
+    DEFAULT_CSS = """
+    RunMonitorPanel {
+        height: auto;
+        padding: 1 2;
+        border: solid #3a3a3a;
+        margin: 1;
+    }
+    """
+
+    def __init__(self, model: RunMonitorModel) -> None:
+        super().__init__()
+        self._model = model
+
+    def compose(self) -> ComposeResult:
+        yield Static(f"[bold #e0a044]RUN {self._model.run_id}[/]")
+        yield Static(self._model.summary_line())
+        yield Static(format_progress_bar(self._model.progress))
+        yield Static(
+            f"[#a89984]Workers: {self._model.active_worker_count} active  |  "
+            f"Cost: ${self._model.cost_usd:.2f}[/]"
+        )
+        yield Static("")
+
+        worker_lines = format_worker_list(self._model)
+        if worker_lines:
+            yield Static("[bold #e0a044]WORKERS[/]")
+            for line in worker_lines:
+                yield Static(line)
+
+        if self._model.activity:
+            yield Static("")
+            yield Static("[bold #e0a044]RECENT[/]")
+            for msg in self._model.activity[-5:]:
+                yield Static(f"  {msg}")
+
+        if self._model.errors:
+            yield Static("")
+            yield Static("[bold #cc241d]ERRORS[/]")
+            for err in self._model.errors:
+                yield Static(f"  {err}")
+
+        yield Static("")
+        yield Static("[#a89984][P] Pause  [S] Stop  [K] Skip  [R] Retry failed[/]")
