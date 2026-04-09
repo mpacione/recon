@@ -143,13 +143,36 @@ def _run_wizard(root: Path) -> None:
 
 
 @main.command()
-@click.argument("name")
+@click.argument("name", required=False)
+@click.option("--from-list", "list_file", type=click.Path(exists=True), help="Add competitors from a text file (one per line)")
 @click.option("--own-product", is_flag=True, help="Mark as own product (researched from external perspective)")
-def add(name, own_product):
+def add(name, list_file, own_product):
     """Add a new competitor profile."""
     from recon.workspace import Workspace
 
     ws = Workspace.open(Path("."))
+
+    if list_file:
+        names = [
+            line.strip()
+            for line in Path(list_file).read_text().splitlines()
+            if line.strip()
+        ]
+        created = 0
+        for n in names:
+            try:
+                ws.create_profile(n, own_product=own_product)
+                click.echo(f"  Created: {n}")
+                created += 1
+            except FileExistsError:
+                click.echo(f"  Skipped (exists): {n}")
+        click.echo(f"{created} profiles created.")
+        return
+
+    if not name:
+        click.echo("Error: provide a name or --from-list")
+        raise SystemExit(1)
+
     path = ws.create_profile(name, own_product=own_product)
     click.echo(f"Created profile: {path}")
 
