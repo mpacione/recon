@@ -117,33 +117,26 @@ def enrich(target, all_targets, pass_name, workers, dry_run):
 
 @main.command()
 @click.option("--incremental/--full", default=True, help="Only index new/changed files")
-def index(incremental):
+@click.option("--workspace", "workspace_dir", default=".", help="Workspace directory")
+def index(incremental, workspace_dir):
     """Build local vector database from profiles."""
-    from recon.index import IndexManager, chunk_markdown
+    from recon.incremental import IncrementalIndexer
+    from recon.index import IndexManager
+    from recon.state import StateStore
     from recon.workspace import Workspace
 
-    ws = Workspace.open(Path("."))
+    ws = Workspace.open(Path(workspace_dir))
     manager = IndexManager(persist_dir=str(ws.root / ".vectordb"))
+    state = StateStore(db_path=ws.root / ".recon" / "state.db")
+    _run_async(state.initialize())
 
     if not incremental:
         manager.clear()
 
-    profiles = ws.list_profiles()
-    total_chunks = 0
-    for profile_meta in profiles:
-        full = ws.read_profile(profile_meta["_slug"])
-        if not full or not full.get("_content", "").strip():
-            continue
+    indexer = IncrementalIndexer(workspace=ws, index_manager=manager, state_store=state)
+    result = _run_async(indexer.index(force=not incremental))
 
-        chunks = chunk_markdown(
-            content=full["_content"],
-            source_path=str(profile_meta["_path"]),
-            frontmatter_meta={k: v for k, v in profile_meta.items() if not k.startswith("_")},
-        )
-        manager.add_chunks(chunks)
-        total_chunks += len(chunks)
-
-    click.echo(f"Indexed {total_chunks} chunks from {len(profiles)} profiles")
+    click.echo(f"Indexed {result.indexed} files ({result.total_chunks} chunks), skipped {result.skipped} unchanged")
     click.echo(f"Collection size: {manager.collection_count()}")
 
 

@@ -39,6 +39,10 @@ MINIMAL_SCHEMA = {
 }
 
 
+def _run(coro):
+    return asyncio.run(coro)
+
+
 @pytest.fixture()
 def workspace(tmp_path: Path) -> Workspace:
     ws_dir = tmp_path / "ws"
@@ -53,7 +57,7 @@ def workspace(tmp_path: Path) -> Workspace:
 @pytest.fixture()
 def state_store(tmp_path: Path) -> StateStore:
     store = StateStore(db_path=tmp_path / "state.db")
-    asyncio.new_event_loop().run_until_complete(store.initialize())
+    _run(store.initialize())
     return store
 
 
@@ -87,7 +91,7 @@ class TestIncrementalIndexer:
             index_manager=index_manager,
             state_store=state_store,
         )
-        result = asyncio.new_event_loop().run_until_complete(indexer.index())
+        result = _run(indexer.index())
 
         assert result.indexed > 0
         assert result.skipped == 0
@@ -106,8 +110,8 @@ class TestIncrementalIndexer:
             index_manager=index_manager,
             state_store=state_store,
         )
-        asyncio.new_event_loop().run_until_complete(indexer.index())
-        result = asyncio.new_event_loop().run_until_complete(indexer.index())
+        _run(indexer.index())
+        result = _run(indexer.index())
 
         assert result.indexed == 0
         assert result.skipped == 1
@@ -125,14 +129,14 @@ class TestIncrementalIndexer:
             index_manager=index_manager,
             state_store=state_store,
         )
-        asyncio.new_event_loop().run_until_complete(indexer.index())
+        _run(indexer.index())
 
         path = workspace.competitors_dir / "alpha.md"
         post = frontmatter.load(str(path))
         post.content = "## Overview\n\nAlpha is a completely new AI platform.\n"
         path.write_text(frontmatter.dumps(post))
 
-        result = asyncio.new_event_loop().run_until_complete(indexer.index())
+        result = _run(indexer.index())
 
         assert result.indexed == 1
         assert result.skipped == 0
@@ -150,11 +154,11 @@ class TestIncrementalIndexer:
             index_manager=index_manager,
             state_store=state_store,
         )
-        asyncio.new_event_loop().run_until_complete(indexer.index())
+        _run(indexer.index())
 
         _create_profile(workspace, "Beta", "## Overview\n\nBeta is a project tool.\n")
 
-        result = asyncio.new_event_loop().run_until_complete(indexer.index())
+        result = _run(indexer.index())
 
         assert result.indexed == 1
         assert result.skipped == 1
@@ -173,8 +177,8 @@ class TestIncrementalIndexer:
             index_manager=index_manager,
             state_store=state_store,
         )
-        asyncio.new_event_loop().run_until_complete(indexer.index())
-        result = asyncio.get_event_loop().run_until_complete(indexer.index(force=True))
+        _run(indexer.index())
+        result = _run(indexer.index(force=True))
 
         assert result.indexed == 2
         assert result.skipped == 0
@@ -194,7 +198,7 @@ class TestIncrementalIndexer:
             index_manager=clean_index,
             state_store=state_store,
         )
-        result = asyncio.new_event_loop().run_until_complete(indexer.index())
+        result = _run(indexer.index())
 
         assert result.indexed == 0
         assert result.skipped == 0
