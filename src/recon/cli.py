@@ -13,6 +13,16 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
+def _try_create_client(model: str = "claude-sonnet-4-20250514"):
+    """Try to create an LLM client. Returns (client, None) or (None, error_msg)."""
+    from recon.client_factory import ClientCreationError, create_llm_client
+
+    try:
+        return create_llm_client(model=model), None
+    except ClientCreationError as e:
+        return None, str(e)
+
+
 @click.group()
 @click.version_option()
 def main():
@@ -78,7 +88,7 @@ def status():
 @click.option("--headless", is_flag=True, help="JSON output, no TUI")
 def research(target, all_targets, workers, dry_run, headless):
     """Run LLM-powered research on competitors."""
-    from recon.research import ResearchPlan
+    from recon.research import ResearchOrchestrator, ResearchPlan
     from recon.workspace import Workspace
 
     ws = Workspace.open(Path("."))
@@ -91,7 +101,24 @@ def research(target, all_targets, workers, dry_run, headless):
             click.echo(f"  {batch.section_key}: {len(batch.competitors)} competitors")
         return
 
-    click.echo("Research requires an API key. Set ANTHROPIC_API_KEY and use --headless for non-interactive mode.")
+    client, error = _try_create_client()
+    if error:
+        click.echo(f"ANTHROPIC_API_KEY not set. {error}")
+        return
+
+    orchestrator = ResearchOrchestrator(
+        workspace=ws,
+        llm_client=client,
+        max_workers=workers,
+    )
+
+    click.echo("Starting research...")
+    results = _run_async(orchestrator.research_all())
+
+    total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
+    total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)
+    click.echo(f"Research complete: {len(results)} sections across competitors")
+    click.echo(f"Tokens: {total_input} input, {total_output} output")
 
 
 @main.command()
@@ -102,17 +129,37 @@ def research(target, all_targets, workers, dry_run, headless):
 @click.option("--dry-run", is_flag=True, help="Show what would be enriched")
 def enrich(target, all_targets, pass_name, workers, dry_run):
     """Progressive enrichment passes."""
+    from recon.enrichment import EnrichmentOrchestrator, EnrichmentPass
     from recon.workspace import Workspace
 
     ws = Workspace.open(Path("."))
-    profiles = ws.list_profiles()
 
     if dry_run:
+        profiles = ws.list_profiles()
         eligible = [p for p in profiles if p.get("research_status") not in ("scaffold", None)]
         click.echo(f"Enrich ({pass_name}): {len(eligible)} eligible profiles")
         return
 
-    click.echo("Enrichment requires an API key. Set ANTHROPIC_API_KEY.")
+    client, error = _try_create_client()
+    if error:
+        click.echo(f"ANTHROPIC_API_KEY not set. {error}")
+        return
+
+    pass_enum = EnrichmentPass(pass_name)
+    orchestrator = EnrichmentOrchestrator(
+        workspace=ws,
+        llm_client=client,
+        enrichment_pass=pass_enum,
+        max_workers=workers,
+    )
+
+    click.echo(f"Starting enrichment ({pass_name})...")
+    results = _run_async(orchestrator.enrich_all())
+
+    total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
+    total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)
+    click.echo(f"Enrichment complete: {len(results)} profiles enriched")
+    click.echo(f"Tokens: {total_input} input, {total_output} output")
 
 
 @main.command()
@@ -172,14 +219,89 @@ def synthesize(theme, deep, dry_run):
         click.echo("Requires indexed profiles and API key.")
         return
 
-    click.echo("Synthesis requires an API key. Set ANTHROPIC_API_KEY.")
+    client, error = _try_create_client(
+        model="claude-opus-4-20250514" if deep else "claude-sonnet-4-20250514",
+    )
+    if error:
+        click.echo(f"ANTHROPIC_API_KEY not set. {error}")
+        return
+
+    from recon.index import IndexManager
+    from recon.synthesis import SynthesisEngine, SynthesisMode
+    from recon.workspace import Workspace
+
+    ws = Workspace.open(Path("."))
+    manager = IndexManager(persist_dir=str(ws.root / ".vectordb"))
+
+    chunks = manager.retrieve(theme, n_results=50)
+    if not chunks:
+        click.echo("No indexed chunks found. Run 'recon index' first.")
+        return
+
+    mode = SynthesisMode.DEEP if deep else SynthesisMode.SINGLE
+    engine = SynthesisEngine(llm_client=client)
+
+    click.echo(f"Synthesizing theme: {theme} ({mode.value} mode, {len(chunks)} chunks)...")
+    result = _run_async(engine.synthesize(theme=theme, chunks=chunks, mode=mode))
+
+    themes_dir = ws.root / "themes"
+    themes_dir.mkdir(exist_ok=True)
+    output_path = themes_dir / f"{theme.lower().replace(' ', '_')}.md"
+    output_path.write_text(result.content)
+
+    click.echo(f"Synthesis complete: {output_path}")
+    click.echo(f"Tokens: {result.total_input_tokens} input, {result.total_output_tokens} output")
 
 
 @main.command()
 @click.option("--theme", required=True, help="Theme key or 'all'")
 def distill(theme):
     """Condense deep synthesis into executive 1-pagers."""
-    click.echo(f"Distill requires synthesis output for: {theme}")
+    client, error = _try_create_client()
+    if error:
+        click.echo(f"ANTHROPIC_API_KEY not set. {error}")
+        return
+
+    from recon.deliver import Distiller
+    from recon.synthesis import PassResult, SynthesisMode, SynthesisResult
+    from recon.workspace import Workspace
+
+    ws = Workspace.open(Path("."))
+    themes_dir = ws.root / "themes"
+
+    if theme == "all":
+        theme_files = sorted(themes_dir.glob("*.md")) if themes_dir.exists() else []
+    else:
+        theme_path = themes_dir / f"{theme.lower().replace(' ', '_')}.md"
+        theme_files = [theme_path] if theme_path.exists() else []
+
+    if not theme_files:
+        click.echo(f"No synthesis files found for: {theme}")
+        return
+
+    distiller = Distiller(llm_client=client)
+
+    for theme_file in theme_files:
+        theme_name = theme_file.stem.replace("_", " ").title()
+        content = theme_file.read_text()
+
+        synthesis = SynthesisResult(
+            theme=theme_name,
+            mode=SynthesisMode.SINGLE,
+            content=content,
+            passes=[PassResult(role="analyst", content=content, input_tokens=0, output_tokens=0)],
+            total_input_tokens=0,
+            total_output_tokens=0,
+        )
+
+        click.echo(f"Distilling: {theme_name}...")
+        result = _run_async(distiller.distill(synthesis))
+
+        distilled_dir = ws.root / "themes" / "distilled"
+        distilled_dir.mkdir(parents=True, exist_ok=True)
+        output_path = distilled_dir / theme_file.name
+        output_path.write_text(result.content)
+        click.echo(f"  -> {output_path}")
 
 
 @main.command()
@@ -187,7 +309,44 @@ def distill(theme):
 @click.option("--dry-run", is_flag=True, help="Show cost estimate")
 def summarize(deep, dry_run):
     """Cross-theme meta-synthesis executive summary."""
-    click.echo("Meta-synthesis requires distilled theme summaries and API key.")
+    if dry_run:
+        click.echo("Meta-synthesis: reads all distilled theme summaries")
+        return
+
+    client, error = _try_create_client(model="claude-opus-4-20250514")
+    if error:
+        click.echo(f"ANTHROPIC_API_KEY not set. {error}")
+        return
+
+    from recon.deliver import MetaSynthesizer
+    from recon.workspace import Workspace
+
+    ws = Workspace.open(Path("."))
+    distilled_dir = ws.root / "themes" / "distilled"
+
+    if not distilled_dir.exists():
+        click.echo("No distilled themes found. Run 'recon distill --theme all' first.")
+        return
+
+    distilled_files = sorted(distilled_dir.glob("*.md"))
+    if not distilled_files:
+        click.echo("No distilled themes found.")
+        return
+
+    distilled_results = []
+    for f in distilled_files:
+        theme_name = f.stem.replace("_", " ").title()
+        distilled_results.append({"theme": theme_name, "content": f.read_text()})
+
+    synthesizer = MetaSynthesizer(llm_client=client)
+
+    click.echo(f"Meta-synthesis across {len(distilled_results)} themes...")
+    result = _run_async(synthesizer.synthesize(distilled_results))
+
+    output_path = ws.root / "executive_summary.md"
+    output_path.write_text(result.content)
+    click.echo(f"Executive summary: {output_path}")
+    click.echo(f"Tokens: {result.input_tokens} input, {result.output_tokens} output")
 
 
 @main.command()
@@ -241,11 +400,7 @@ def tag(dry_run, threshold, top_n, n_themes, workspace_dir):
 
 
 def _build_discovery_chunks(ws, profiles: list[dict]) -> list[dict]:
-    """Build chunks with deterministic embeddings for theme discovery.
-
-    Theme discovery needs embeddings. For CLI use, we re-chunk profiles
-    and generate deterministic vectors from text hashes for clustering.
-    """
+    """Build chunks with deterministic embeddings for theme discovery."""
     import numpy as np
 
     from recon.index import chunk_markdown
@@ -292,7 +447,45 @@ def run(from_stage, deep, dry_run):
         click.echo("  9. Meta-synthesis")
         return
 
-    click.echo("Full pipeline requires API key. Set ANTHROPIC_API_KEY.")
+    client, error = _try_create_client()
+    if error:
+        click.echo(f"ANTHROPIC_API_KEY not set. {error}")
+        return
+
+    from recon.index import IndexManager
+    from recon.pipeline import Pipeline, PipelineConfig, PipelineStage
+    from recon.state import StateStore
+    from recon.workspace import Workspace
+
+    ws = Workspace.open(Path("."))
+    state = StateStore(db_path=ws.root / ".recon" / "state.db")
+    _run_async(state.initialize())
+    index_manager = IndexManager(persist_dir=str(ws.root / ".vectordb"))
+
+    stage_map = {
+        "research": PipelineStage.RESEARCH,
+        "enrich": PipelineStage.ENRICH,
+        "index": PipelineStage.INDEX,
+        "synthesize": PipelineStage.SYNTHESIZE,
+    }
+
+    config = PipelineConfig(
+        deep_synthesis=deep,
+        start_from=stage_map.get(from_stage, PipelineStage.RESEARCH),
+    )
+
+    pipeline = Pipeline(
+        workspace=ws,
+        state_store=state,
+        llm_client=client,
+        index_manager=index_manager,
+        config=config,
+    )
+
+    click.echo("Starting pipeline...")
+    run_id = _run_async(pipeline.plan())
+    _run_async(pipeline.execute(run_id))
+    click.echo(f"Pipeline complete. Run ID: {run_id}")
 
 
 @main.command()
