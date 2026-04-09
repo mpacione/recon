@@ -88,32 +88,29 @@ Three layers with strict separation:
 graph LR
     subgraph Interface["Interface Layer"]
         direction TB
-        CLI["CLI (Click)"]
-        TUI["TUI (Textual)<br/><small>d Dashboard &middot; t Themes &middot; r Monitor</small>"]
+        CLI["CLI (Click)"] ~~~ TUI["TUI (Textual)<br/><small>d Dashboard &middot; t Themes &middot; r Monitor</small>"]
     end
 
     subgraph Engine["Engine Layer"]
         direction TB
-        Discovery["Discovery Agent"]
-        Research["Research Orchestrator"]
-        Verification["Verification Engine"]
-        Enrichment["Enrichment Pipeline"]
-        Synthesis["Synthesis Engine"]
-        Themes["Theme Discovery (K-means)"]
-        Tags["Tag Assignment"]
-        Indexer["Incremental Indexer"]
-        Pipeline["Pipeline Orchestrator"]
-        Workers["Worker Pool (async)"]
-        Prompts["Prompt Composer"]
-        Validator["Format Validator"]
-        Cost["Cost Tracker"]
+        Discovery["Discovery Agent"] ~~~ Research["Research Orchestrator"]
+        Research ~~~ Verification["Verification Engine"]
+        Verification ~~~ Enrichment["Enrichment Pipeline"]
+        Enrichment ~~~ Synthesis["Synthesis Engine"]
+        Synthesis ~~~ Themes["Theme Discovery (K-means)"]
+        Themes ~~~ Tags["Tag Assignment"]
+        Tags ~~~ Indexer["Incremental Indexer"]
+        Indexer ~~~ Pipeline["Pipeline Orchestrator"]
+        Pipeline ~~~ Workers["Worker Pool (async)"]
+        Workers ~~~ Prompts["Prompt Composer"]
+        Prompts ~~~ Validator["Format Validator"]
+        Validator ~~~ Cost["Cost Tracker"]
     end
 
     subgraph Data["Data Layer"]
         direction TB
-        Workspace["Workspace (.md)"]
-        Vectors["ChromaDB vectors"]
-        State["SQLite state"]
+        Workspace["Workspace (.md)"] ~~~ Vectors["ChromaDB vectors"]
+        Vectors ~~~ State["SQLite state"]
     end
 
     Interface --> Engine
