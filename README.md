@@ -1,6 +1,6 @@
-# recon
+# Recon
 
-A CLI and TUI for competitive intelligence research. recon orchestrates LLM agents to discover competitors, research them section-by-section against a structured schema, verify findings through multi-agent consensus, and synthesize the results into thematic analyses and executive summaries -- all stored locally as Obsidian-compatible markdown.
+A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agents to discover competitors, research them section-by-section against a structured schema, verify findings through multi-agent consensus, and synthesize the results into thematic analyses and executive summaries -- all stored locally as Obsidian-compatible markdown.
 
 Extracted from a production system that analyzed 288 competitors across 9 strategic themes for Atlassian's developer tools portfolio.
 
@@ -42,7 +42,7 @@ pytest, pytest-asyncio, pytest-cov, ruff
 
 ## How it works
 
-recon is schema-driven. A `recon.yaml` file defines every aspect of the research: sections, allowed output formats, rating scales, source preferences, and verification tiers. Worker prompts are auto-generated from this schema at composition time -- there are no hardcoded prompts.
+Recon is schema-driven. A `recon.yaml` file defines every aspect of the research: sections, allowed output formats, rating scales, source preferences, and verification tiers. Worker prompts are auto-generated from this schema at composition time -- there are no hardcoded prompts.
 
 The pipeline has 8 phases:
 
