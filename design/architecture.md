@@ -38,7 +38,9 @@ Three layers with clear separation of concerns:
 
 The interface layer is thin. It never contains business logic. It translates user intent into engine calls and renders engine state for display.
 
-**TUI (default mode):** Full Textual application with screens, keybinds, live monitoring, interactive wizard. See TUI Design section below.
+**The CLI and TUI are parallel interfaces.** CLI is for agents and power users. TUI is for humans (including non-technical users). Both call the same engine. Neither is primary — they are equal front doors.
+
+**TUI (default mode):** A **complete interactive application** that handles the entire user journey visually — wizard, discovery, run planning, pipeline execution, theme curation, status browsing. A non-technical user should be able to `recon init` and complete a full competitive intelligence scan without ever typing a CLI command. See TUI Design section below.
 
 **CLI (headless mode):** Same engine, no TUI. Activated via `--headless` flag or automatic detection of non-interactive terminal. Returns JSON to stdout. For scripting and LLM agents calling recon programmatically.
 
@@ -54,7 +56,7 @@ recon discover --domain "CI/CD tools" --headless --output json
 # Returns: {"candidates": [...], "round": 1}
 ```
 
-Both interfaces call the same engine API. The Python API is internal-only for v1 — the CLI is the public contract. The API stabilizes naturally when a web UI is added later.
+Both interfaces call the same engine API. Every operation available via CLI has an equivalent in the TUI. The Python API is internal-only for v1 — the CLI is the public contract. The API stabilizes naturally when a web UI is added later.
 
 ### Engine Layer
 
