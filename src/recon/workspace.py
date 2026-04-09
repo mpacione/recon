@@ -132,6 +132,15 @@ class Workspace:
             profiles.append(meta)
         return profiles
 
+    def _slug_for_name(self, name: str, profiles: list[dict[str, Any]] | None = None) -> str:
+        """Find the slug for a profile by its display name."""
+        if profiles is None:
+            profiles = self.list_profiles()
+        for p in profiles:
+            if p.get("name") == name:
+                return p["_slug"]
+        return _slugify(name)
+
     def read_profile(self, slug: str) -> dict[str, Any] | None:
         """Read a profile by slug. Returns frontmatter dict or None."""
         path = self.competitors_dir / f"{slug}.md"
