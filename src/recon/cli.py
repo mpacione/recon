@@ -31,12 +31,21 @@ def main():
 
 @main.command()
 @click.argument("directory", default=".")
-@click.option("--domain", prompt="Domain", help="Research domain (e.g., 'Developer Tools')")
-@click.option("--company", prompt="Company name", help="Your company name")
-@click.option("--products", prompt="Products (comma-separated)", help="Your products")
-def init(directory, domain, company, products):
+@click.option("--domain", default=None, help="Research domain (e.g., 'Developer Tools')")
+@click.option("--company", default=None, help="Your company name")
+@click.option("--products", default=None, help="Your products (comma-separated)")
+@click.option("--wizard", is_flag=True, help="Run guided setup wizard")
+def init(directory, domain, company, products, wizard):
     """Initialize a new recon workspace."""
+    if wizard:
+        _run_wizard(Path(directory))
+        return
+
     from recon.workspace import Workspace
+
+    domain = domain or click.prompt("Domain")
+    company = company or click.prompt("Company name")
+    products = products or click.prompt("Products (comma-separated)")
 
     product_list = [p.strip() for p in products.split(",")]
     ws = Workspace.init(
@@ -46,6 +55,90 @@ def init(directory, domain, company, products):
         products=product_list,
     )
     click.echo(f"Workspace initialized at {ws.root}")
+
+
+def _run_wizard(root: Path) -> None:
+    """Run the guided schema wizard for workspace creation."""
+    import yaml
+
+    from recon.wizard import DecisionContext, DefaultSections, WizardState
+
+    state = WizardState()
+
+    click.echo("-- recon workspace wizard --\n")
+
+    company_name = click.prompt("Company name")
+    products_raw = click.prompt("Products (comma-separated)")
+    products = [p.strip() for p in products_raw.split(",")]
+    domain = click.prompt("Domain description")
+
+    contexts = list(DecisionContext)
+    click.echo("\nDecision contexts:")
+    for i, ctx in enumerate(contexts, 1):
+        click.echo(f"  {i}. {ctx.value}")
+
+    ctx_input = click.prompt("Select context (number)", type=int)
+    selected_ctx = contexts[min(ctx_input, len(contexts)) - 1]
+
+    own_product = click.confirm("Research your own products through the same lens?", default=False)
+
+    state.set_identity(
+        company_name=company_name,
+        products=products,
+        domain=domain,
+        decision_contexts=[selected_ctx],
+        own_product=own_product,
+    )
+    state.advance()
+
+    click.echo(f"\nRecommended sections ({len(state.selected_section_keys)}):")
+    for section in DefaultSections.ALL:
+        marker = "[x]" if section["key"] in state.selected_section_keys else "[ ]"
+        click.echo(f"  {marker} {section['title']} -- {section['description']}")
+
+    section_input = click.prompt(
+        "Toggle sections (comma-separated keys, or Enter to accept)",
+        default="",
+    )
+    if section_input.strip():
+        for key in section_input.split(","):
+            state.toggle_section(key.strip())
+
+    state.advance()
+
+    click.echo("\nSource preferences (Enter to accept defaults):")
+    source_input = click.prompt("Customize sources? (comma-separated section keys, or Enter)", default="")
+    if source_input.strip():
+        for key in source_input.split(","):
+            key = key.strip()
+            sources = state.get_source_preferences(key)
+            click.echo(f"  {key}: primary={sources['primary']}")
+
+    state.advance()
+
+    click.echo("\n-- Review --")
+    click.echo(f"Domain: {state.domain}")
+    click.echo(f"Company: {state.company_name}")
+    click.echo(f"Products: {', '.join(state.products)}")
+    click.echo(f"Own-product research: {'Yes' if state.own_product else 'No'}")
+    click.echo(f"Sections: {len(state.selected_section_keys)}")
+    for section in DefaultSections.ALL:
+        if section["key"] in state.selected_section_keys:
+            click.echo(f"  {section['title']}")
+
+    confirm = click.confirm("\nCreate workspace?", default=True)
+    if not confirm:
+        click.echo("Cancelled.")
+        return
+
+    schema_dict = state.to_schema_dict()
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "competitors").mkdir(exist_ok=True)
+    (root / ".recon").mkdir(exist_ok=True)
+    (root / ".recon" / "logs").mkdir(exist_ok=True)
+    (root / "recon.yaml").write_text(yaml.dump(schema_dict, default_flow_style=False, sort_keys=False))
+
+    click.echo(f"Workspace initialized at {root}")
 
 
 @main.command()
