@@ -2,8 +2,6 @@
 
 A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agents to discover competitors, research them section-by-section against a structured schema, verify findings through multi-agent consensus, and synthesize the results into thematic analyses and executive summaries -- all stored locally as Obsidian-compatible markdown.
 
-Extracted from a production system that analyzed 288 competitors across 9 strategic themes for Atlassian's developer tools portfolio.
-
 ## Dependencies and setup
 
 **Requires Python 3.11+** and an [Anthropic API key](https://console.anthropic.com/) for LLM-powered features.
@@ -46,8 +44,24 @@ Recon is schema-driven. A `recon.yaml` file defines every aspect of the research
 
 The pipeline has 8 phases:
 
-```
-discover -> research -> verify -> enrich -> index -> themes -> synthesize -> deliver
+```mermaid
+graph LR
+    A[Discover] --> B[Research]
+    B --> C[Verify]
+    C --> D[Enrich]
+    D --> E[Index]
+    E --> F[Themes]
+    F --> G[Synthesize]
+    G --> H[Deliver]
+
+    style A fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
+    style B fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
+    style C fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
+    style D fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
+    style E fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
+    style F fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
+    style G fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
+    style H fill:#1a1a1a,stroke:#e0a044,color:#efe5c0
 ```
 
 **1. Discover** -- An LLM agent searches for competitors in batches. Users review candidates, toggle accept/reject, and the agent refines its search based on the pattern. Deduplication by URL domain across rounds.
@@ -70,23 +84,43 @@ discover -> research -> verify -> enrich -> index -> themes -> synthesize -> del
 
 Three layers with strict separation:
 
-```
-Interface Layer           Engine Layer                 Data Layer
-+-------------------+     +------------------------+   +--------------------+
-| CLI (Click)       | --> | Discovery Agent        |   | Workspace (.md)    |
-| TUI (Textual)     |     | Research Orchestrator  |   | ChromaDB vectors   |
-|   d = Dashboard   |     | Verification Engine    |   | SQLite state       |
-|   t = Themes      |     | Enrichment Pipeline    |   +--------------------+
-|   r = Monitor     |     | Synthesis Engine        |
-+-------------------+     | Theme Discovery (K-means)|
-                          | Tag Assignment          |
-                          | Incremental Indexer     |
-                          | Pipeline Orchestrator   |
-                          | Cost Tracker            |
-                          | Prompt Composer         |
-                          | Format Validator        |
-                          | Worker Pool (async)     |
-                          +------------------------+
+```mermaid
+graph LR
+    subgraph Interface["Interface Layer"]
+        CLI["CLI (Click)"]
+        TUI["TUI (Textual)<br/><small>d Dashboard &middot; t Themes &middot; r Monitor</small>"]
+    end
+
+    subgraph Engine["Engine Layer"]
+        direction TB
+        Discovery["Discovery Agent"]
+        Research["Research Orchestrator"]
+        Verification["Verification Engine"]
+        Enrichment["Enrichment Pipeline"]
+        Synthesis["Synthesis Engine"]
+        Themes["Theme Discovery (K-means)"]
+        Tags["Tag Assignment"]
+        Indexer["Incremental Indexer"]
+        Pipeline["Pipeline Orchestrator"]
+        Workers["Worker Pool (async)"]
+        Prompts["Prompt Composer"]
+        Validator["Format Validator"]
+        Cost["Cost Tracker"]
+    end
+
+    subgraph Data["Data Layer"]
+        Workspace["Workspace (.md)"]
+        Vectors["ChromaDB vectors"]
+        State["SQLite state"]
+    end
+
+    CLI --> Engine
+    TUI --> Engine
+    Engine --> Data
+
+    style Interface fill:#0d0d0d,stroke:#e0a044,color:#efe5c0
+    style Engine fill:#0d0d0d,stroke:#e0a044,color:#efe5c0
+    style Data fill:#0d0d0d,stroke:#e0a044,color:#efe5c0
 ```
 
 All LLM calls go through a single async client wrapper with token counting. The worker pool uses semaphore-controlled concurrency. The pipeline orchestrator tracks state in SQLite so runs can resume from any phase.
@@ -224,10 +258,6 @@ Full design documentation lives in [`design/`](design/):
 | [`design/research-and-verification.md`](design/research-and-verification.md) | Section-by-section batching, multi-agent consensus protocol, format constraints |
 | [`design/setup-and-discovery.md`](design/setup-and-discovery.md) | Discovery flow, schema wizard, theme discovery, own-product research |
 | [`design/operations.md`](design/operations.md) | Run planner, incremental runs, diff updates, cost estimation |
-
-## Prior art
-
-Extracted from a production system that analyzed 288 competitors across 9 strategic themes for Atlassian's developer tools portfolio. The original system's 12 brittleness points are documented in [`design/`](design/) and systematically addressed in the redesign.
 
 ## License
 
