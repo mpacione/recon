@@ -50,6 +50,20 @@ class MonitorView(Vertical):
         yield Static("[#a89984][P] Pause  [S] Stop  [K] Skip  [R] Retry  [Esc] Back[/]")
 
 
+class _WorkspaceDashboard(Vertical):
+    """Dashboard with real workspace data, using compose() for proper widget tree."""
+
+    def __init__(self, data: object) -> None:
+        super().__init__()
+        self._data = data
+
+    def compose(self) -> ComposeResult:
+        from recon.tui.widgets import CompetitorTable, StatusPanel
+
+        yield StatusPanel(self._data)
+        yield CompetitorTable(self._data)
+
+
 class ReconApp(App):
     """The recon TUI application."""
 
@@ -97,15 +111,12 @@ class ReconApp(App):
     def _build_workspace_dashboard(self) -> Vertical:
         """Build dashboard with real workspace data."""
         from recon.tui.screens import build_dashboard_data
-        from recon.tui.widgets import CompetitorTable, StatusPanel
         from recon.workspace import Workspace
 
         try:
             ws = Workspace.open(self._workspace_path)
             data = build_dashboard_data(ws)
-            container = Vertical()
-            container._nodes = [StatusPanel(data), CompetitorTable(data)]
-            return container
+            return _WorkspaceDashboard(data)
         except (FileNotFoundError, Exception):
             return DashboardView()
 
