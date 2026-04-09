@@ -201,9 +201,83 @@ def summarize(deep, dry_run):
 @click.option("--dry-run", is_flag=True, help="Preview changes")
 @click.option("--threshold", default=0.3, help="Minimum relevance score")
 @click.option("--top-n", default=30, help="Competitors per theme")
-def tag(dry_run, threshold, top_n):
+@click.option("--n-themes", default=5, help="Number of themes to discover")
+@click.option("--workspace", "workspace_dir", default=".", help="Workspace directory")
+def tag(dry_run, threshold, top_n, n_themes, workspace_dir):
     """Write theme tags to competitor frontmatter."""
-    click.echo("Tagging requires indexed profiles.")
+    from recon.index import IndexManager
+    from recon.tag import Tagger
+    from recon.themes import ThemeDiscovery
+    from recon.workspace import Workspace
+
+    ws = Workspace.open(Path(workspace_dir))
+    manager = IndexManager(persist_dir=str(ws.root / ".vectordb"))
+
+    if manager.collection_count() == 0:
+        click.echo("No indexed chunks found. Run 'recon index' first.")
+        return
+
+    profiles = ws.list_profiles()
+    all_chunks_with_embeddings = _build_discovery_chunks(ws, profiles)
+
+    if not all_chunks_with_embeddings:
+        click.echo("No chunks with embeddings for theme discovery.")
+        return
+
+    discovery = ThemeDiscovery()
+    themes = discovery.discover(all_chunks_with_embeddings, n_themes=n_themes)
+
+    click.echo(f"Discovered {len(themes)} themes:")
+    for t in themes:
+        click.echo(f"  {t.label} ({t.evidence_strength}, {len(t.evidence_chunks)} chunks)")
+
+    tagger = Tagger(index=manager, workspace=ws)
+    assignments = tagger.tag(themes=themes, threshold=threshold, top_n=top_n)
+
+    click.echo(f"\n{len(assignments)} tag assignments:")
+    for a in assignments:
+        click.echo(f"  {a.competitor_slug} <- {a.theme_label} (score: {a.relevance_score:.3f})")
+
+    if dry_run:
+        click.echo("\nDry run -- no changes written.")
+        return
+
+    tagger.apply(assignments)
+    tagged_count = len({a.competitor_slug for a in assignments})
+    click.echo(f"\nTagged {tagged_count} profiles.")
+
+
+def _build_discovery_chunks(ws, profiles: list[dict]) -> list[dict]:
+    """Build chunks with deterministic embeddings for theme discovery.
+
+    Theme discovery needs embeddings. For CLI use, we re-chunk profiles
+    and generate deterministic vectors from text hashes for clustering.
+    """
+    import numpy as np
+
+    from recon.index import chunk_markdown
+
+    all_chunks: list[dict] = []
+    for profile_meta in profiles:
+        full = ws.read_profile(profile_meta["_slug"])
+        if not full or not full.get("_content", "").strip():
+            continue
+
+        chunks = chunk_markdown(
+            content=full["_content"],
+            source_path=str(profile_meta["_path"]),
+            frontmatter_meta={k: v for k, v in profile_meta.items() if not k.startswith("_")},
+        )
+        for chunk in chunks:
+            rng = np.random.default_rng(hash(chunk.text) % (2**31))
+            embedding = rng.random(64).tolist()
+            all_chunks.append({
+                "text": chunk.text,
+                "embedding": embedding,
+                "metadata": chunk.metadata,
+            })
+
+    return all_chunks
 
 
 @main.command()
