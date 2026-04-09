@@ -85,14 +85,15 @@ graph LR
 Three layers with strict separation:
 
 ```mermaid
-graph LR
+graph TB
     subgraph Interface["Interface Layer"]
+        direction LR
         CLI["CLI (Click)"]
         TUI["TUI (Textual)<br/><small>d Dashboard &middot; t Themes &middot; r Monitor</small>"]
     end
 
     subgraph Engine["Engine Layer"]
-        direction TB
+        direction LR
         Discovery["Discovery Agent"]
         Research["Research Orchestrator"]
         Verification["Verification Engine"]
@@ -109,13 +110,13 @@ graph LR
     end
 
     subgraph Data["Data Layer"]
+        direction LR
         Workspace["Workspace (.md)"]
         Vectors["ChromaDB vectors"]
         State["SQLite state"]
     end
 
-    CLI --> Engine
-    TUI --> Engine
+    Interface --> Engine
     Engine --> Data
 
     style Interface fill:#fff7e6,stroke:#c88a2e,color:#333
