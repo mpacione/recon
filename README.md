@@ -1,4 +1,6 @@
-# Recon
+<p align="center">
+  <img src="recon-asci-logo.png" alt="recon" width="100%">
+</p>
 
 A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agents to discover competitors, research them section-by-section against a structured schema, verify findings through multi-agent consensus, and synthesize the results into thematic analyses and executive summaries -- all stored locally as Obsidian-compatible markdown.
 
@@ -225,7 +227,7 @@ AI-native code editor built on VS Code...
 ## Development
 
 ```bash
-# Run tests (305 tests, ~9s)
+# Run tests (363 tests, ~10s)
 pytest tests/ -q
 
 # Run with coverage
