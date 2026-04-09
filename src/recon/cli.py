@@ -85,6 +85,11 @@ def _run_tui_wizard(root: Path) -> None:
     ws = Workspace.init(root=root)
     click.echo(f"Workspace initialized at {ws.root}")
 
+    from recon.tui.app import ReconApp
+
+    dashboard = ReconApp(workspace_path=root)
+    dashboard.run()
+
 
 def _run_headless_wizard(root: Path) -> None:
     """Run the guided schema wizard for workspace creation."""
