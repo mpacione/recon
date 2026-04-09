@@ -60,6 +60,19 @@ CREATE TABLE IF NOT EXISTS file_hashes (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS verification_results (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(task_id),
+    competitor_slug TEXT NOT NULL,
+    section_key TEXT NOT NULL,
+    source_url TEXT,
+    claim_text TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    status TEXT NOT NULL,
+    evidence_summary TEXT,
+    verified_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS cost_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL REFERENCES runs(run_id),
@@ -179,6 +192,47 @@ class StateStore:
             params.append(status.value)
         query += " ORDER BY created_at"
         return await self._execute_returning_rows(query, tuple(params))
+
+    async def record_verification(
+        self,
+        task_id: str,
+        competitor_slug: str,
+        section_key: str,
+        claim_text: str,
+        agent: str,
+        status: str,
+        source_url: str | None = None,
+        evidence_summary: str | None = None,
+    ) -> str:
+        """Record a verification result for a claim."""
+        result_id = uuid.uuid4().hex[:12]
+        await self._execute_write(
+            """INSERT INTO verification_results
+               (id, task_id, competitor_slug, section_key, source_url, claim_text, agent, status, evidence_summary)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (result_id, task_id, competitor_slug, section_key, source_url, claim_text, agent, status, evidence_summary),
+        )
+        return result_id
+
+    async def get_verification_results(
+        self,
+        task_id: str | None = None,
+        competitor_slug: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get verification results, filtered by task or competitor."""
+        if task_id is not None:
+            return await self._execute_returning_rows(
+                "SELECT * FROM verification_results WHERE task_id = ? ORDER BY verified_at",
+                (task_id,),
+            )
+        if competitor_slug is not None:
+            return await self._execute_returning_rows(
+                "SELECT * FROM verification_results WHERE competitor_slug = ? ORDER BY verified_at",
+                (competitor_slug,),
+            )
+        return await self._execute_returning_rows(
+            "SELECT * FROM verification_results ORDER BY verified_at",
+        )
 
     async def set_file_hash(self, file_path: str, file_hash: str) -> None:
         """Store or update a file's content hash for incremental processing."""

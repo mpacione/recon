@@ -163,6 +163,77 @@ class TestFileHashes:
         assert await store.has_file_changed("competitors/new.md", "abc123") is True
 
 
+class TestVerificationResults:
+    async def test_records_verification_result(self, store: StateStore) -> None:
+        run_id = await store.create_run(operation="research")
+        task_id = await store.create_task(
+            run_id=run_id, competitor_slug="alpha", section_key="overview",
+        )
+
+        result_id = await store.record_verification(
+            task_id=task_id,
+            competitor_slug="alpha",
+            section_key="overview",
+            claim_text="Has 1000+ integrations",
+            agent="agent_b",
+            status="confirmed",
+            source_url="https://example.com",
+            evidence_summary="Independently confirmed via official docs",
+        )
+
+        assert result_id is not None
+
+    async def test_gets_verification_results_for_task(self, store: StateStore) -> None:
+        run_id = await store.create_run(operation="research")
+        task_id = await store.create_task(
+            run_id=run_id, competitor_slug="alpha", section_key="overview",
+        )
+        await store.record_verification(
+            task_id=task_id,
+            competitor_slug="alpha",
+            section_key="overview",
+            claim_text="Claim A",
+            agent="agent_b",
+            status="confirmed",
+        )
+        await store.record_verification(
+            task_id=task_id,
+            competitor_slug="alpha",
+            section_key="overview",
+            claim_text="Claim B",
+            agent="agent_b",
+            status="disputed",
+            evidence_summary="Contradicting evidence found",
+        )
+
+        results = await store.get_verification_results(task_id=task_id)
+
+        assert len(results) == 2
+        statuses = {r["status"] for r in results}
+        assert statuses == {"confirmed", "disputed"}
+
+    async def test_gets_verification_results_for_competitor(self, store: StateStore) -> None:
+        run_id = await store.create_run(operation="research")
+        t1 = await store.create_task(
+            run_id=run_id, competitor_slug="alpha", section_key="overview",
+        )
+        t2 = await store.create_task(
+            run_id=run_id, competitor_slug="alpha", section_key="pricing",
+        )
+        await store.record_verification(
+            task_id=t1, competitor_slug="alpha", section_key="overview",
+            claim_text="C1", agent="agent_b", status="confirmed",
+        )
+        await store.record_verification(
+            task_id=t2, competitor_slug="alpha", section_key="pricing",
+            claim_text="C2", agent="agent_b", status="unverified",
+        )
+
+        results = await store.get_verification_results(competitor_slug="alpha")
+
+        assert len(results) == 2
+
+
 class TestCostHistory:
     async def test_records_cost(self, store: StateStore) -> None:
         run_id = await store.create_run(operation="research")
