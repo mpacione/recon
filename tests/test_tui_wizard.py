@@ -122,6 +122,7 @@ class TestFullWizardFlow:
         app = WizardApp(output_dir=tmp_path)
         async with app.run_test(size=(120, 40)) as pilot:
             await _advance_to_review(app, pilot)
+            app.query_one("#input-api-key", Input).value = "sk-ant-test-key"
             app.query_one("#btn-confirm", Button).press()
             await pilot.pause()
 
@@ -136,12 +137,31 @@ class TestFullWizardFlow:
         app = WizardApp(output_dir=tmp_path)
         async with app.run_test(size=(120, 40)) as pilot:
             await _advance_to_review(app, pilot)
+            app.query_one("#input-api-key", Input).value = "sk-ant-test-key"
             app.query_one("#btn-confirm", Button).press()
             await pilot.pause()
 
         parsed = parse_schema(app.result_schema)
         assert parsed.domain == "CI/CD Tools"
         assert parsed.identity.company_name == "Acme Corp"
+
+    async def test_api_key_stored_in_result(self, tmp_path: Path) -> None:
+        app = WizardApp(output_dir=tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _advance_to_review(app, pilot)
+            app.query_one("#input-api-key", Input).value = "sk-ant-my-secret"
+            app.query_one("#btn-confirm", Button).press()
+            await pilot.pause()
+
+        assert app.api_key == "sk-ant-my-secret"
+
+    async def test_review_shows_api_key_input(self, tmp_path: Path) -> None:
+        app = WizardApp(output_dir=tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await _advance_to_review(app, pilot)
+            api_input = app.query_one("#input-api-key", Input)
+            assert api_input is not None
+            assert api_input.password is True
 
 
 async def _fill_identity_and_advance(app: WizardApp, pilot) -> None:

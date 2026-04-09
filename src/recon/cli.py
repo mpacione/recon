@@ -82,6 +82,11 @@ def _run_tui_wizard(root: Path) -> None:
 
     root.mkdir(parents=True, exist_ok=True)
     (root / "recon.yaml").write_text(yaml.dump(app.result_schema, default_flow_style=False, sort_keys=False))
+
+    if app.api_key:
+        env_path = root / ".env"
+        env_path.write_text(f"ANTHROPIC_API_KEY={app.api_key}\n")
+
     ws = Workspace.init(root=root)
     click.echo(f"Workspace initialized at {ws.root}")
 

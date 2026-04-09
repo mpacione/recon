@@ -141,6 +141,9 @@ class _ReviewPhase(Vertical):
         yield Static(f"[#a89984]Sections ({len(sections)}):[/]")
         yield Static(section_list)
         yield Static("")
+        yield Static("[#a89984]Anthropic API key (required for research)[/]")
+        yield Input(placeholder="sk-ant-...", id="input-api-key", password=True)
+        yield Static("")
         with Horizontal(classes="button-row"):
             yield Button("Back", id="btn-back")
             yield Button("Create Workspace", id="btn-confirm", variant="primary")
@@ -162,6 +165,7 @@ class WizardApp(App):
         self.output_dir = output_dir
         self.state = WizardState()
         self.result_schema: dict[str, Any] | None = None
+        self.api_key: str = ""
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -204,6 +208,7 @@ class WizardApp(App):
             self._refresh_phase()
         elif button_id == "btn-confirm":
             self._sync_sections_state()
+            self.api_key = self.query_one("#input-api-key", Input).value.strip()
             self.result_schema = self.state.to_schema_dict()
             self.exit()
 
