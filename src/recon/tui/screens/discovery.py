@@ -7,6 +7,7 @@ candidates when done.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -15,7 +16,7 @@ from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Static
+from textual.widgets import Button, Input, Static
 
 from recon.discovery import DiscoveryCandidate, DiscoveryState  # noqa: TCH001
 from recon.logging import get_logger
@@ -223,6 +224,8 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
                 )
                 return
             self._do_search()
+        elif button_id == "btn-add-manual":
+            self._show_manual_inputs()
         elif button_id == "btn-accept-all":
             self._state.accept_all()
             self._refresh_display()
@@ -296,3 +299,63 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
     @work
     async def _schedule_recompose(self) -> None:
         await self.recompose()
+
+    def _show_manual_inputs(self) -> None:
+        """Mount inline name + URL inputs for adding a manual candidate.
+
+        Submitting either input commits the entry via
+        :meth:`DiscoveryState.add_manual` and tears the inputs back down.
+        Pressing Esc on an input dismisses without saving.
+        """
+        try:
+            container = self.query_one("#discovery-container", Vertical)
+        except Exception:
+            return
+        if self.query("#manual-name"):
+            return  # already showing
+
+        container.mount(
+            Input(
+                placeholder="Competitor name",
+                id="manual-name",
+            ),
+        )
+        container.mount(
+            Input(
+                placeholder="URL (optional, https://...)",
+                id="manual-url",
+            ),
+        )
+        with contextlib.suppress(Exception):
+            self.query_one("#manual-name", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id not in ("manual-name", "manual-url"):
+            return
+        try:
+            name_input = self.query_one("#manual-name", Input)
+            url_input = self.query_one("#manual-url", Input)
+        except Exception:
+            return
+
+        name = name_input.value.strip()
+        url = url_input.value.strip()
+
+        if not name:
+            # Just tear down without saving
+            self._tear_down_manual_inputs()
+            return
+
+        self._state.add_manual(
+            name=name,
+            url=url or f"https://{name.lower().replace(' ', '-')}.example",
+            blurb="Manually added competitor",
+        )
+        self.app.notify(f"Added: {name}", title="Discovery")
+        self._tear_down_manual_inputs()
+        self._refresh_display()
+
+    def _tear_down_manual_inputs(self) -> None:
+        for widget_id in ("#manual-name", "#manual-url"):
+            for widget in self.query(widget_id):
+                widget.remove()

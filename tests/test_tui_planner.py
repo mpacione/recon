@@ -69,6 +69,51 @@ class TestRunPlannerScreen:
     async def test_all_operations_defined(self) -> None:
         assert len(Operation) == 7
 
+    async def test_cost_preview_shows_when_estimate_provided(self) -> None:
+        class _CostApp(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield Static("")
+
+            def on_mount(self) -> None:
+                self.push_screen(
+                    RunPlannerScreen(
+                        competitor_count=5,
+                        section_count=8,
+                        estimated_full_run_cost=12.50,
+                    ),
+                )
+
+        app = _CostApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            cost_widget = app.screen.query_one("#planner-cost", Static)
+            content = str(cost_widget.content)
+            assert "$12.50" in content
+            # Per-competitor estimate should also be shown
+            assert "$2.50" in content
+
+    async def test_cost_preview_hidden_when_estimate_zero(self) -> None:
+        class _NoCostApp(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield Static("")
+
+            def on_mount(self) -> None:
+                self.push_screen(
+                    RunPlannerScreen(
+                        competitor_count=5,
+                        section_count=8,
+                    ),
+                )
+
+        app = _NoCostApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert not app.screen.query("#planner-cost")
+
     async def test_number_key_selects_and_confirms(self) -> None:
         app = _PlannerTestApp()
         async with app.run_test(size=(120, 40)) as pilot:

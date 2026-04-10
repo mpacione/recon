@@ -321,12 +321,20 @@ class DashboardScreen(Screen):
 
     def _push_planner(self) -> None:
         from recon.tui.screens.planner import RunPlannerScreen
+        from recon.workspace import Workspace
 
-        section_count = 0
+        section_count = self._data.total_sections
+        try:
+            ws = Workspace.open(self._workspace_path)
+            estimated_cost = _estimate_full_run_cost(ws)
+        except Exception:
+            estimated_cost = 0.0
+
         self.app.push_screen(
             RunPlannerScreen(
                 competitor_count=self._data.total_competitors,
                 section_count=section_count,
+                estimated_full_run_cost=estimated_cost,
             ),
             self.handle_planner_result,
         )
@@ -479,3 +487,43 @@ class DashboardScreen(Screen):
         if os.environ.get("ANTHROPIC_API_KEY"):
             return "[#98971a]API key: set in environment[/]"
         return "[#cc241d]API key: not configured[/]"
+
+
+def _estimate_full_run_cost(workspace) -> float:  # noqa: ANN001 -- runtime workspace type
+    """Estimate the LLM cost of a full pipeline run on this workspace.
+
+    Walks the schema's sections, asks ``CostTracker.estimate_section_cost``
+    for each one across every profile at the section's verification
+    tier, and adds a small overhead for the synthesize and deliver
+    stages. Returns 0.0 if the schema isn't loaded.
+    """
+    from recon.cost import CostTracker, ModelPricing
+
+    schema = getattr(workspace, "schema", None)
+    if schema is None or not schema.sections:
+        return 0.0
+
+    profiles = workspace.list_profiles()
+    competitor_count = len(profiles)
+    if competitor_count == 0:
+        return 0.0
+
+    # claude-sonnet-4-5 default pricing -- matches Pipeline._DEFAULT_MODEL
+    tracker = CostTracker(
+        model_pricing=ModelPricing(
+            model_id="claude-sonnet-4-20250514",
+            input_price_per_million=3.0,
+            output_price_per_million=15.0,
+        ),
+    )
+
+    research_cost = 0.0
+    for section in schema.sections:
+        research_cost += tracker.estimate_section_cost(
+            format_type=section.preferred_format,
+            competitor_count=competitor_count,
+            verification_tier=section.verification_tier.value,
+        )
+
+    # Synthesize/deliver/themes are roughly 10-15% on top of research
+    return research_cost * 1.15

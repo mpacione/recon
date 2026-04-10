@@ -100,10 +100,16 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
     }
     """
 
-    def __init__(self, competitor_count: int, section_count: int) -> None:
+    def __init__(
+        self,
+        competitor_count: int,
+        section_count: int,
+        estimated_full_run_cost: float = 0.0,
+    ) -> None:
         super().__init__()
         self._competitor_count = competitor_count
         self._section_count = section_count
+        self._estimated_full_run_cost = estimated_full_run_cost
         self._selected: Operation | None = None
 
     @property
@@ -121,6 +127,18 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
                 f"{self._section_count} sections[/]",
                 id="planner-stats",
             )
+            if self._estimated_full_run_cost > 0:
+                per_competitor = (
+                    self._estimated_full_run_cost / self._competitor_count
+                    if self._competitor_count
+                    else 0.0
+                )
+                yield Static(
+                    f"[#a89984]Estimated full-run cost: "
+                    f"[#e0a044]${self._estimated_full_run_cost:.2f}[/]"
+                    f"  (~${per_competitor:.2f} per competitor)[/]",
+                    id="planner-cost",
+                )
             yield Static("")
             yield Static("[#efe5c0]What do you want to do?[/]")
             yield Static("")

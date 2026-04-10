@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- Option U: TUI cleanup and polish
+
+- **Cost preview in the run planner.** `RunPlannerScreen` accepts an
+  `estimated_full_run_cost` arg and renders a `$X.XX (~$Y.YY per
+  competitor)` line below the workspace stats. `DashboardScreen._push_planner`
+  computes the estimate by walking the schema's sections and asking
+  `CostTracker.estimate_section_cost` for each one across every
+  profile at the section's verification tier, then adds a 15% overhead
+  for synthesize/deliver/themes. Renders nothing if the estimate is 0
+  (empty workspace, no schema, etc).
+- **`DiscoveryScreen` "Add Manually" button is wired.** Clicking it
+  mounts inline `name` and `url` inputs, submitting the name input
+  commits via `DiscoveryState.add_manual` (the existing engine
+  helper) and tears the inputs back down. Empty name = silent
+  cancel. Catches the case where the LLM agent returns no candidates
+  but the user already knows who to add.
+- **`tui/widgets.py` shrunk from 219 lines to ~50.** Removed
+  `StatusPanel`, `CompetitorTable`, `ProgressBar`, `ThemeCurationPanel`,
+  and `RunMonitorPanel` — five widget classes that were defined as a
+  reusable rendering layer but were never adopted by any screen. Kept
+  the three formatter functions (`format_theme_list`,
+  `format_progress_bar`, `format_worker_list`) since they're still
+  used by `RunScreen` and the model tests.
+
+### Tests
+
+- 4 new TUI tests covering the new behavior:
+  `test_tui_planner.py::test_cost_preview_shows_when_estimate_provided`,
+  `test_cost_preview_hidden_when_estimate_zero`,
+  `test_tui_discovery_screen.py::test_add_manually_button_mounts_inputs_and_adds_candidate`,
+  `test_add_manually_with_empty_name_does_nothing`.
+- 611 → 615 passing.
+
+### Fixed -- ChromaDB test flake
+
+- **`test_init_add_index_status_flow`** intermittent failures fixed.
+  Root cause: ChromaDB caches a `SharedSystemClient` per `persist_dir`
+  for the process lifetime, and pytest tmp_path teardowns left the
+  Rust hnsw segment readers holding stale file handles, which a
+  later test then crashed on with "Failed to pull logs from the log
+  store" or `SQLITE_CANTOPEN`.
+- New autouse pytest fixture in `tests/conftest.py` that calls
+  `chromadb.api.client.SharedSystemClient.clear_system_cache()` after
+  every test.
+- New `IndexManager.close()` clears the cache and drops the local
+  client/collection references. Used by the `recon index` CLI
+  command in a `try/finally` so the production CLI also stops
+  leaking handles between sequential invocations.
+- Verified by 3 consecutive clean full-suite runs (previously failed
+  ~1 in 3).
+
+### Added -- Real Pause/Resume
+
+- **Pause/Resume semantics** via an `asyncio.Event` where
+  `set = running` and `cleared = paused`. Plumbed through:
+  - `WorkerPool.run(pause_event=)` -- workers `_wait_for_resume()`
+    before dispatching each task, polling so they can also notice a
+    `cancel_event` becoming set during the pause.
+  - `ResearchOrchestrator.research_all` and
+    `EnrichmentOrchestrator.enrich_all` forward the pause_event to
+    the pool.
+  - `Pipeline` gains a `pause_event` attribute and an
+    `_await_resume()` helper that blocks at every stage transition.
+    Cancel always wins over pause.
+- **TUI Pause button works.** First press clears `pause_event`, flips
+  the button label to "Resume", sets `current_phase = "paused"`, and
+  notifies. Second press sets the event, flips back to "Pause",
+  resumes work.
+- **Stop while paused** also sets `pause_event` so a wedged worker
+  can observe the cancel and exit cleanly.
+- 8 new tests covering the worker pool flag, the pipeline stage-
+  boundary block, the button toggle, and a full TUI integration that
+  drives planner → FULL_PIPELINE → Pause mid-flight (asserts no
+  steps advance) → Resume → asserts COMPLETED.
+
 ### Added -- Integration and end-to-end test coverage
 
 Filled the gaps in integration / e2e coverage so every feature shipped

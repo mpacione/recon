@@ -115,6 +115,61 @@ class TestDiscoveryScreen:
             btn = app.screen.query_one("#btn-add-manual", Button)
             assert btn is not None
 
+    async def test_add_manually_button_mounts_inputs_and_adds_candidate(self) -> None:
+        from textual.widgets import Input
+
+        state = _make_state(_make_candidates(2))
+        app = _DiscoveryTestApp(state=state)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            initial_count = len(state.all_candidates)
+
+            app.screen.query_one("#btn-add-manual", Button).press()
+            await pilot.pause()
+
+            # Both inputs should be visible now
+            name_input = app.screen.query_one("#manual-name", Input)
+            url_input = app.screen.query_one("#manual-url", Input)
+            assert name_input is not None
+            assert url_input is not None
+
+            # Fill in the name and submit
+            name_input.value = "Manual Co"
+            url_input.value = "https://manualco.example"
+            app.screen.on_input_submitted(Input.Submitted(name_input, name_input.value))
+            await pilot.pause()
+            await pilot.pause()
+
+            # Candidate added, inputs torn down
+            assert len(state.all_candidates) == initial_count + 1
+            new_candidate = state.all_candidates[-1]
+            assert new_candidate.name == "Manual Co"
+            assert new_candidate.provenance == "manually added"
+            # Inputs should be gone after refresh
+            assert not app.screen.query("#manual-name")
+
+    async def test_add_manually_with_empty_name_does_nothing(self) -> None:
+        from textual.widgets import Input
+
+        state = _make_state(_make_candidates(2))
+        app = _DiscoveryTestApp(state=state)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            initial_count = len(state.all_candidates)
+
+            app.screen.query_one("#btn-add-manual", Button).press()
+            await pilot.pause()
+
+            name_input = app.screen.query_one("#manual-name", Input)
+            name_input.value = ""
+            app.screen.on_input_submitted(Input.Submitted(name_input, ""))
+            await pilot.pause()
+
+            # No candidate added
+            assert len(state.all_candidates) == initial_count
+            # Inputs should be torn down anyway
+            assert not app.screen.query("#manual-name")
+
     async def test_cursor_navigation_and_space_toggle(self) -> None:
         state = _make_state(_make_candidates(3))
         app = _DiscoveryTestApp(state=state)
