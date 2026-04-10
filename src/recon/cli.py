@@ -24,7 +24,7 @@ def _try_create_client(model: str = "claude-sonnet-4-20250514"):
 
 
 @click.group()
-@click.version_option()
+@click.version_option(package_name="recon-cli", prog_name="recon")
 @click.option(
     "--log-level",
     type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),

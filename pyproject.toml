@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "recon-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "Competitive intelligence CLI — structured research, local vector search, LLM-powered synthesis"
 readme = "README.md"
 license = "MIT"
@@ -12,15 +12,32 @@ requires-python = ">=3.11"
 authors = [
     { name = "Matt Pacione", email = "mattpacione@gmail.com" },
 ]
-keywords = ["competitive-intelligence", "cli", "llm", "research"]
+keywords = [
+    "competitive-intelligence",
+    "cli",
+    "llm",
+    "research",
+    "anthropic",
+    "claude",
+    "tui",
+    "textual",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Office/Business",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Text Processing :: Markup :: Markdown",
 ]
 
 dependencies = [
@@ -47,6 +64,12 @@ dev = [
 
 [project.scripts]
 recon = "recon.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/mpacione/recon"
+Repository = "https://github.com/mpacione/recon"
+Issues = "https://github.com/mpacione/recon/issues"
+Changelog = "https://github.com/mpacione/recon/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/recon"]

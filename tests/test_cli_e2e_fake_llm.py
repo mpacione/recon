@@ -72,6 +72,19 @@ def _fake_llm_client(text: str = "## Overview\n\nFake research output.\n") -> As
     return client
 
 
+class TestVersionFlag:
+    def test_version_flag_resolves_installed_distribution(self) -> None:
+        """--version must resolve the recon-cli distribution, not the
+        import name `recon`. Regression test for a packaging bug caught
+        by smoke-testing the 0.2.0 wheel in a fresh venv.
+        """
+        runner = CliRunner()
+        result = runner.invoke(main, ["--version"], catch_exceptions=False)
+
+        assert result.exit_code == 0, result.output
+        assert "recon" in result.output.lower()
+
+
 class TestResearchCliE2E:
     def test_research_all_updates_every_profile(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

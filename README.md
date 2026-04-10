@@ -33,24 +33,34 @@ A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agen
 | Real-API E2E tests | **Available** | Opt-in via `ANTHROPIC_API_KEY`, tests in `tests/test_e2e_real.py` |
 | Fake-LLM CLI E2E tests | **Stable** | `tests/test_cli_e2e_fake_llm.py` covers `research`, `enrich`, and `run` via `CliRunner` |
 
-## Dependencies and setup
+## Install
 
 **Requires Python 3.11+** and an [Anthropic API key](https://console.anthropic.com/) for LLM-powered features.
 
+### From PyPI (end users)
+
 ```bash
-# Clone and install
-git clone <repo-url> && cd recon
+pip install recon-cli
+export ANTHROPIC_API_KEY=sk-ant-...
+recon --version
+```
+
+### From source (contributors)
+
+```bash
+git clone https://github.com/mpacione/recon.git
+cd recon
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Set your API key
 export ANTHROPIC_API_KEY=sk-ant-...
-
-# Verify
 pytest tests/ -q
 recon --version
 ```
+
+See [`docs/getting-started.md`](docs/getting-started.md) for a
+hands-on walkthrough from fresh install to executive summary.
 
 ### Core dependencies
 

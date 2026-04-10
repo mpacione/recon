@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.2.0] -- 2026-04-10
+
+First pipeline-complete release. `recon run` now actually runs the
+whole pipeline end-to-end: research, verify, enrich, index, themes,
+synthesize, deliver. The distribution is published to PyPI as
+`recon-cli`; the binary on `PATH` is still `recon`.
+
+### Added -- Packaging and docs (Option D)
+
+- **PyPI-ready `pyproject.toml`.** Added `[project.urls]` (Homepage,
+  Repository, Issues, Changelog), Python 3.13 classifier, expanded
+  keywords and topic classifiers, and bumped the version to `0.2.0`.
+- **`docs/getting-started.md`** — hands-on walkthrough from fresh
+  install through `recon init`, `discover`, `run`, and browsing the
+  results. Includes cost estimates, logging, and troubleshooting.
+- **`docs/release.md`** — maintainer release process: bump, build,
+  smoke test in a fresh venv, tag, publish to PyPI, create a GitHub
+  release, and roll back if needed.
+- **README `Install` section rewritten** to lead with
+  `pip install recon-cli`, keep the editable source install for
+  contributors, and link to the new getting-started guide.
+- **Wheel smoke test in a throwaway venv** is now part of the
+  release checklist. This caught the packaging bug fixed below.
+
+### Fixed -- Packaging
+
+- **`recon --version` crashed on fresh wheel installs.**
+  `click.version_option()` was called without `package_name`, so it
+  looked up the import name `recon` on PyPI, which doesn't exist
+  (the distribution is `recon-cli`), and raised
+  `RuntimeError: 'recon' is not installed. Try passing 'package_name' instead.`
+  Fixed by passing `package_name="recon-cli"` and `prog_name="recon"`
+  so `recon --version` prints `recon, version 0.2.0`. Guarded by a
+  new regression test (`test_cli_e2e_fake_llm.py::TestVersionFlag`).
+
 ### Added -- Deep verification (Option V)
 
 - **Per-section verification honoring schema tiers.** `Pipeline._stage_verify`
