@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- TUI audit Phase B (persistent chrome)
+
+The biggest single UX change since the TUI was rebuilt: every full
+screen now wears a persistent chrome layer that stays visible across
+mode switches and gives the user constant feedback about workspace
+state and engine activity. Modal screens (Discovery, Curation,
+Selector, Planner, Wizard) opt out and pop over the chrome.
+
+- **`recon/tui/shell.py`** -- new module with the four chrome
+  building blocks:
+  - `WorkspaceContext` dataclass: workspace path, domain, company,
+    total cost, run count, API key presence, run state, run phase.
+  - `ReconHeaderBar`: top status strip (1 line) showing
+    `recon │ Acme · AI tools │ ~/path/to/ws │ $7.42 · 3 runs │ API ✓ │ idle`.
+    Updates reactively via `set_workspace_context()`.
+  - `KeybindHint`: bottom 1-line strip rendering the current
+    screen's hint string.
+  - `LogPane`: 8-line bottom-docked tail of the in-memory log
+    buffer, polled 4x/sec via `set_interval`. Shows last 6 entries
+    with level color coding (gray DEBUG, default INFO, yellow WARN,
+    red ERROR). Renders "waiting for engine activity..." when the
+    buffer is empty.
+- **`ReconScreen` base class**: full screens override
+  `compose_body()` instead of `compose()`. The base composes
+  `ReconHeaderBar -> Vertical#recon-body -> LogPane -> KeybindHint`.
+- **Migrated to ReconScreen**: `WelcomeScreen`, `DashboardScreen`,
+  `RunScreen`, `CompetitorBrowserScreen`. Modals stay as plain
+  `ModalScreen`.
+- **`MemoryLogHandler`** in `recon/logging.py`: process-wide
+  handler that keeps a deque of the last 200 log entries. Attached
+  to the recon root logger by `configure_logging`. The LogPane
+  reads from it via `get_memory_handler().tail(n)`.
+- **`ReconApp.workspace_context`**: live snapshot the chrome reads.
+  `refresh_workspace_context()` rebuilds it whenever the workspace
+  state changes (open, wizard finish). Pushed to the visible
+  `ReconScreen` via `refresh_chrome()`.
+- **Welcome banner**: ASCII-art retro banner replaces the bare
+  "recon" title.
+
+Test infrastructure
+- New autouse pytest fixture clears the in-memory log buffer
+  between tests so snapshot diffs are deterministic.
+
+Gotchas captured for posterity
+- Textual's `MessagePump` reserves the attribute name `_context`
+  on widgets -- assigning a non-callable value to `self._context`
+  raises "object is not callable" on mount. Renamed to `_ws_ctx`.
+- Static subclasses must not override `_render` -- it's the
+  Textual rendering hook. Renamed to `_render_context`.
+- `LogPane` started with an event-bus subscription model that
+  deadlocked the test event loop; switched to `set_interval`
+  polling.
+
 ### Fixed -- TUI audit Phase A (10 bugs)
 
 Driven by an end-to-end TUI screen audit. Each fix is a regression

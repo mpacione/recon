@@ -15,10 +15,10 @@ from pathlib import Path
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.screen import Screen
 from textual.widgets import Button, Input, Static
 
 from recon.logging import get_logger
+from recon.tui.shell import ReconScreen
 
 _log = get_logger(__name__)
 
@@ -110,7 +110,17 @@ class RecentProjectsManager:
 _DEFAULT_RECENT_PATH = Path.home() / ".recon" / "recent.json"
 
 
-class WelcomeScreen(Screen):
+_RECON_BANNER = """\
+[bold #e0a044]┌─────────────────────────────────────┐[/]
+[bold #e0a044]│  ▄▄▄▄    ▄▄▄▄  ▄▄▄▄  ▄▄▄▄  ▄▄  ▄▄  │[/]
+[bold #e0a044]│  ██  ██ ██    ██     ██  ██ ██▄ ██  │[/]
+[bold #e0a044]│  ██▀▀█▄ ██▀▀  ██     ██  ██ ██ ▀██  │[/]
+[bold #e0a044]│  ██  ██  ▀▀██  ██▄▄  ██▄▄██ ██  ██  │[/]
+[bold #e0a044]│         recon  v0.2.0+              │[/]
+[bold #e0a044]└─────────────────────────────────────┘[/]"""
+
+
+class WelcomeScreen(ReconScreen):
     """Workspace picker: new, open, or recent project."""
 
     class WorkspaceSelected(Message):
@@ -125,10 +135,14 @@ class WelcomeScreen(Screen):
 
     DEFAULT_CSS = """
     WelcomeScreen {
+        background: #000000;
+    }
+    #welcome-body {
         align: center middle;
+        height: 1fr;
     }
     #welcome-container {
-        width: 60;
+        width: 70;
         height: auto;
         padding: 2 4;
         border: solid #3a3a3a;
@@ -153,22 +167,27 @@ class WelcomeScreen(Screen):
     }
     """
 
+    keybind_hints = (
+        "[#e0a044]n[/] new · [#e0a044]o[/] open · "
+        "[#e0a044]q[/] quit · [#e0a044]?[/] help"
+    )
+
     def __init__(self, recent_projects_path: Path = _DEFAULT_RECENT_PATH) -> None:
         super().__init__()
         self._recent_path = recent_projects_path
         self._manager = RecentProjectsManager(self._recent_path)
 
-    def compose(self) -> ComposeResult:
-        with Vertical(id="welcome-container"):
-            yield Static("[bold #e0a044]recon[/]", classes="title")
-            yield Static("[#a89984]competitive intelligence[/]")
+    def compose_body(self) -> ComposeResult:
+        with Vertical(id="welcome-body"), Vertical(id="welcome-container"):
+            yield Static(_RECON_BANNER, id="welcome-banner")
+            yield Static("[#a89984]competitive intelligence research[/]")
             yield Static("")
             with Horizontal(classes="action-row"):
                 yield Button("New Project", id="btn-new", variant="primary")
                 yield Button("Open Existing", id="btn-open")
             yield Static("")
             with Vertical(id="recent-section"):
-                yield Static("[bold #e0a044]RECENT PROJECTS[/]")
+                yield Static("[bold #e0a044]── RECENT PROJECTS ──[/]")
                 yield from self._compose_recent_list()
 
     def _compose_recent_list(self):

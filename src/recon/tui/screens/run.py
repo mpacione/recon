@@ -15,10 +15,10 @@ from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
-from textual.screen import Screen
 from textual.widgets import Button, Static
 
 from recon.logging import get_logger
+from recon.tui.shell import ReconScreen
 from recon.tui.widgets import format_progress_bar
 
 _log = get_logger(__name__)
@@ -26,12 +26,17 @@ _log = get_logger(__name__)
 PipelineFn = Callable[["RunScreen"], Coroutine[Any, Any, None]]
 
 
-class RunScreen(Screen):
+class RunScreen(ReconScreen):
     """Live pipeline monitor with reactive state."""
+
+    keybind_hints = (
+        "[#e0a044]p[/] pause/resume · [#e0a044]s[/] stop · "
+        "[#e0a044]b[/] back · [#e0a044]q[/] quit"
+    )
 
     DEFAULT_CSS = """
     RunScreen {
-        padding: 1 2;
+        background: #000000;
     }
     #run-header {
         height: auto;
@@ -75,16 +80,16 @@ class RunScreen(Screen):
             self.app._pending_pipeline_fn = None
             self.start_pipeline(pending)
 
-    def compose(self) -> ComposeResult:
-        yield Static("[bold #e0a044]RUN MONITOR[/]", id="run-title")
+    def compose_body(self) -> ComposeResult:
+        yield Static("[bold #e0a044]── RUN MONITOR ──[/]", id="run-title")
         yield Static("")
         yield Static(self._format_phase(), id="run-phase")
         yield Static(self._format_progress(), id="run-progress")
         yield Static(self._format_cost(), id="run-cost")
         yield Static("")
         with Vertical(id="run-activity-section"):
-            yield Static("[bold #e0a044]ACTIVITY[/]")
-            yield Static("[#a89984]Waiting...[/]", id="run-activity")
+            yield Static("[bold #e0a044]── ACTIVITY ──[/]")
+            yield Static("[#a89984]waiting for pipeline...[/]", id="run-activity")
         yield Static("")
         with Horizontal(classes="action-bar"):
             yield Button("Pause", id="btn-pause")

@@ -19,6 +19,7 @@ from recon.logging import get_logger
 from recon.tui.screens.dashboard import DashboardScreen
 from recon.tui.screens.run import RunScreen
 from recon.tui.screens.welcome import WelcomeScreen
+from recon.tui.shell import WorkspaceContext
 from recon.tui.theme import RECON_CSS
 
 _log = get_logger(__name__)
@@ -43,11 +44,40 @@ class ReconApp(App):
         super().__init__()
         self._workspace_path = workspace_path
         self._initial_wizard_dir = initial_wizard_dir
+        self.workspace_context = WorkspaceContext.empty()
         _log.info(
             "ReconApp.__init__ workspace_path=%s initial_wizard_dir=%s",
             workspace_path,
             initial_wizard_dir,
         )
+
+    def refresh_workspace_context(self) -> None:
+        """Rebuild ``self.workspace_context`` from the current workspace.
+
+        Called whenever a meaningful state change happens (workspace
+        opened, run finished, profile added). Also pushes the new
+        context into any visible :class:`ReconScreen` so its header
+        bar updates immediately.
+        """
+        from recon.tui.shell import ReconScreen
+        from recon.workspace import Workspace
+
+        if self._workspace_path is None:
+            self.workspace_context = WorkspaceContext.empty()
+        else:
+            try:
+                ws = Workspace.open(self._workspace_path)
+                self.workspace_context = WorkspaceContext.from_workspace(ws)
+            except Exception:
+                _log.exception("refresh_workspace_context failed")
+                self.workspace_context = WorkspaceContext.empty()
+
+        # Push the update to whatever full screen is currently visible
+        try:
+            if isinstance(self.screen, ReconScreen):
+                self.screen.refresh_chrome()
+        except Exception:
+            pass
 
     @property
     def workspace_path(self) -> Path | None:
@@ -95,6 +125,10 @@ class ReconApp(App):
 
     def on_mount(self) -> None:
         _log.info("ReconApp.on_mount -- registering modes")
+        # Make sure we have a context populated for any screen that
+        # mounts via the constructor (e.g. ReconApp(workspace_path=...))
+        if self._workspace_path is not None:
+            self.refresh_workspace_context()
         self.add_mode("dashboard", self._make_dashboard_screen)
         self.add_mode("run", RunScreen)
         self.switch_mode("dashboard")
@@ -113,6 +147,7 @@ class ReconApp(App):
         _log.info("WorkspaceSelected path=%s", event.path)
         self._workspace_path = Path(event.path)
         self._record_recent_project(self._workspace_path)
+        self.refresh_workspace_context()
         self.switch_mode("run")
         self.remove_mode("dashboard")
         self.add_mode("dashboard", self._make_dashboard_screen)
@@ -182,6 +217,7 @@ class ReconApp(App):
 
         self._workspace_path = result.output_dir
         self._record_recent_project(result.output_dir)
+        self.refresh_workspace_context()
         self.switch_mode("run")
         self.remove_mode("dashboard")
         self.add_mode("dashboard", self._make_dashboard_screen)

@@ -15,25 +15,30 @@ from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.screen import Screen
 from textual.widgets import Button, Input, Static
 
 from recon.logging import get_logger
 from recon.tui.models.dashboard import DashboardData  # noqa: TCH001 -- used at runtime
+from recon.tui.shell import ReconScreen
 
 _log = get_logger(__name__)
 
 
-class DashboardScreen(Screen):
+class DashboardScreen(ReconScreen):
     """Workspace status dashboard."""
 
     BINDINGS = [
         Binding("y", "start_discovery", "Yes, discover", show=False),
     ]
 
+    keybind_hints = (
+        "[#e0a044]r[/] run · [#e0a044]d[/] discover · [#e0a044]b[/] browse · "
+        "[#e0a044]q[/] quit · [#e0a044]?[/] help"
+    )
+
     DEFAULT_CSS = """
     DashboardScreen {
-        padding: 1 2;
+        background: #000000;
     }
     #dashboard-header {
         height: auto;
@@ -78,18 +83,7 @@ class DashboardScreen(Screen):
         self._data = data
         self._workspace_path = workspace_path
 
-    def compose(self) -> ComposeResult:
-        from recon.tui.widgets import humanize_path
-
-        yield Static(
-            f"[bold #e0a044]recon[/] // {self._data.company_name} -- {self._data.domain}",
-            id="dashboard-header",
-        )
-        yield Static(
-            f"Workspace: {humanize_path(self._workspace_path)}",
-            id="workspace-path",
-        )
-
+    def compose_body(self) -> ComposeResult:
         if self._data.total_competitors == 0:
             yield from self._compose_empty_prompt()
         else:

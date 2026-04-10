@@ -9,21 +9,23 @@ from __future__ import annotations
 
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.containers import Horizontal
-from textual.screen import Screen
 from textual.widgets import Button, DataTable, Static
 
 from recon.logging import get_logger
 from recon.tui.models.dashboard import DashboardData  # noqa: TCH001
+from recon.tui.shell import ReconScreen
 
 _log = get_logger(__name__)
 
 
-class CompetitorBrowserScreen(Screen):
+class CompetitorBrowserScreen(ReconScreen):
     """Scrollable competitor list with detail panel."""
+
+    keybind_hints = "[#e0a044]esc[/] back · [#e0a044]↑↓[/] navigate · [#e0a044]q[/] quit"
 
     DEFAULT_CSS = """
     CompetitorBrowserScreen {
-        padding: 1 2;
+        background: #000000;
     }
     #browser-table {
         height: 1fr;
@@ -53,9 +55,9 @@ class CompetitorBrowserScreen(Screen):
         super().__init__()
         self._data = data
 
-    def compose(self) -> ComposeResult:
+    def compose_body(self) -> ComposeResult:
         yield Static(
-            f"[bold #e0a044]COMPETITORS[/]  ({self._data.total_competitors})",
+            f"[bold #e0a044]── COMPETITORS ── ({self._data.total_competitors})[/]",
             id="browser-title",
         )
 

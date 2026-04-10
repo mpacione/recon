@@ -38,22 +38,40 @@ class _DashboardTestApp(App):
 
 class TestDashboardScreen:
     async def test_shows_workspace_path(self, tmp_path: Path) -> None:
+        """The workspace path lives in the persistent ReconHeaderBar
+        chrome strip, not on the dashboard screen itself.
+        """
+        from recon.tui.shell import ReconHeaderBar, WorkspaceContext
+
         data = _make_dashboard_data(total_competitors=5)
         app = _DashboardTestApp(data, tmp_path)
-        async with app.run_test(size=(120, 40)):
-            path_label = app.query_one("#workspace-path", Static)
-            content = str(path_label.content)
-            # humanize_path collapses macOS temp dirs to $TMP/...
-            # so the leaf segment of the path must still appear.
+        # The chrome reads workspace_context from the app.
+        app.workspace_context = WorkspaceContext(
+            workspace_path=tmp_path,
+            domain="Developer Tools",
+            company_name="Acme Corp",
+        )
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            header = app.query_one(ReconHeaderBar)
+            header.set_workspace_context(app.workspace_context)
+            content = header._render_context(app.workspace_context)
             assert tmp_path.name in content
-            assert "Workspace:" in content
 
     async def test_shows_domain_and_company(self, tmp_path: Path) -> None:
+        from recon.tui.shell import ReconHeaderBar, WorkspaceContext
+
         data = _make_dashboard_data(total_competitors=5)
         app = _DashboardTestApp(data, tmp_path)
-        async with app.run_test(size=(120, 40)):
-            header = app.query_one("#dashboard-header", Static)
-            content = str(header.content)
+        app.workspace_context = WorkspaceContext(
+            workspace_path=tmp_path,
+            domain="Developer Tools",
+            company_name="Acme Corp",
+        )
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            header = app.query_one(ReconHeaderBar)
+            content = header._render_context(app.workspace_context)
             assert "Acme Corp" in content
             assert "Developer Tools" in content
 

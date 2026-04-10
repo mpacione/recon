@@ -14,8 +14,15 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import logging
+from collections import deque
+from dataclasses import dataclass
 from pathlib import Path  # noqa: TCH003 -- used at runtime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _CONFIGURED = False
 _LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
@@ -27,6 +34,80 @@ class _FlushingFileHandler(logging.FileHandler):
     def emit(self, record: logging.LogRecord) -> None:
         super().emit(record)
         self.flush()
+
+
+@dataclass(frozen=True)
+class LogEntry:
+    """A single log line, ready to render in the TUI log pane."""
+
+    timestamp: str  # HH:MM:SS
+    level: str  # INFO/WARN/ERROR/etc
+    name: str  # short logger name (last component)
+    message: str
+
+
+class MemoryLogHandler(logging.Handler):
+    """Logging handler that keeps the last N records in a deque.
+
+    The TUI's log pane reads from one of these so it can show a live
+    tail of engine activity without needing to poll the file. Listener
+    callbacks fire on each emit so the pane can refresh reactively.
+    """
+
+    def __init__(self, capacity: int = 200) -> None:
+        super().__init__()
+        self._buffer: deque[LogEntry] = deque(maxlen=capacity)
+        self._listeners: list[Callable[[LogEntry], None]] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            short_name = record.name.split(".")[-1]
+            entry = LogEntry(
+                timestamp=self.formatter.formatTime(record, "%H:%M:%S")
+                if self.formatter
+                else "",
+                level=record.levelname,
+                name=short_name,
+                message=record.getMessage(),
+            )
+        except Exception:
+            return
+        self._buffer.append(entry)
+        for listener in list(self._listeners):
+            with contextlib.suppress(Exception):
+                listener(entry)
+
+    def tail(self, n: int) -> list[LogEntry]:
+        """Return the most recent ``n`` entries (oldest first)."""
+        if n <= 0 or not self._buffer:
+            return []
+        return list(self._buffer)[-n:]
+
+    def subscribe(self, listener: Callable[[LogEntry], None]) -> None:
+        """Register a callback fired on each new log entry."""
+        self._listeners.append(listener)
+
+    def unsubscribe(self, listener: Callable[[LogEntry], None]) -> None:
+        if listener in self._listeners:
+            self._listeners.remove(listener)
+
+
+_MEMORY_HANDLER: MemoryLogHandler | None = None
+
+
+def get_memory_handler() -> MemoryLogHandler:
+    """Return the process-wide MemoryLogHandler attached to recon's logger.
+
+    The handler is created lazily on first call. After
+    ``configure_logging`` runs, the handler is also attached to the
+    ``recon`` root logger so every engine module's log calls flow
+    through it.
+    """
+    global _MEMORY_HANDLER
+    if _MEMORY_HANDLER is None:
+        _MEMORY_HANDLER = MemoryLogHandler()
+        _MEMORY_HANDLER.setFormatter(logging.Formatter(_LOG_FORMAT))
+    return _MEMORY_HANDLER
 
 
 def configure_logging(
@@ -62,6 +143,13 @@ def configure_logging(
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(formatter)
         root.addHandler(console_handler)
+
+    # Always attach the in-memory tail handler so the TUI's log pane
+    # has something to read.
+    memory_handler = get_memory_handler()
+    memory_handler.setFormatter(formatter)
+    if memory_handler not in root.handlers:
+        root.addHandler(memory_handler)
 
     root.propagate = False
     _CONFIGURED = True

@@ -27,6 +27,23 @@ def _clear_chromadb_system_cache():
 
         SharedSystemClient.clear_system_cache()
 
+
+@pytest.fixture(autouse=True)
+def _clear_memory_log_buffer():
+    """Reset the in-memory log buffer between tests.
+
+    The TUI's LogPane renders from a process-wide
+    ``recon.logging.MemoryLogHandler`` buffer. When snapshot tests
+    capture a screen state, residual log entries from earlier tests
+    bleed into the LogPane render and break visual diffs. Wiping the
+    buffer per test makes the chrome deterministic.
+    """
+    with contextlib.suppress(Exception):
+        from recon.logging import get_memory_handler
+
+        get_memory_handler()._buffer.clear()
+    yield
+
 MINIMAL_SCHEMA_DICT = {
     "domain": "Developer Tools",
     "identity": {
