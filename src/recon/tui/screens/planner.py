@@ -32,31 +32,31 @@ class Operation(StrEnum):
 _OPERATION_LABELS: dict[Operation, tuple[str, str]] = {
     Operation.ADD_NEW: (
         "Add new competitors",
-        "Add to the workspace and research from scratch",
+        "discover then research the new ones",
     ),
     Operation.UPDATE_SPECIFIC: (
-        "Update specific competitors",
-        "Re-research selected profiles in full",
+        "Update specific",
+        "re-research selected profiles in full",
     ),
     Operation.UPDATE_ALL: (
-        "Update all competitors",
-        "Re-research every profile in full",
+        "Update all",
+        "re-research every profile in full",
     ),
     Operation.DIFF_SPECIFIC: (
-        "Diff update -- specific",
-        "Check what changed externally, update stale sections for selected profiles",
+        "Diff specific",
+        "refresh stale sections for selected profiles",
     ),
     Operation.DIFF_ALL: (
-        "Diff update -- all",
-        "Check what changed externally, update stale sections across the full workspace",
+        "Diff all",
+        "refresh stale sections across the full workspace",
     ),
     Operation.RERUN_FAILED: (
-        "Re-run failed / disputed",
-        "Retry anything that errored or failed verification",
+        "Re-run failed",
+        "retry sections marked failed",
     ),
     Operation.FULL_PIPELINE: (
         "Full pipeline",
-        "End-to-end: research, verify, enrich, synthesize",
+        "research → verify → enrich → index → themes → synthesize → deliver",
     ),
 }
 
@@ -77,26 +77,45 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
         align: center middle;
     }
     #planner-container {
-        width: 70;
+        width: 90;
         height: auto;
-        max-height: 90%;
+        max-height: 95%;
         padding: 1 2;
         border: solid #3a3a3a;
         background: #0d0d0d;
-        overflow-y: auto;
     }
-    .operation-button {
-        width: 100%;
+    #planner-header {
         height: auto;
         margin: 0 0 1 0;
     }
+    #planner-options {
+        height: auto;
+        margin: 0;
+    }
+    .operation-row {
+        width: 100%;
+        height: 1;
+        margin: 0;
+        padding: 0 1;
+        border: none;
+        background: transparent;
+        color: #efe5c0;
+    }
+    .operation-row:hover {
+        background: #2a1f10;
+    }
     .action-bar {
         height: auto;
-        margin: 1 0;
+        margin: 1 0 0 0;
         layout: horizontal;
     }
     .action-bar Button {
         margin: 0 1 0 0;
+    }
+    #planner-hint {
+        height: auto;
+        margin: 1 0 0 0;
+        color: #a89984;
     }
     """
 
@@ -121,40 +140,42 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="planner-container"):
-            yield Static("[bold #e0a044]RUN PLANNER[/]", id="planner-title")
-            yield Static(
-                f"[#a89984]Workspace: {self._competitor_count} competitors, "
-                f"{self._section_count} sections[/]",
-                id="planner-stats",
-            )
-            if self._estimated_full_run_cost > 0:
-                per_competitor = (
-                    self._estimated_full_run_cost / self._competitor_count
-                    if self._competitor_count
-                    else 0.0
-                )
+            with Vertical(id="planner-header"):
+                yield Static("[bold #e0a044]── RUN PLANNER ──[/]", id="planner-title")
                 yield Static(
-                    f"[#a89984]Estimated full-run cost: "
-                    f"[#e0a044]${self._estimated_full_run_cost:.2f}[/]"
-                    f"  (~${per_competitor:.2f} per competitor)[/]",
-                    id="planner-cost",
+                    f"[#a89984]workspace: {self._competitor_count} competitors · "
+                    f"{self._section_count} sections[/]",
+                    id="planner-stats",
                 )
-            yield Static("")
-            yield Static("[#efe5c0]What do you want to do?[/]")
-            yield Static("")
+                if self._estimated_full_run_cost > 0:
+                    per_competitor = (
+                        self._estimated_full_run_cost / self._competitor_count
+                        if self._competitor_count
+                        else 0.0
+                    )
+                    yield Static(
+                        f"[#a89984]est. full run: "
+                        f"[#e0a044]${self._estimated_full_run_cost:.2f}[/]"
+                        f"  (~${per_competitor:.2f} per competitor)[/]",
+                        id="planner-cost",
+                    )
 
-            operations = list(Operation)
-            for i, op in enumerate(operations):
-                label, description = _OPERATION_LABELS[op]
-                yield Button(
-                    f"[{i + 1}]  {label}  —  {description}",
-                    id=f"btn-op-{i}",
-                    classes="operation-button",
-                )
+            with Vertical(id="planner-options"):
+                operations = list(Operation)
+                for i, op in enumerate(operations):
+                    label, description = _OPERATION_LABELS[op]
+                    yield Button(
+                        f" [{i + 1}]  {label}  — {description}",
+                        id=f"btn-op-{i}",
+                        classes="operation-row",
+                    )
 
-            yield Static("")
             with Horizontal(classes="action-bar"):
                 yield Button("Back", id="btn-back")
+            yield Static(
+                "[#a89984]press a number 1-7 or click an option to run[/]",
+                id="planner-hint",
+            )
 
     def _select_by_number(self, number: str) -> None:
         op = _OPERATION_BY_NUMBER.get(number)

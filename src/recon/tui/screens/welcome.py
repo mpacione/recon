@@ -53,13 +53,44 @@ class RecentProjectsManager:
             return []
         try:
             data = json.loads(self._json_path.read_text())
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as exc:
+            _log.warning("recent projects load failed: %s", exc)
             return []
-        return [
-            RecentProject(path=entry["path"], name=entry["name"], last_opened=entry["last_opened"])
-            for entry in data
-            if isinstance(entry, dict) and "path" in entry and "name" in entry and "last_opened" in entry
-        ]
+        if not isinstance(data, list):
+            _log.warning(
+                "recent projects file is not a JSON list, got %s",
+                type(data).__name__,
+            )
+            return []
+
+        projects: list[RecentProject] = []
+        dropped = 0
+        for entry in data:
+            if not isinstance(entry, dict):
+                dropped += 1
+                continue
+            try:
+                projects.append(
+                    RecentProject(
+                        path=entry["path"],
+                        name=entry["name"],
+                        last_opened=entry["last_opened"],
+                    ),
+                )
+            except KeyError as missing:
+                _log.warning(
+                    "recent projects entry missing field %s; got keys %s",
+                    missing,
+                    sorted(entry.keys()),
+                )
+                dropped += 1
+        if dropped:
+            _log.info(
+                "recent projects: kept %d, dropped %d malformed entries",
+                len(projects),
+                dropped,
+            )
+        return projects
 
     def save(self, projects: list[RecentProject]) -> None:
         self._json_path.parent.mkdir(parents=True, exist_ok=True)

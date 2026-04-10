@@ -47,7 +47,7 @@ class TestRunPlannerScreen:
         app = _PlannerTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            items = app.screen.query(".operation-button")
+            items = app.screen.query(".operation-row")
             assert len(items) == 7
 
     async def test_operation_button_dismisses_with_selection(self) -> None:

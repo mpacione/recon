@@ -15,6 +15,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from recon.llm import LLMClient  # noqa: TCH001
+from recon.logging import get_logger
+
+_log = get_logger(__name__)
 
 
 class SourceStatus(StrEnum):
@@ -89,6 +92,13 @@ class VerificationEngine:
 
     async def verify(self, request: VerificationRequest) -> VerificationOutcome:
         """Verify research content based on the requested tier."""
+        _log.info(
+            "verify tier=%s competitor=%s section=%s sources=%d",
+            request.tier,
+            request.competitor_name,
+            request.section_key,
+            len(request.sources),
+        )
         if request.tier == "standard":
             return self._standard_verification(request)
         if request.tier == "verified":

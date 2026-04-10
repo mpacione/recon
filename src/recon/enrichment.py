@@ -16,8 +16,11 @@ from typing import Any
 import frontmatter
 
 from recon.llm import LLMClient  # noqa: TCH001
+from recon.logging import get_logger
 from recon.workers import WorkerPool
 from recon.workspace import Workspace  # noqa: TCH001
+
+_log = get_logger(__name__)
 
 
 class EnrichmentPass(StrEnum):
@@ -104,10 +107,19 @@ class EnrichmentOrchestrator:
 
         eligible = [p for p in profiles if self._has_content(p)]
 
+        _log.info(
+            "enrich pass=%s eligible=%d targets=%s",
+            self.enrichment_pass.value,
+            len(eligible),
+            "all" if targets is None else f"{len(targets)} specified",
+        )
+
         if not eligible:
+            _log.info("enrich pass=%s nothing to do", self.enrichment_pass.value)
             return []
 
         if cancel_event is not None and cancel_event.is_set():
+            _log.info("enrich pass=%s cancelled before start", self.enrichment_pass.value)
             return []
 
         pool = WorkerPool(max_workers=self.max_workers)
@@ -118,7 +130,14 @@ class EnrichmentOrchestrator:
             pause_event=pause_event,
         )
 
-        return [o.value for o in outcomes if o.success and o.value]
+        results = [o.value for o in outcomes if o.success and o.value]
+        _log.info(
+            "enrich pass=%s complete success=%d failed=%d",
+            self.enrichment_pass.value,
+            len(results),
+            len(outcomes) - len(results),
+        )
+        return results
 
     def _has_content(self, profile_meta: dict[str, Any]) -> bool:
         """Check if a profile has research content worth enriching."""

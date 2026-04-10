@@ -14,7 +14,10 @@ from typing import Any
 import frontmatter
 import yaml
 
+from recon.logging import get_logger
 from recon.schema import ReconSchema, load_schema_file
+
+_log = get_logger(__name__)
 
 
 def _slugify(name: str) -> str:
@@ -125,6 +128,7 @@ class Workspace:
             },
         )
         profile_path.write_text(frontmatter.dumps(post))
+        _log.info("workspace created profile name=%s slug=%s type=%s", name, slug, profile_type)
         return profile_path
 
     def list_profiles(self) -> list[dict[str, Any]]:

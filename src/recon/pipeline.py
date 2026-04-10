@@ -213,6 +213,15 @@ class Pipeline:
 
     async def execute(self, run_id: str) -> None:
         """Execute the pipeline."""
+        _log.info(
+            "pipeline execute run_id=%s start=%s stop=%s deep=%s verify=%s targets=%s",
+            run_id,
+            self.config.start_from.value,
+            self.config.stop_after.value,
+            self.config.deep_synthesis,
+            self.config.verification_enabled,
+            self.config.targets if self.config.targets else "all",
+        )
         await self.state_store.update_run_status(run_id, RunStatus.RUNNING)
 
         cost_tracker = CostTracker(
@@ -240,13 +249,16 @@ class Pipeline:
                 await self._emit(stage.value, "complete")
 
             if self._cancelled:
+                _log.info("pipeline execute run_id=%s -> CANCELLED", run_id)
                 await self.state_store.update_run_status(
                     run_id, RunStatus.CANCELLED,
                 )
                 return
 
+            _log.info("pipeline execute run_id=%s -> COMPLETED", run_id)
             await self.state_store.update_run_status(run_id, RunStatus.COMPLETED)
         except Exception:
+            _log.exception("pipeline execute run_id=%s -> FAILED", run_id)
             await self.state_store.update_run_status(run_id, RunStatus.FAILED)
             raise
 

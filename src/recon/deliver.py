@@ -10,7 +10,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from recon.llm import LLMClient  # noqa: TCH001
+from recon.logging import get_logger
 from recon.synthesis import SynthesisResult  # noqa: TCH001
+
+_log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,7 @@ class Distiller:
 
     async def distill(self, synthesis: SynthesisResult) -> DistilledResult:
         """Distill a deep synthesis into a concise executive summary."""
+        _log.info("distill start theme=%r", synthesis.theme)
         system_prompt = (
             "You are an executive communications specialist. Distill the following "
             "multi-perspective competitive analysis into a concise 1-page executive "
@@ -74,6 +78,7 @@ class MetaSynthesizer:
 
     async def synthesize(self, distilled_results: list[dict[str, Any]]) -> MetaSynthesisResult:
         """Create a cross-theme executive summary."""
+        _log.info("meta-synthesis start themes=%d", len(distilled_results))
         system_prompt = (
             "You are a senior strategy advisor. Synthesize the following theme-level "
             "executive summaries into a single cross-cutting analysis. Identify: "

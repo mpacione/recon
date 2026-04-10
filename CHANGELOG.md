@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed -- TUI audit Phase A (10 bugs)
+
+Driven by an end-to-end TUI screen audit. Each fix is a regression
+test plus the smallest change that resolves the audit finding.
+
+- **BUG-1**: ReconApp now records opened workspaces in
+  `~/.recon/recent.json` via `RecentProjectsManager.add()` from both
+  `on_welcome_screen_workspace_selected` and the wizard handler.
+  Previously the file stayed empty forever, so the welcome screen's
+  Recent Projects pane never had anything to show.
+- **BUG-1 (cont.)**: `RecentProjectsManager.load()` now logs a
+  warning when it drops malformed entries instead of silently
+  filtering them. Catches schema mismatches in the JSON file.
+- **BUG-2**: Dashboard `_build_section_statuses` now reads
+  per-section `section_status` frontmatter (the field the diff/rerun
+  work introduced). Previously every section was reported as
+  "complete" whenever the profile's overall `research_status` was
+  non-scaffold, producing dashboards that lied about per-section
+  state.
+- **BUG-3 + BUG-4**: Planner layout rewritten so the title,
+  workspace stats, and cost preview sit OUTSIDE the scrollable
+  options list. Operation rows are now single-line buttons with
+  short two-line labels instead of two-line buttons with long
+  descriptions, so all 7 options fit in a 90-column-wide modal
+  along with the Back button. Cost preview is now always visible
+  when an estimate exists.
+- **BUG-5**: `RunScreen._request_stop` and `_toggle_pause` now
+  append to the on-screen activity log when no pipeline is active,
+  not just a Textual toast. The log entry survives long enough for
+  the user to actually read it.
+- **BUG-6**: `format_progress_bar(state=...)` now color-codes the
+  bar by phase: orange for running, green for done, yellow for
+  paused, red with X-marks for cancelled/error, gray for stopping,
+  white dashes for idle. `RunScreen.watch_current_phase` triggers a
+  bar repaint so the color updates the moment the phase changes.
+- **BUG-7**: New `humanize_path()` helper in `tui/widgets.py`
+  collapses `$HOME` to `~`, macOS temp dirs to `$TMP/...`, and
+  long paths to `head/…/leaf` form. Dashboard uses it for the
+  `Workspace:` line so the path stays readable.
+- **BUG-8**: Deferred (test-fixture-only artifact).
+- **BUG-9**: `build_dashboard_data` now reads cost history from
+  the workspace state.db via the new `StateStore.get_workspace_run_summary()`
+  helper. Dashboard shows `COST $X.XX across N runs` plus a
+  `last run: $Y.YY` sub-line. Previously every dashboard reported
+  `total_cost = 0.0` because the populator never read the state
+  store.
+- **BUG-10**: Engine logging coverage expanded. Added structured
+  INFO/DEBUG logs to:
+  - `workspace.create_profile`
+  - `enrichment.enrich_all` (start/complete with success/fail counts)
+  - `index.IndexManager.add_chunks` and `retrieve` (debug)
+  - `tag.Tagger.tag` (start/complete with assignment count)
+  - `synthesis.SynthesisEngine.synthesize` (start/complete per theme)
+  - `deliver.Distiller.distill` and `MetaSynthesizer.synthesize`
+  - `verification.VerificationEngine.verify` (tier + competitor + section)
+  - `pipeline.Pipeline.execute` entry/exit/cancel/fail with run_id
+  - `cli.main` group now logs full subcommand parameters at INFO
+
+Plus a state-store improvement that fell out of BUG-9:
+- `StateStore.list_runs` now tie-breaks on ROWID DESC so two runs
+  created in the same second still report a stable ordering (most
+  recent insert first). Without this, `get_workspace_run_summary`
+  could pick the wrong "latest" run when multiple ran in quick
+  succession.
+- New `StateStore.get_workspace_total_cost` and
+  `StateStore.get_workspace_run_summary` helpers.
+
 ### Added -- Option U: TUI cleanup and polish
 
 - **Cost preview in the run planner.** `RunPlannerScreen` accepts an

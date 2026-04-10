@@ -12,6 +12,9 @@ from enum import StrEnum
 from typing import Any
 
 from recon.llm import LLMClient  # noqa: TCH001
+from recon.logging import get_logger
+
+_log = get_logger(__name__)
 
 
 class SynthesisMode(StrEnum):
@@ -91,9 +94,24 @@ class SynthesisEngine:
         mode: SynthesisMode = SynthesisMode.SINGLE,
     ) -> SynthesisResult:
         """Synthesize theme analysis from retrieved chunks."""
+        _log.info(
+            "synthesis start theme=%r mode=%s chunks=%d",
+            theme,
+            mode.value,
+            len(chunks),
+        )
         if mode == SynthesisMode.SINGLE:
-            return await self._single_pass(theme, chunks)
-        return await self._deep_pass(theme, chunks)
+            result = await self._single_pass(theme, chunks)
+        else:
+            result = await self._deep_pass(theme, chunks)
+        _log.info(
+            "synthesis complete theme=%r passes=%d in=%d out=%d",
+            theme,
+            len(result.passes),
+            result.total_input_tokens,
+            result.total_output_tokens,
+        )
+        return result
 
     async def _single_pass(self, theme: str, chunks: list[dict[str, Any]]) -> SynthesisResult:
         """Single-pass synthesis."""

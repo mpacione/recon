@@ -13,6 +13,10 @@ from typing import Any
 
 import chromadb
 
+from recon.logging import get_logger
+
+_log = get_logger(__name__)
+
 
 @dataclass
 class Chunk:
@@ -151,11 +155,18 @@ class IndexManager:
             documents=documents,
             metadatas=metadatas,
         )
+        _log.debug(
+            "index added %d chunks (collection now %d)",
+            len(chunks),
+            self._collection.count(),
+        )
 
     def retrieve(self, query: str, n_results: int = 10) -> list[dict[str, Any]]:
         """Retrieve relevant chunks by semantic search."""
         if self._collection.count() == 0:
+            _log.debug("index retrieve called but collection is empty")
             return []
+        _log.debug("index retrieve query=%r n_results=%d", query[:80], n_results)
 
         results = self._collection.query(
             query_texts=[query],

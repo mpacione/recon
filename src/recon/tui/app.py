@@ -112,11 +112,28 @@ class ReconApp(App):
     def on_welcome_screen_workspace_selected(self, event: WelcomeScreen.WorkspaceSelected) -> None:
         _log.info("WorkspaceSelected path=%s", event.path)
         self._workspace_path = Path(event.path)
+        self._record_recent_project(self._workspace_path)
         self.switch_mode("run")
         self.remove_mode("dashboard")
         self.add_mode("dashboard", self._make_dashboard_screen)
         self.switch_mode("dashboard")
         _log.info("workspace loaded, dashboard mode active")
+
+    def _record_recent_project(self, workspace_path: Path) -> None:
+        """Append the opened workspace to ~/.recon/recent.json so the
+        welcome screen can show it next time. Silent on failure.
+        """
+        try:
+            from recon.tui.screens.welcome import (
+                _DEFAULT_RECENT_PATH,
+                RecentProjectsManager,
+            )
+
+            manager = RecentProjectsManager(_DEFAULT_RECENT_PATH)
+            manager.add(workspace_path, workspace_path.name)
+            _log.info("recorded recent project path=%s", workspace_path)
+        except Exception:
+            _log.exception("failed to record recent project")
 
     def on_welcome_screen_new_project_requested(self, event: WelcomeScreen.NewProjectRequested) -> None:
         _log.info("NewProjectRequested path=%s", event.path)
@@ -164,6 +181,7 @@ class ReconApp(App):
             return
 
         self._workspace_path = result.output_dir
+        self._record_recent_project(result.output_dir)
         self.switch_mode("run")
         self.remove_mode("dashboard")
         self.add_mode("dashboard", self._make_dashboard_screen)

@@ -152,8 +152,14 @@ class StateStore:
         )
 
     async def list_runs(self) -> list[dict[str, Any]]:
-        """List all runs, most recent first."""
-        return await self._execute_returning_rows("SELECT * FROM runs ORDER BY created_at DESC")
+        """List all runs, most recent first.
+
+        Tie-breaks on ROWID so runs created in the same second still
+        report a stable ordering (later insert = earlier in the list).
+        """
+        return await self._execute_returning_rows(
+            "SELECT * FROM runs ORDER BY created_at DESC, ROWID DESC",
+        )
 
     async def create_task(
         self,
@@ -283,3 +289,31 @@ class StateStore:
             (run_id,),
         )
         return float(row["total"]) if row else 0.0
+
+    async def get_workspace_total_cost(self) -> float:
+        """Get total cost in USD across every run in this workspace."""
+        row = await self._execute_returning_one(
+            "SELECT COALESCE(SUM(cost_usd), 0.0) as total FROM cost_history",
+        )
+        return float(row["total"]) if row else 0.0
+
+    async def get_workspace_run_summary(self) -> dict[str, Any]:
+        """Aggregate run history: count, total cost, last run cost.
+
+        Used by the dashboard to show "$X across N runs" without
+        loading every cost row.
+        """
+        runs = await self.list_runs()
+        total_cost = await self.get_workspace_total_cost()
+        last_run_cost = 0.0
+        last_run_id = None
+        if runs:
+            # list_runs orders DESC by created_at, so [0] is most recent
+            last_run_id = runs[0]["run_id"]
+            last_run_cost = await self.get_run_total_cost(last_run_id)
+        return {
+            "run_count": len(runs),
+            "total_cost": total_cost,
+            "last_run_cost": last_run_cost,
+            "last_run_id": last_run_id,
+        }

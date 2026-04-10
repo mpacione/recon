@@ -42,7 +42,11 @@ class TestDashboardScreen:
         app = _DashboardTestApp(data, tmp_path)
         async with app.run_test(size=(120, 40)):
             path_label = app.query_one("#workspace-path", Static)
-            assert str(tmp_path) in str(path_label.content)
+            content = str(path_label.content)
+            # humanize_path collapses macOS temp dirs to $TMP/...
+            # so the leaf segment of the path must still appear.
+            assert tmp_path.name in content
+            assert "Workspace:" in content
 
     async def test_shows_domain_and_company(self, tmp_path: Path) -> None:
         data = _make_dashboard_data(total_competitors=5)

@@ -105,6 +105,7 @@ class RunScreen(Screen):
         """Set the cancel event the TUI runner stored on the app, if any."""
         cancel_event = getattr(self.app, "_pipeline_cancel_event", None)
         if cancel_event is None:
+            self.add_activity("Stop ignored: no active pipeline")
             self.app.notify("No active pipeline to stop", severity="warning")
             return
         cancel_event.set()
@@ -128,6 +129,7 @@ class RunScreen(Screen):
         """
         pause_event = getattr(self.app, "_pipeline_pause_event", None)
         if pause_event is None:
+            self.add_activity("Pause ignored: no active pipeline")
             self.app.notify(
                 "No active pipeline to pause",
                 severity="warning",
@@ -152,6 +154,9 @@ class RunScreen(Screen):
     def watch_current_phase(self, value: str) -> None:
         with contextlib.suppress(Exception):
             self.query_one("#run-phase", Static).update(self._format_phase())
+        # Phase changes the bar color/state, so refresh the bar too
+        with contextlib.suppress(Exception):
+            self.query_one("#run-progress", Static).update(self._format_progress())
 
     def watch_progress(self, value: float) -> None:
         with contextlib.suppress(Exception):
@@ -181,11 +186,23 @@ class RunScreen(Screen):
         except Exception:
             pass
 
+    _STATE_KEYWORDS = ("idle", "running", "paused", "stopping", "done", "cancelled", "error")
+
     def _format_phase(self) -> str:
         return f"[#efe5c0]Phase:[/] {self.current_phase.capitalize()}"
 
+    def _bar_state(self) -> str:
+        """Map current_phase to a progress-bar visual state."""
+        phase = (self.current_phase or "").lower()
+        for keyword in self._STATE_KEYWORDS:
+            if keyword in phase:
+                return keyword
+        # Default: any non-special phase ("research", "synthesize", ...)
+        # is a "running" state.
+        return "running"
+
     def _format_progress(self) -> str:
-        return format_progress_bar(self.progress)
+        return format_progress_bar(self.progress, state=self._bar_state())
 
     def _format_cost(self) -> str:
         return f"[#efe5c0]Cost:[/] ${self.cost_usd:.2f}"

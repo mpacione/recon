@@ -79,12 +79,16 @@ class DashboardScreen(Screen):
         self._workspace_path = workspace_path
 
     def compose(self) -> ComposeResult:
+        from recon.tui.widgets import humanize_path
+
         yield Static(
             f"[bold #e0a044]recon[/] // {self._data.company_name} -- {self._data.domain}",
             id="dashboard-header",
         )
-        display_path = str(self._workspace_path).replace(str(Path.home()), "~")
-        yield Static(f"Workspace: {display_path}", id="workspace-path")
+        yield Static(
+            f"Workspace: {humanize_path(self._workspace_path)}",
+            id="workspace-path",
+        )
 
         if self._data.total_competitors == 0:
             yield from self._compose_empty_prompt()
@@ -149,12 +153,17 @@ class DashboardScreen(Screen):
                 f"{self._data.themes_selected} selected",
             )
 
-        if self._data.total_cost > 0:
+        if self._data.total_cost > 0 or self._data.run_count > 0:
             yield Static("")
             yield Static(
-                f"[bold #e0a044]COST[/]  ${self._data.total_cost:.2f} "
-                f"across {self._data.run_count} runs",
+                f"[bold #e0a044]COST[/]  [#e0a044]${self._data.total_cost:.2f}[/] "
+                f"across {self._data.run_count} run"
+                f"{'s' if self._data.run_count != 1 else ''}",
             )
+            if self._data.last_run_cost > 0:
+                yield Static(
+                    f"  [#a89984]last run: ${self._data.last_run_cost:.2f}[/]",
+                )
 
     def on_screen_resume(self) -> None:
         from recon.tui.models.dashboard import build_dashboard_data

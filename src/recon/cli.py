@@ -50,10 +50,13 @@ def main(ctx, log_level, log_file):
 
     configure_logging(level=log_level, log_file=log_file_path)
     _log = get_logger("cli")
+    # Capture command arguments for diagnostic context
+    args_repr = " ".join(f"{k}={v}" for k, v in ctx.params.items() if k not in {"log_level", "log_file"})
     _log.info(
-        "recon CLI invoked subcommand=%s log_level=%s",
+        "recon CLI invoked subcommand=%s log_level=%s %s",
         ctx.invoked_subcommand,
         log_level,
+        args_repr,
     )
     ctx.ensure_object(dict)
     ctx.obj["log_file"] = log_file_path

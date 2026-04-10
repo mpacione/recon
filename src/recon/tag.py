@@ -14,8 +14,11 @@ from dataclasses import dataclass
 import frontmatter
 
 from recon.index import IndexManager  # noqa: TCH001 -- used at runtime
+from recon.logging import get_logger
 from recon.themes import DiscoveredTheme  # noqa: TCH001 -- used at runtime
 from recon.workspace import Workspace  # noqa: TCH001 -- used at runtime
+
+_log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,12 @@ class Tagger:
         aggregates relevance scores by competitor, and returns assignments
         above the threshold, limited to top_n per theme.
         """
+        _log.info(
+            "tag computing assignments themes=%d threshold=%.2f top_n=%d",
+            len(themes),
+            threshold,
+            top_n,
+        )
         all_assignments: list[TagAssignment] = []
 
         profiles = self._workspace.list_profiles()
@@ -77,6 +86,11 @@ class Tagger:
                         )
                     )
 
+        _log.info(
+            "tag produced %d assignments across %d themes",
+            len(all_assignments),
+            len(themes),
+        )
         return all_assignments
 
     def apply(self, assignments: list[TagAssignment]) -> None:

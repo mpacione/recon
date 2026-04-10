@@ -158,6 +158,89 @@ class TestPlannerStartsPipelineWithRunScreen:
                 )
 
 
+class TestRecentProjectsRecording:
+    """ReconApp must record opened workspaces in recent.json so the
+    welcome screen can show them next time. This is the BUG-1 fix
+    from the audit -- previously the file stayed empty forever.
+    """
+
+    async def test_opening_workspace_via_welcome_appends_to_recent(
+        self, tmp_workspace: Path, tmp_path: Path, monkeypatch
+    ) -> None:
+        from recon.tui.screens.welcome import RecentProjectsManager
+
+        recent_path = tmp_path / "recent.json"
+        # Patch the default location ReconApp uses
+        monkeypatch.setattr(
+            "recon.tui.screens.welcome._DEFAULT_RECENT_PATH",
+            recent_path,
+        )
+
+        app = ReconApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, WelcomeScreen)
+            app.screen.post_message(WelcomeScreen.WorkspaceSelected(str(tmp_workspace)))
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, DashboardScreen)
+
+        # The workspace should now be in the recent.json file
+        assert recent_path.exists(), "recent.json was never written"
+        manager = RecentProjectsManager(recent_path)
+        projects = manager.load()
+        assert len(projects) == 1
+        assert projects[0].path == str(tmp_workspace)
+
+    async def test_creating_workspace_via_wizard_appends_to_recent(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from recon.tui.screens.welcome import RecentProjectsManager
+        from recon.tui.screens.wizard import WizardResult
+
+        recent_path = tmp_path / "recent.json"
+        monkeypatch.setattr(
+            "recon.tui.screens.welcome._DEFAULT_RECENT_PATH",
+            recent_path,
+        )
+
+        new_dir = tmp_path / "fresh-project"
+        app = ReconApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            # Simulate wizard returning a valid result
+            result = WizardResult(
+                schema={
+                    "domain": "Test",
+                    "identity": {
+                        "company_name": "X",
+                        "products": ["Y"],
+                        "decision_context": [],
+                    },
+                    "rating_scales": {},
+                    "sections": [
+                        {
+                            "key": "overview",
+                            "title": "Overview",
+                            "description": "x",
+                            "allowed_formats": ["prose"],
+                            "preferred_format": "prose",
+                        },
+                    ],
+                },
+                output_dir=new_dir,
+                api_key=None,
+            )
+            app._handle_wizard_result(result)
+            await pilot.pause()
+            await pilot.pause()
+
+        assert recent_path.exists(), "recent.json was never written"
+        manager = RecentProjectsManager(recent_path)
+        projects = manager.load()
+        assert any(str(new_dir) == p.path for p in projects)
+
+
 class TestPlannerAddNewFlow:
     async def test_add_new_pushes_discovery_then_starts_pipeline_with_new_targets(
         self, tmp_workspace: Path, monkeypatch

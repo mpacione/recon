@@ -7,6 +7,7 @@ breakdown, and a competitor table.
 from pathlib import Path
 
 import frontmatter as fm
+import pytest
 
 from recon.tui.screens import build_dashboard_data
 from recon.workspace import Workspace
@@ -69,6 +70,96 @@ class TestDashboardData:
         assert len(data.section_statuses) == data.total_sections
         for ss in data.section_statuses:
             assert ss.total == 1
+
+    def test_section_statuses_only_count_researched_sections(
+        self, tmp_workspace: Path
+    ) -> None:
+        """Per-section completion must read section_status frontmatter,
+        not just research_status. This is the BUG-2 fix from the audit.
+        """
+        import frontmatter as fm
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        ws.create_profile("Beta")
+
+        # Alpha: overview researched, nothing else
+        path = ws.competitors_dir / "alpha.md"
+        post = fm.load(str(path))
+        post.content = "## Overview\n\nResearch.\n"
+        post["research_status"] = "researched"
+        post["section_status"] = {
+            "overview": {"status": "researched", "researched_at": "2026-04-10"},
+        }
+        path.write_text(fm.dumps(post))
+
+        # Beta: scaffold (no section_status at all)
+        # The minimal schema only has 1 section ("overview"), so:
+        #   overview: 1 of 2 (Alpha)
+        data = build_dashboard_data(ws)
+        statuses = {s.key: s for s in data.section_statuses}
+        assert statuses["overview"].completed == 1
+        assert statuses["overview"].total == 2
+
+    def test_dashboard_reads_cost_history_from_state_store(
+        self, tmp_workspace: Path
+    ) -> None:
+        """build_dashboard_data should populate total_cost / run_count
+        from the workspace state.db. BUG-9 fix from the audit.
+        """
+        import asyncio
+
+        from recon.state import StateStore
+
+        async def seed_state() -> None:
+            store = StateStore(db_path=tmp_workspace / ".recon" / "state.db")
+            await store.initialize()
+            run_id = await store.create_run(operation="test", parameters={})
+            await store.record_cost(
+                run_id=run_id,
+                model="claude-sonnet-4-5",
+                input_tokens=1000,
+                output_tokens=500,
+                cost_usd=0.42,
+            )
+            run_id2 = await store.create_run(operation="test", parameters={})
+            await store.record_cost(
+                run_id=run_id2,
+                model="claude-sonnet-4-5",
+                input_tokens=2000,
+                output_tokens=1000,
+                cost_usd=0.85,
+            )
+
+        asyncio.run(seed_state())
+
+        ws = Workspace.open(tmp_workspace)
+        data = build_dashboard_data(ws)
+
+        assert data.run_count == 2
+        assert data.total_cost == pytest.approx(1.27, abs=0.01)
+        assert data.last_run_cost == pytest.approx(0.85, abs=0.01)
+
+    def test_section_statuses_ignore_failed_status(
+        self, tmp_workspace: Path
+    ) -> None:
+        import frontmatter as fm
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        path = ws.competitors_dir / "alpha.md"
+        post = fm.load(str(path))
+        post.content = "## Overview\n\nPartial.\n"
+        post["research_status"] = "researched"
+        post["section_status"] = {
+            "overview": {"status": "failed"},
+        }
+        path.write_text(fm.dumps(post))
+
+        data = build_dashboard_data(ws)
+        statuses = {s.key: s for s in data.section_statuses}
+        assert statuses["overview"].completed == 0
 
     def test_enriched_defaults(self, tmp_workspace: Path) -> None:
         ws = Workspace.open(tmp_workspace)
