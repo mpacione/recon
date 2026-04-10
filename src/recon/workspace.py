@@ -30,7 +30,13 @@ def _make_default_schema(
     company_name: str,
     products: list[str],
 ) -> dict[str, Any]:
-    """Build a minimal valid schema dict for workspace init."""
+    """Build a default schema dict for workspace init.
+
+    Uses the same 8-section default set as the wizard so that headless
+    init and TUI-wizard init produce identical starting points.
+    """
+    from recon.wizard import DefaultSections
+
     return {
         "domain": domain,
         "identity": {
@@ -39,15 +45,7 @@ def _make_default_schema(
             "decision_context": [],
         },
         "rating_scales": {},
-        "sections": [
-            {
-                "key": "overview",
-                "title": "Overview",
-                "description": "High-level company and product summary.",
-                "allowed_formats": ["prose"],
-                "preferred_format": "prose",
-            },
-        ],
+        "sections": [dict(section) for section in DefaultSections.ALL],
     }
 
 

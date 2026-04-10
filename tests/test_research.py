@@ -146,6 +146,63 @@ class TestResearchOrchestrator:
         assert profile is not None
         assert "Research content here" in profile["_content"]
 
+    async def test_marks_profile_researched(self, tmp_workspace: Path) -> None:
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        before = ws.read_profile("alpha")
+        assert before["research_status"] == "scaffold"
+
+        llm = _mock_llm_client()
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+        )
+        await orchestrator.research_all()
+
+        after = ws.read_profile("alpha")
+        assert after["research_status"] == "researched"
+
+    async def test_passes_web_search_tool_by_default(self, tmp_workspace: Path) -> None:
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        llm = _mock_llm_client()
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+        )
+        await orchestrator.research_all()
+
+        call_kwargs = llm.complete.call_args.kwargs
+        assert "tools" in call_kwargs
+        assert call_kwargs["tools"] is not None
+        assert call_kwargs["tools"][0]["name"] == "web_search"
+
+    async def test_web_search_can_be_disabled(self, tmp_workspace: Path) -> None:
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        llm = _mock_llm_client()
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+            use_web_search=False,
+        )
+        await orchestrator.research_all()
+
+        call_kwargs = llm.complete.call_args.kwargs
+        assert call_kwargs.get("tools") is None
+
     async def test_batches_by_section(self, tmp_workspace: Path) -> None:
         schema_dict = _make_schema()
         schema_dict["sections"].append({

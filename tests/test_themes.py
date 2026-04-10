@@ -5,12 +5,17 @@ user-defined categories. Users curate (toggle, rename, investigate)
 after discovery.
 """
 
+from unittest.mock import AsyncMock
+
 import numpy as np
 
+from recon.llm import LLMResponse
 from recon.themes import (
     DiscoveredTheme,
     ThemeDiscovery,
+    _clean_label,
     _label_cluster,
+    _strip_sources,
 )
 
 
@@ -131,3 +136,80 @@ class TestClusterLabeling:
         label = _label_cluster([])
 
         assert label == "Unnamed Theme"
+
+
+class TestStripSources:
+    def test_strips_sources_header(self) -> None:
+        text = "Overview paragraph.\n\n## Sources\n- [Doc](https://example.com)"
+        result = _strip_sources(text)
+        assert result == "Overview paragraph."
+
+    def test_strips_case_insensitive(self) -> None:
+        text = "Body\n\n# sources\n- ref"
+        assert _strip_sources(text) == "Body"
+
+    def test_noop_when_no_sources(self) -> None:
+        text = "Just prose, no sources list."
+        assert _strip_sources(text) == text
+
+
+class TestCleanLabel:
+    def test_strips_quotes_and_punctuation(self) -> None:
+        assert _clean_label('"Platform Consolidation."', "fallback") == "Platform Consolidation"
+
+    def test_keeps_first_line_only(self) -> None:
+        assert _clean_label("Enterprise Lock-in\nSome extra explanation", "fallback") == "Enterprise Lock-in"
+
+    def test_falls_back_when_empty(self) -> None:
+        assert _clean_label("", "fallback") == "fallback"
+        assert _clean_label("   ", "fallback") == "fallback"
+
+    def test_falls_back_when_too_long(self) -> None:
+        long_text = "x" * 200
+        assert _clean_label(long_text, "fallback") == "fallback"
+
+
+class TestLLMLabeling:
+    def _mock_llm(self, label_text: str) -> AsyncMock:
+        client = AsyncMock()
+        client.complete = AsyncMock(
+            return_value=LLMResponse(
+                text=label_text,
+                input_tokens=50,
+                output_tokens=10,
+                model="claude-haiku-4-5",
+                stop_reason="end_turn",
+            ),
+        )
+        return client
+
+    def test_uses_llm_label_when_client_provided(self) -> None:
+        chunks = _make_chunks_with_embeddings(30)
+        llm = self._mock_llm("Platform Consolidation")
+
+        discovery = ThemeDiscovery(llm_client=llm)
+        themes = discovery.discover(chunks, n_themes=3)
+
+        assert llm.complete.call_count == 3
+        assert all(t.label == "Platform Consolidation" for t in themes)
+
+    def test_falls_back_to_mechanical_on_llm_error(self) -> None:
+        chunks = _make_chunks_with_embeddings(30)
+        llm = AsyncMock()
+        llm.complete = AsyncMock(side_effect=RuntimeError("API down"))
+
+        discovery = ThemeDiscovery(llm_client=llm)
+        themes = discovery.discover(chunks, n_themes=3)
+
+        assert len(themes) == 3
+        for theme in themes:
+            assert theme.label != "Platform Consolidation"
+            assert len(theme.label) > 0
+
+    def test_no_llm_calls_when_client_absent(self) -> None:
+        chunks = _make_chunks_with_embeddings(30)
+
+        discovery = ThemeDiscovery()
+        themes = discovery.discover(chunks, n_themes=3)
+
+        assert len(themes) == 3

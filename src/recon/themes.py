@@ -3,16 +3,28 @@
 Themes emerge from K-means clustering on chunk embeddings. Users curate
 after discovery (toggle, rename, investigate). No user-defined themes
 in the wizard -- they come from the data.
+
+Cluster labels can be generated two ways:
+1. Mechanical: top frequency terms from the cluster (no API cost, low quality).
+2. LLM-generated: short strategic label via a single LLM call per cluster
+   (small API cost, much higher quality). Enabled by passing an LLMClient
+   to ThemeDiscovery.
 """
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+
+from recon.llm import LLMClient  # noqa: TCH001
+from recon.logging import get_logger
+
+_log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -78,8 +90,49 @@ def _generate_queries(texts: list[str], label: str) -> list[str]:
     return queries
 
 
+_SOURCES_HEADER_RE = re.compile(r"^\s*#+\s*Sources\b", re.IGNORECASE | re.MULTILINE)
+
+
+def _strip_sources(text: str) -> str:
+    """Drop the Sources section from a chunk so clustering focuses on content."""
+    match = _SOURCES_HEADER_RE.search(text)
+    if match:
+        return text[: match.start()].rstrip()
+    return text
+
+
+_LABEL_SYSTEM_PROMPT = """\
+You are a competitive intelligence analyst. Given excerpts from multiple \
+competitor profiles in the same thematic cluster, propose a short label \
+(2 to 5 words) capturing the strategic pattern they share.
+
+Rules:
+- 2 to 5 words only.
+- Title case.
+- No trailing punctuation.
+- Focus on the pattern, not individual companies.
+- Prefer strategic concepts (e.g. "Open Source Moats", "Platform Consolidation", \
+"Enterprise Compliance Arms Race") over mechanical ones (e.g. "Search Engines").
+
+Return ONLY the label text. No explanation, no JSON, no quotes."""
+
+
+def _clean_label(raw: str, fallback: str) -> str:
+    """Clean an LLM label response into a short title-case string."""
+    if not raw or not raw.strip():
+        return fallback
+    line = raw.strip().splitlines()[0].strip()
+    line = line.strip('"\'` ').rstrip(".,:;")
+    if not line or len(line) > 80:
+        return fallback
+    return line
+
+
 class ThemeDiscovery:
     """Discovers themes from K-means clustering on chunk embeddings."""
+
+    def __init__(self, llm_client: LLMClient | None = None) -> None:
+        self._llm_client = llm_client
 
     def discover(
         self,
@@ -94,13 +147,15 @@ class ThemeDiscovery:
         actual_k = min(n_themes, len(chunks))
 
         if actual_k < 2:
-            label = _label_cluster([c["text"] for c in chunks])
+            cleaned = [_strip_sources(c["text"]) for c in chunks]
+            fallback = _label_cluster(cleaned)
+            label = self._llm_label(cleaned, fallback)
             return [
                 DiscoveredTheme(
                     label=label,
                     evidence_chunks=chunks,
                     evidence_strength=_evidence_strength(len(chunks), len(chunks)),
-                    suggested_queries=_generate_queries([c["text"] for c in chunks], label),
+                    suggested_queries=_generate_queries(cleaned, label),
                     cluster_center=embeddings.mean(axis=0).tolist(),
                 ),
             ]
@@ -114,10 +169,11 @@ class ThemeDiscovery:
         themes: list[DiscoveredTheme] = []
         for cluster_id in sorted(clusters, key=lambda k: len(clusters[k]), reverse=True):
             cluster_chunks = clusters[cluster_id]
-            texts = [c["text"] for c in cluster_chunks]
-            label = _label_cluster(texts)
+            cleaned = [_strip_sources(c["text"]) for c in cluster_chunks]
+            fallback = _label_cluster(cleaned)
+            label = self._llm_label(cleaned, fallback)
             strength = _evidence_strength(len(cluster_chunks), len(chunks))
-            queries = _generate_queries(texts, label)
+            queries = _generate_queries(cleaned, label)
 
             themes.append(
                 DiscoveredTheme(
@@ -130,6 +186,49 @@ class ThemeDiscovery:
             )
 
         return themes
+
+    def _llm_label(self, cleaned_texts: list[str], fallback: str) -> str:
+        """Ask the LLM for a short strategic label for this cluster.
+
+        Returns `fallback` (mechanical label) if no LLM client is configured
+        or the call fails.
+        """
+        if self._llm_client is None or not cleaned_texts:
+            return fallback
+
+        excerpts = "\n\n---\n\n".join(
+            text[:800] for text in cleaned_texts[:8] if text.strip()
+        )
+        if not excerpts:
+            return fallback
+
+        user_prompt = (
+            "Excerpts from this cluster:\n\n"
+            f"{excerpts}\n\n"
+            "Return the 2-5 word label only."
+        )
+
+        try:
+            response = asyncio.run(
+                self._llm_client.complete(
+                    system_prompt=_LABEL_SYSTEM_PROMPT,
+                    user_prompt=user_prompt,
+                    max_tokens=30,
+                ),
+            )
+        except RuntimeError:
+            _log.warning(
+                "ThemeDiscovery._llm_label called inside a running event loop; "
+                "falling back to mechanical label",
+            )
+            return fallback
+        except Exception:
+            _log.exception("ThemeDiscovery._llm_label LLM call failed")
+            return fallback
+
+        label = _clean_label(response.text, fallback)
+        _log.info("ThemeDiscovery LLM label: %r (fallback was %r)", label, fallback)
+        return label
 
     def _kmeans(
         self,

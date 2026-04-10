@@ -12,10 +12,19 @@ from dataclasses import dataclass
 import frontmatter
 
 from recon.llm import LLMClient  # noqa: TCH001
+from recon.logging import get_logger
 from recon.prompts import compose_research_prompt, compose_system_prompt
 from recon.schema import ReconSchema  # noqa: TCH001
 from recon.workers import WorkerPool
 from recon.workspace import Workspace  # noqa: TCH001
+
+_log = get_logger(__name__)
+
+_WEB_SEARCH_TOOL = {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 5,
+}
 
 
 @dataclass(frozen=True)
@@ -57,6 +66,7 @@ class ResearchOrchestrator:
     llm_client: LLMClient
     max_workers: int = 5
     schema_override: ReconSchema | None = None
+    use_web_search: bool = True
 
     @property
     def _schema(self) -> ReconSchema:
@@ -107,9 +117,44 @@ class ResearchOrchestrator:
             competitor_name=task.competitor_name,
         )
 
-        response = await self.llm_client.complete(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
+        tools = [_WEB_SEARCH_TOOL] if self.use_web_search else None
+
+        _log.info(
+            "research section=%s competitor=%s tools=%s",
+            task.section_key,
+            task.competitor_name,
+            "web_search" if tools else "none",
+        )
+
+        try:
+            response = await self.llm_client.complete(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                tools=tools,
+                max_tokens=8192,
+            )
+        except Exception as exc:
+            msg = str(exc).lower()
+            if tools and ("web_search" in msg or "tool" in msg or "not enabled" in msg):
+                _log.warning(
+                    "research web_search tool unavailable, retrying without: %s",
+                    exc,
+                )
+                response = await self.llm_client.complete(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    max_tokens=4096,
+                )
+            else:
+                raise
+
+        _log.info(
+            "research got response section=%s competitor=%s in=%d out=%d len=%d",
+            task.section_key,
+            task.competitor_name,
+            response.input_tokens,
+            response.output_tokens,
+            len(response.text),
         )
 
         self._append_to_profile(task.competitor_slug, task.section_key, response.text)
@@ -121,7 +166,7 @@ class ResearchOrchestrator:
         }
 
     def _append_to_profile(self, slug: str, section_key: str, content: str) -> None:
-        """Append research content to a competitor's profile."""
+        """Append research content to a competitor's profile and mark it researched."""
         path = self.workspace.competitors_dir / f"{slug}.md"
         if not path.exists():
             return
@@ -129,4 +174,5 @@ class ResearchOrchestrator:
         post = frontmatter.load(str(path))
         existing = post.content or ""
         post.content = f"{existing}\n{content}\n" if existing.strip() else f"{content}\n"
+        post["research_status"] = "researched"
         path.write_text(frontmatter.dumps(post))

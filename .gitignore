@@ -26,3 +26,7 @@ Thumbs.db
 
 # pytest-textual-snapshot failure report
 snapshot_report.html
+.code-graph/
+
+# scratch workspaces for manual/e2e testing
+scratch/
