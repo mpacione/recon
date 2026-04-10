@@ -9,6 +9,7 @@ WelcomeScreen is pushed on mount when no workspace is specified.
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path  # noqa: TCH003 -- used at runtime
 
 from textual.app import App, ComposeResult
@@ -21,6 +22,10 @@ from recon.tui.screens.run import RunScreen
 from recon.tui.screens.welcome import WelcomeScreen
 from recon.tui.shell import WorkspaceContext
 from recon.tui.theme import RECON_CSS
+
+
+def contextlib_suppress():
+    return contextlib.suppress(Exception)
 
 _log = get_logger(__name__)
 
@@ -45,11 +50,75 @@ class ReconApp(App):
         self._workspace_path = workspace_path
         self._initial_wizard_dir = initial_wizard_dir
         self.workspace_context = WorkspaceContext.empty()
+        self._event_subscriber = self._on_engine_event
         _log.info(
             "ReconApp.__init__ workspace_path=%s initial_wizard_dir=%s",
             workspace_path,
             initial_wizard_dir,
         )
+
+    def _on_engine_event(self, event) -> None:  # noqa: ANN001 -- Event isinstance below
+        """Translate an engine bus event into a workspace_context update.
+
+        The chrome's header strip reflects run_state, run_phase,
+        total_cost, and run_count. Each event mutates the relevant
+        field and pushes the change to the visible ReconScreen.
+        """
+        from recon.events import (
+            CostRecorded,
+            ProfileCreated,
+            RunCancelled,
+            RunCompleted,
+            RunFailed,
+            RunPaused,
+            RunResumed,
+            RunStageStarted,
+            RunStarted,
+        )
+        from recon.tui.shell import ReconScreen
+
+        ctx = self.workspace_context
+        changed = False
+
+        if isinstance(event, RunStarted):
+            ctx.run_state = "running"
+            ctx.run_phase = ""
+            changed = True
+        elif isinstance(event, RunStageStarted):
+            ctx.run_state = "running"
+            ctx.run_phase = event.stage
+            changed = True
+        elif isinstance(event, RunCompleted):
+            ctx.run_state = "done"
+            ctx.run_phase = ""
+            ctx.run_count += 1
+            changed = True
+        elif isinstance(event, RunFailed):
+            ctx.run_state = "error"
+            changed = True
+        elif isinstance(event, RunCancelled):
+            ctx.run_state = "cancelled"
+            ctx.run_count += 1
+            changed = True
+        elif isinstance(event, RunPaused):
+            ctx.run_state = "paused"
+            changed = True
+        elif isinstance(event, RunResumed):
+            ctx.run_state = "running"
+            changed = True
+        elif isinstance(event, CostRecorded):
+            ctx.total_cost += event.cost_usd
+            changed = True
+        elif isinstance(event, ProfileCreated):
+            # No header field, but a refresh is cheap and useful
+            changed = True
+
+        if changed:
+            try:
+                if isinstance(self.screen, ReconScreen):
+                    self.call_from_thread(self.screen.refresh_chrome)
+            except Exception:
+                pass
 
     def refresh_workspace_context(self) -> None:
         """Rebuild ``self.workspace_context`` from the current workspace.
@@ -125,6 +194,10 @@ class ReconApp(App):
 
     def on_mount(self) -> None:
         _log.info("ReconApp.on_mount -- registering modes")
+        # Subscribe to engine events so the chrome stays live
+        from recon.events import get_bus
+
+        get_bus().subscribe(self._event_subscriber)
         # Make sure we have a context populated for any screen that
         # mounts via the constructor (e.g. ReconApp(workspace_path=...))
         if self._workspace_path is not None:
@@ -135,13 +208,22 @@ class ReconApp(App):
         _log.info("ReconApp.on_mount -- switched to dashboard mode")
 
         if self._initial_wizard_dir is not None:
-            _log.info("ReconApp.on_mount -- pushing wizard for %s", self._initial_wizard_dir)
+            _log.info(
+                "ReconApp.on_mount -- pushing wizard for %s",
+                self._initial_wizard_dir,
+            )
             from recon.tui.screens.wizard import WizardScreen
 
             self.push_screen(
                 WizardScreen(output_dir=self._initial_wizard_dir),
                 self._handle_wizard_result,
             )
+
+    def on_unmount(self) -> None:
+        with contextlib_suppress():
+            from recon.events import get_bus
+
+            get_bus().unsubscribe(self._event_subscriber)
 
     def on_welcome_screen_workspace_selected(self, event: WelcomeScreen.WorkspaceSelected) -> None:
         _log.info("WorkspaceSelected path=%s", event.path)

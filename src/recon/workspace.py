@@ -129,6 +129,9 @@ class Workspace:
         )
         profile_path.write_text(frontmatter.dumps(post))
         _log.info("workspace created profile name=%s slug=%s type=%s", name, slug, profile_type)
+        from recon.events import ProfileCreated, publish
+
+        publish(ProfileCreated(name=name, slug=slug, profile_type=profile_type))
         return profile_path
 
     def list_profiles(self) -> list[dict[str, Any]]:

@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- TUI audit Phase C (engine event bus)
+
+A small in-process publish/subscribe primitive the engine modules
+broadcast meaningful state transitions through. The TUI's persistent
+chrome subscribes so the header bar's run state, cost, and counters
+update reactively without polling.
+
+- **`recon/events.py`** -- new module:
+  - `EventBus` class with synchronous `publish/subscribe/unsubscribe`.
+    Subscriber exceptions are caught and logged so a misbehaving
+    listener can't poison the engine.
+  - Process-wide singleton via `get_bus()` and convenience
+    `publish(event)`. Tests reset via `reset_bus()`.
+  - Strongly-typed event dataclasses: `WorkspaceOpened`,
+    `ProfileCreated`, `DiscoveryStarted`, `DiscoveryComplete`,
+    `RunStarted`, `RunStageStarted`, `RunStageCompleted`,
+    `RunCompleted`, `RunFailed`, `RunCancelled`, `RunPaused`,
+    `RunResumed`, `CostRecorded`, `SectionResearched`,
+    `SectionFailed`, `ThemesDiscovered`.
+  - `event_to_dict()` helper for logging / serialization.
+- **Engine publishers** -- minimal touch points:
+  - `Workspace.create_profile` -> `ProfileCreated`
+  - `ResearchOrchestrator._append_to_profile` -> `SectionResearched`
+  - `ResearchOrchestrator._mark_section_failed` -> `SectionFailed`
+  - `Pipeline.execute` -> `RunStarted`
+  - Pipeline stage loop -> `RunStageStarted` / `RunStageCompleted`
+  - Pipeline terminal states -> `RunCompleted` / `RunFailed` /
+    `RunCancelled`
+  - `Pipeline._record_tokens` -> `CostRecorded`
+  - `Pipeline._stage_themes` -> `ThemesDiscovered`
+- **`ReconApp._on_engine_event`**: subscribes on mount, translates
+  each event into a `WorkspaceContext` mutation, and pushes the
+  refresh into the visible `ReconScreen`. Run state in the header
+  bar now updates the moment the engine starts/finishes a stage,
+  and the cost counter increments live as `_record_tokens` fires.
+
+Tests
+- `tests/test_events.py` (16 new) covering bus mechanics, the
+  singleton, exception isolation, and every event type's payload.
+- New autouse pytest fixture in `conftest.py` resets the bus
+  between tests so subscribers from earlier tests don't leak.
+
 ### Added -- TUI audit Phase B (persistent chrome)
 
 The biggest single UX change since the TUI was rebuilt: every full

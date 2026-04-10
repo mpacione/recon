@@ -213,6 +213,8 @@ class Pipeline:
 
     async def execute(self, run_id: str) -> None:
         """Execute the pipeline."""
+        from recon.events import RunStarted, publish
+
         _log.info(
             "pipeline execute run_id=%s start=%s stop=%s deep=%s verify=%s targets=%s",
             run_id,
@@ -222,6 +224,7 @@ class Pipeline:
             self.config.verification_enabled,
             self.config.targets if self.config.targets else "all",
         )
+        publish(RunStarted(run_id=run_id, operation="pipeline"))
         await self.state_store.update_run_status(run_id, RunStatus.RUNNING)
 
         cost_tracker = CostTracker(
@@ -235,30 +238,46 @@ class Pipeline:
         start_idx = _STAGE_ORDER.index(self.config.start_from)
         stop_idx = _STAGE_ORDER.index(self.config.stop_after)
 
+        from recon.events import (
+            RunCancelled,
+            RunCompleted,
+            RunFailed,
+            RunStageCompleted,
+            RunStageStarted,
+        )
+        from recon.events import publish as _publish
+
         try:
             for stage in _STAGE_ORDER[start_idx : stop_idx + 1]:
                 await self._await_resume()
                 if self._cancelled:
                     await self._emit(stage.value, "cancelled")
+                    _publish(RunCancelled(run_id=run_id))
                     await self.state_store.update_run_status(
                         run_id, RunStatus.CANCELLED,
                     )
                     return
                 await self._emit(stage.value, "start")
+                _publish(RunStageStarted(run_id=run_id, stage=stage.value))
                 await self._execute_stage(run_id, stage, cost_tracker)
                 await self._emit(stage.value, "complete")
+                _publish(RunStageCompleted(run_id=run_id, stage=stage.value))
 
             if self._cancelled:
                 _log.info("pipeline execute run_id=%s -> CANCELLED", run_id)
+                _publish(RunCancelled(run_id=run_id))
                 await self.state_store.update_run_status(
                     run_id, RunStatus.CANCELLED,
                 )
                 return
 
             _log.info("pipeline execute run_id=%s -> COMPLETED", run_id)
+            total = await self.state_store.get_run_total_cost(run_id)
+            _publish(RunCompleted(run_id=run_id, total_cost_usd=total))
             await self.state_store.update_run_status(run_id, RunStatus.COMPLETED)
-        except Exception:
+        except Exception as exc:
             _log.exception("pipeline execute run_id=%s -> FAILED", run_id)
+            _publish(RunFailed(run_id=run_id, error=str(exc)))
             await self.state_store.update_run_status(run_id, RunStatus.FAILED)
             raise
 
@@ -305,6 +324,19 @@ class Pipeline:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cost_usd=cost,
+        )
+
+        from recon.events import CostRecorded
+        from recon.events import publish as _publish
+
+        _publish(
+            CostRecorded(
+                run_id=run_id,
+                model=_DEFAULT_MODEL,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost_usd=cost,
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -495,6 +527,11 @@ class Pipeline:
                 _log.exception("theme_curation_callback failed; keeping discovered themes")
 
         self.discovered_themes = list(themes)
+
+        from recon.events import ThemesDiscovered
+        from recon.events import publish as _publish
+
+        _publish(ThemesDiscovered(theme_count=len(self.discovered_themes)))
 
         if not self.discovered_themes:
             return

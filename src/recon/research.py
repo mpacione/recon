@@ -306,6 +306,16 @@ class ResearchOrchestrator:
 
         path.write_text(frontmatter.dumps(post))
 
+        # Publish event so the TUI chrome can react in real time
+        from recon.events import SectionResearched, publish
+
+        publish(
+            SectionResearched(
+                competitor_name=post.metadata.get("name", slug),
+                section_key=section_key,
+            ),
+        )
+
     def _mark_section_failed(self, slug: str, section_key: str) -> None:
         """Flag ``section_key`` as failed in the profile's section_status map."""
         path = self.workspace.competitors_dir / f"{slug}.md"
@@ -321,6 +331,15 @@ class ResearchOrchestrator:
         section_status[section_key] = existing
         post["section_status"] = section_status
         path.write_text(frontmatter.dumps(post))
+
+        from recon.events import SectionFailed, publish
+
+        publish(
+            SectionFailed(
+                competitor_name=post.metadata.get("name", slug),
+                section_key=section_key,
+            ),
+        )
 
     def _coerce_section_status(self, value: Any) -> dict[str, dict[str, Any]]:
         """Normalize a frontmatter section_status value into a dict."""

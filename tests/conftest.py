@@ -29,6 +29,21 @@ def _clear_chromadb_system_cache():
 
 
 @pytest.fixture(autouse=True)
+def _reset_event_bus():
+    """Replace the process-wide event bus with a fresh instance per test.
+
+    Subscribers from earlier tests would otherwise stay registered
+    and fire on later tests' events, breaking isolation and
+    occasionally raising in unrelated test bodies.
+    """
+    with contextlib.suppress(Exception):
+        from recon.events import reset_bus
+
+        reset_bus()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_memory_log_buffer():
     """Reset the in-memory log buffer between tests.
 
