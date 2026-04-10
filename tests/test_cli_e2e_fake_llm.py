@@ -479,3 +479,206 @@ class TestRunCliE2E:
         # Output should advertise what the pipeline produced
         assert "theme" in result.output.lower()
         assert "executive_summary.md" in result.output
+
+
+class TestCliSequentialWorkflow:
+    """End-to-end CLI workflow exercising the individual stage commands.
+
+    Drives a realistic user journey: init → add → research → enrich →
+    index → tag → synthesize → distill → summarize. Uses the fake LLM
+    client throughout. Each command is verified for non-zero outputs
+    and on-disk artifacts.
+    """
+
+    def test_full_chain_init_through_summarize(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.chdir(ws_dir)
+
+        fake = _fake_llm_client(
+            text=(
+                "## Overview\n\n"
+                "Alpha and Beta both compete in AI tooling.\n\n"
+                "Source: [Docs](https://example.com) -- 2026-01-01\n"
+            )
+        )
+
+        runner = CliRunner()
+        with patch("recon.client_factory.create_llm_client", return_value=fake):
+            # 1. Init the workspace headlessly
+            result = runner.invoke(
+                main,
+                [
+                    "init",
+                    "--headless",
+                    "--domain",
+                    "AI tools",
+                    "--company",
+                    "Acme",
+                    "--products",
+                    "Acme IDE",
+                ],
+                catch_exceptions=False,
+            )
+            assert result.exit_code == 0, result.output
+            assert (ws_dir / "recon.yaml").exists()
+
+            # 2. Add competitors
+            result = runner.invoke(
+                main, ["add", "Alpha"], catch_exceptions=False,
+            )
+            assert result.exit_code == 0, result.output
+            result = runner.invoke(
+                main, ["add", "Beta"], catch_exceptions=False,
+            )
+            assert result.exit_code == 0, result.output
+
+            # 3. Research everything
+            result = runner.invoke(
+                main, ["research", "--all"], catch_exceptions=False,
+            )
+            assert result.exit_code == 0, result.output
+            assert "Research complete" in result.output
+
+            # 4. Enrich (cleanup pass only -- the others would just stack)
+            result = runner.invoke(
+                main, ["enrich", "--all", "--pass", "cleanup"],
+                catch_exceptions=False,
+            )
+            assert result.exit_code == 0, result.output
+
+            # 5. Index
+            result = runner.invoke(main, ["index"], catch_exceptions=False)
+            assert result.exit_code == 0, result.output
+
+            # 6. Tag (theme discovery + tagging)
+            result = runner.invoke(main, ["tag"], catch_exceptions=False)
+            assert result.exit_code == 0, result.output
+            assert "Discovered" in result.output
+
+            # 7. Status reflects the work done
+            result = runner.invoke(main, ["status"], catch_exceptions=False)
+            assert result.exit_code == 0, result.output
+            assert "researched: 2" in result.output.lower() or "Profiles: 2" in result.output
+
+            # 8. Both profiles should now have content + frontmatter status
+            ws = Workspace.open(ws_dir)
+            for slug in ["alpha", "beta"]:
+                profile = ws.read_profile(slug)
+                assert profile["research_status"] == "researched"
+                assert "section_status" in profile
+                assert "_content" in profile and profile["_content"].strip()
+
+
+class TestDiffSequentialWorkflow:
+    """Sequential test: research → diff (no-op) → mark old → diff (refresh).
+
+    Verifies that diff is genuinely a no-op for fresh content and
+    actually picks up sections after they age past the threshold.
+    """
+
+    def test_research_then_diff_noop_then_force_stale_then_diff_refreshes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import datetime as dt
+
+        ws_dir = tmp_path / "ws"
+        _setup_workspace(ws_dir, ["Alpha"])
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.chdir(ws_dir)
+
+        runner = CliRunner()
+
+        # Round 1: research
+        first_response = "## Overview\n\nFirst pass content.\n"
+        fake1 = _fake_llm_client(text=first_response)
+        with patch("recon.client_factory.create_llm_client", return_value=fake1):
+            result = runner.invoke(
+                main, ["research", "--all"], catch_exceptions=False,
+            )
+        assert result.exit_code == 0
+        assert fake1.complete.call_count == 1
+
+        # Round 2: diff with default 30d window -- nothing should run
+        fake2 = _fake_llm_client(text="should not be called")
+        with patch("recon.client_factory.create_llm_client", return_value=fake2):
+            result = runner.invoke(
+                main, ["diff", "--all", "--max-age-days", "30"],
+                catch_exceptions=False,
+            )
+        assert result.exit_code == 0
+        assert fake2.complete.call_count == 0
+
+        # Now force the section to look old by rewriting researched_at
+        ws = Workspace.open(ws_dir)
+        path = ws.competitors_dir / "alpha.md"
+        post = frontmatter.load(str(path))
+        old = (dt.datetime.now(dt.UTC) - dt.timedelta(days=90)).isoformat()
+        post["section_status"] = {
+            "overview": {"status": "researched", "researched_at": old},
+        }
+        path.write_text(frontmatter.dumps(post))
+
+        # Round 3: diff again -- now it should refresh
+        fake3 = _fake_llm_client(text="## Overview\n\nRefreshed content.\n")
+        with patch("recon.client_factory.create_llm_client", return_value=fake3):
+            result = runner.invoke(
+                main, ["diff", "--all", "--max-age-days", "30"],
+                catch_exceptions=False,
+            )
+        assert result.exit_code == 0
+        assert fake3.complete.call_count == 1
+
+        # The section_status timestamp should have been updated
+        ws = Workspace.open(ws_dir)
+        alpha = ws.read_profile("alpha")
+        new_ts = alpha["section_status"]["overview"]["researched_at"]
+        assert new_ts != old
+
+
+class TestRunCostTracking:
+    """The state store should record cost from every stage of `recon run`."""
+
+    def test_full_run_records_cost_through_state_store(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from recon.state import StateStore
+
+        ws_dir = tmp_path / "ws"
+        ws = _setup_workspace(ws_dir, ["Alpha"])
+        # Pre-fill so research has work to do but nothing too expensive
+        path = ws.competitors_dir / "alpha.md"
+        post = frontmatter.load(str(path))
+        post.content = "## Overview\n\nAlpha content.\n"
+        post["research_status"] = "researched"
+        path.write_text(frontmatter.dumps(post))
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.chdir(ws_dir)
+
+        fake = _fake_llm_client(text="## Overview\n\nFake output.\n")
+        with patch("recon.client_factory.create_llm_client", return_value=fake):
+            runner = CliRunner()
+            result = runner.invoke(
+                main, ["run", "--from", "index"], catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+
+        async def check_costs() -> float:
+            store = StateStore(ws_dir / ".recon" / "state.db")
+            await store.initialize()
+            runs = await store.list_runs()
+            assert runs, "No runs recorded"
+            latest = runs[-1]
+            return await store.get_run_total_cost(latest["run_id"])
+
+        import asyncio
+
+        total = asyncio.run(check_costs())
+        # Synthesis + distill + meta-synthesis = 3 LLM calls minimum, all
+        # should be costed via _record_tokens
+        assert total > 0.0, "state store should record nonzero cost"

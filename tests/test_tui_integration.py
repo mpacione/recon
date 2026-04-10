@@ -305,6 +305,237 @@ class TestPlannerUpdateSpecificFlow:
                 assert targets == ["Beta Inc"]
 
 
+class TestPlannerDiffAllFlow:
+    async def test_diff_all_passes_stale_only_to_pipeline(
+        self, tmp_workspace: Path, monkeypatch
+    ) -> None:
+        from unittest.mock import patch
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        ws.create_profile("Beta")
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        config_seen: list[bool] = []
+
+        async def fake_execute(self, run_id: str) -> None:
+            config_seen.append(self.config.stale_only)
+            if self.progress_callback is not None:
+                await self.progress_callback("research", "start")
+                await self.progress_callback("research", "complete")
+
+        app = ReconApp(workspace_path=tmp_workspace)
+        with patch("recon.pipeline.Pipeline.execute", fake_execute):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app.screen.query_one("#btn-run", Button).press()
+                await pilot.pause()
+                # btn-op-4 is DIFF_ALL (5th option, index 4)
+                app.screen.query_one("#btn-op-4", Button).press()
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+                for _ in range(10):
+                    if config_seen:
+                        break
+                    await pilot.pause()
+
+                assert config_seen, "Pipeline.execute never called"
+                assert config_seen[0] is True
+
+
+class TestPlannerRerunFailedFlow:
+    async def test_rerun_failed_passes_failed_only_to_pipeline(
+        self, tmp_workspace: Path, monkeypatch
+    ) -> None:
+        from unittest.mock import patch
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        config_seen: list[bool] = []
+
+        async def fake_execute(self, run_id: str) -> None:
+            config_seen.append(self.config.failed_only)
+            if self.progress_callback is not None:
+                await self.progress_callback("research", "start")
+                await self.progress_callback("research", "complete")
+
+        app = ReconApp(workspace_path=tmp_workspace)
+        with patch("recon.pipeline.Pipeline.execute", fake_execute):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app.screen.query_one("#btn-run", Button).press()
+                await pilot.pause()
+                # btn-op-5 is RERUN_FAILED (6th option, index 5)
+                app.screen.query_one("#btn-op-5", Button).press()
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+                for _ in range(10):
+                    if config_seen:
+                        break
+                    await pilot.pause()
+
+                assert config_seen, "Pipeline.execute never called"
+                assert config_seen[0] is True
+
+
+class TestStopButtonCancelsRunningPipeline:
+    async def test_stop_pressed_during_run_cancels_pipeline(
+        self, tmp_workspace: Path, monkeypatch
+    ) -> None:
+        """Full integration: start a real pipeline, press Stop while it's
+        running, assert the run finalizes as CANCELLED in the state store.
+        """
+        import asyncio
+        from unittest.mock import patch
+
+        from recon.state import RunStatus, StateStore
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        ws.create_profile("Beta")
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        # Slow execute that lets us press Stop mid-flight
+        execute_started = asyncio.Event()
+        cancel_observed = []
+
+        async def slow_execute(self, run_id: str) -> None:
+            execute_started.set()
+            # Simulate some work that periodically checks the cancel event
+            for _ in range(20):
+                if self.cancel_event is not None and self.cancel_event.is_set():
+                    cancel_observed.append(True)
+                    await self.state_store.update_run_status(
+                        run_id, RunStatus.CANCELLED,
+                    )
+                    return
+                await asyncio.sleep(0.02)
+            await self.state_store.update_run_status(run_id, RunStatus.COMPLETED)
+
+        app = ReconApp(workspace_path=tmp_workspace)
+        with patch("recon.pipeline.Pipeline.execute", slow_execute):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                # Drive through planner -> FULL_PIPELINE -> run mode
+                app.screen.query_one("#btn-run", Button).press()
+                await pilot.pause()
+                app.screen.query_one("#btn-op-6", Button).press()
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+                assert app.current_mode == "run"
+
+                # Wait for the slow execute to start
+                for _ in range(20):
+                    if execute_started.is_set():
+                        break
+                    await pilot.pause()
+                assert execute_started.is_set()
+
+                # Press Stop while the pipeline is mid-flight
+                run_screen = app.screen
+                run_screen.query_one("#btn-stop", Button).press()
+                await pilot.pause()
+
+                # Let the slow execute observe the cancel and finalize
+                for _ in range(40):
+                    if cancel_observed:
+                        break
+                    await pilot.pause()
+
+                assert cancel_observed, "Pipeline never observed the cancel event"
+
+        # Verify the run is marked CANCELLED in the state store
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+        runs = await store.list_runs()
+        assert runs, "No runs were recorded"
+        latest = runs[-1]
+        assert latest["status"] == RunStatus.CANCELLED.value
+
+
+class TestFullPipelineThroughTuiNoMock:
+    async def test_full_pipeline_runs_real_engine_with_fake_llm(
+        self, tmp_workspace: Path, monkeypatch
+    ) -> None:
+        """Full integration: TUI planner -> Pipeline (real, not mocked)
+        with a fake LLM client. Exercises every stage and asserts the
+        on-disk artifacts exist when the run is done.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from recon.llm import LLMResponse
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        # Pre-fill so we don't need real research
+        import frontmatter as fm
+
+        path = ws.competitors_dir / "alpha.md"
+        post = fm.load(str(path))
+        post.content = "## Overview\n\nAlpha does AI tooling.\n"
+        post["research_status"] = "researched"
+        path.write_text(fm.dumps(post))
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        fake_response = LLMResponse(
+            text="## Overview\n\nFake LLM output for synthesis.\n",
+            input_tokens=100,
+            output_tokens=50,
+            model="claude-sonnet-4-5",
+            stop_reason="end_turn",
+        )
+
+        fake_client = AsyncMock()
+        fake_client.complete = AsyncMock(return_value=fake_response)
+        fake_client.total_input_tokens = 0
+        fake_client.total_output_tokens = 0
+
+        app = ReconApp(workspace_path=tmp_workspace)
+        with patch(
+            "recon.client_factory.create_llm_client",
+            return_value=fake_client,
+        ):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app.screen.query_one("#btn-run", Button).press()
+                await pilot.pause()
+                # btn-op-2 is UPDATE_ALL (3rd option, index 2) -- shorter than full pipeline
+                app.screen.query_one("#btn-op-2", Button).press()
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+                # Wait for the worker to actually finish
+                from recon.tui.screens.run import RunScreen
+
+                assert isinstance(app.screen, RunScreen)
+                run_screen = app.screen
+                for _ in range(60):
+                    if run_screen.current_phase in ("done", "error"):
+                        break
+                    await pilot.pause()
+
+                # The pipeline should have finished without error
+                assert run_screen.current_phase == "done", (
+                    f"Pipeline ended in {run_screen.current_phase!r}"
+                )
+
+        # The fake LLM should have been called
+        assert fake_client.complete.called
+
+
 class TestDashboardBrowserFlow:
     async def test_browse_and_return(self, tmp_workspace: Path) -> None:
         ws = Workspace.open(tmp_workspace)

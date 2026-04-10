@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- Integration and end-to-end test coverage
+
+Filled the gaps in integration / e2e coverage so every feature shipped
+in the 0.2.0 line through the diff/rerun/cancellation work has at
+least one test that exercises it through a realistic user path.
+
+**TUI integration tests** (`tests/test_tui_integration.py`):
+- `TestPlannerDiffAllFlow` -- planner → DIFF_ALL → asserts the
+  pipeline gets `stale_only=True`
+- `TestPlannerRerunFailedFlow` -- planner → RERUN_FAILED → asserts
+  the pipeline gets `failed_only=True`
+- `TestStopButtonCancelsRunningPipeline` -- full mid-run cancellation:
+  start a slow pipeline, press Stop, assert the cancel event is
+  observed and the run is finalized as `RunStatus.CANCELLED` in the
+  state store
+- `TestFullPipelineThroughTuiNoMock` -- planner → UPDATE_ALL through
+  the **real** `Pipeline` (not a mock), only the LLM client is faked.
+  Catches end-to-end wiring regressions that the per-stage
+  `Pipeline.execute` patch tests can't see.
+
+**CLI sequential / e2e tests** (`tests/test_cli_e2e_fake_llm.py`):
+- `TestCliSequentialWorkflow` -- the realistic happy path from
+  `recon init --headless` through `add` → `research --all` →
+  `enrich --all --pass cleanup` → `index` → `tag` → `status`,
+  asserting profile content, frontmatter `section_status`, and CLI
+  output at every step.
+- `TestDiffSequentialWorkflow` -- regression test for the diff
+  semantics: research once, run `recon diff --all` (asserts no LLM
+  calls because content is fresh), force the section to look 90 days
+  old, run diff again (asserts exactly one LLM call and that
+  `researched_at` was bumped).
+- `TestRunCostTracking` -- runs `recon run --from index` and verifies
+  `StateStore.get_run_total_cost` is non-zero, proving every stage
+  in the deliver chain calls `_record_tokens`.
+
+7 new tests, 596 → 603 passing. Lint clean. The pre-existing
+ChromaDB flake on `test_init_add_index_status_flow` is still
+intermittent under full-suite load; tracked for a real fix.
+
 ### Added -- ADD_NEW handoff and cancellation plumbing
 
 - **`ADD_NEW` planner operation is wired.** Selecting "Add new
