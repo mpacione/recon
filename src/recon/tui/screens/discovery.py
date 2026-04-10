@@ -18,6 +18,9 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from recon.discovery import DiscoveryCandidate, DiscoveryState  # noqa: TCH001
+from recon.logging import get_logger
+
+_log = get_logger(__name__)
 
 SearchFn = Callable[[DiscoveryState | None], Coroutine[Any, Any, list[DiscoveryCandidate]]]
 
@@ -175,9 +178,22 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
+        _log.info(
+            "DiscoveryScreen button pressed id=%s candidates=%d has_search_fn=%s",
+            button_id,
+            len(self._state.all_candidates),
+            self._search_fn is not None,
+        )
         if button_id == "btn-done":
             self.dismiss(self._state.accepted_candidates)
         elif button_id == "btn-search-more":
+            if self._search_fn is None:
+                self.app.notify(
+                    "Search function not configured. API key may be missing.",
+                    title="Cannot search",
+                    severity="error",
+                )
+                return
             self._do_search()
         elif button_id == "btn-accept-all":
             self._state.accept_all()
@@ -193,14 +209,41 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
             self._state.toggle(index)
             self._refresh_display()
 
-    @work
+    @work(exclusive=True)
     async def _do_search(self) -> None:
         if self._search_fn is None:
+            _log.warning("DiscoveryScreen._do_search called but _search_fn is None")
             return
-        candidates = await self._search_fn(self._state)
+
+        _log.info("DiscoveryScreen: starting search in domain=%s", self._domain)
+        self.app.notify("Searching for competitors...", title="Discovery", timeout=3)
+
+        try:
+            candidates = await self._search_fn(self._state)
+        except Exception as exc:
+            _log.exception("DiscoveryScreen: search failed")
+            self.app.notify(
+                f"Search failed: {exc}",
+                title="Discovery error",
+                severity="error",
+            )
+            return
+
+        _log.info("DiscoveryScreen: search returned %d candidates", len(candidates))
         if candidates:
             self._state.add_round(candidates)
+            self.app.notify(
+                f"Found {len(candidates)} candidates",
+                title="Discovery",
+                timeout=3,
+            )
             self._schedule_recompose()
+        else:
+            self.app.notify(
+                "Agent returned no candidates. Try a different seed or add manually.",
+                title="Discovery",
+                severity="warning",
+            )
 
     def _refresh_display(self) -> None:
         self._schedule_recompose()

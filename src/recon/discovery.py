@@ -147,16 +147,29 @@ def parse_candidates_response(raw: str) -> list[DiscoveryCandidate]:
 
 _SEARCH_SYSTEM_PROMPT = """\
 You are a competitive intelligence research agent. Your task is to discover \
-competitors in a given market domain.
+competitors in a given market domain by searching the web.
 
-Return your findings as a JSON object with a "candidates" array. Each candidate \
-must have: name, url, blurb (2-line description), provenance (where you found it), \
-and suggested_tier (established, emerging, or experimental).
+Use the web_search tool to find real companies in this market. Look at G2, \
+ProductHunt, Crunchbase, "alternatives to X" lists, analyst reports, and \
+recent news. Err on the side of inclusion -- it's easier for the user to \
+reject than to know what's missing.
 
-Err on the side of inclusion. Pre-filter obvious junk: dead companies, unrelated \
-products, duplicates. Return 10-15 candidates per batch.
+After searching, return your findings as a JSON object with a "candidates" \
+array. Each candidate must have: name, url, blurb (2-line description), \
+provenance (where you found it, e.g. "G2 category leader"), and \
+suggested_tier (established, emerging, or experimental).
+
+Pre-filter obvious junk: dead companies, unrelated products, duplicates. \
+Return 10-15 candidates per batch.
 
 Return ONLY the JSON object, no other text."""
+
+
+_WEB_SEARCH_TOOL = {
+    "type": "web_search_20250305",
+    "name": "web_search",
+    "max_uses": 10,
+}
 
 
 class DiscoveryAgent:
@@ -167,10 +180,12 @@ class DiscoveryAgent:
         llm_client: LLMClient,
         domain: str,
         seed_competitors: list[str] | None = None,
+        use_web_search: bool = True,
     ) -> None:
         self._client = llm_client
         self._domain = domain
         self._seeds = seed_competitors or []
+        self._use_web_search = use_web_search
 
     async def search(
         self,
@@ -195,9 +210,12 @@ class DiscoveryAgent:
 
         user_prompt = "\n".join(prompt_parts)
 
+        tools = [_WEB_SEARCH_TOOL] if self._use_web_search else None
         response = await self._client.complete(
             system_prompt=_SEARCH_SYSTEM_PROMPT,
             user_prompt=user_prompt,
+            tools=tools,
+            max_tokens=8192,
         )
         return parse_candidates_response(response.text)
 

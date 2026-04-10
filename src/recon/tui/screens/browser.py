@@ -12,7 +12,10 @@ from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Static
 
+from recon.logging import get_logger
 from recon.tui.models.dashboard import DashboardData  # noqa: TCH001
+
+_log = get_logger(__name__)
 
 
 class CompetitorBrowserScreen(Screen):
@@ -74,7 +77,9 @@ class CompetitorBrowserScreen(Screen):
             yield Button("Back to Dashboard", id="btn-back", variant="primary")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-back":
+        button_id = event.button.id or ""
+        _log.info("CompetitorBrowserScreen button pressed id=%s", button_id)
+        if button_id == "btn-back":
             self.app.pop_screen()
 
     def on_mount(self) -> None:

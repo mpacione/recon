@@ -18,7 +18,10 @@ from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import Button, Static
 
+from recon.logging import get_logger
 from recon.tui.widgets import format_progress_bar
+
+_log = get_logger(__name__)
 
 PipelineFn = Callable[["RunScreen"], Coroutine[Any, Any, None]]
 
@@ -81,6 +84,7 @@ class RunScreen(Screen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
+        _log.info("RunScreen button pressed id=%s", button_id)
         if button_id == "btn-back-to-dashboard":
             self.app.switch_mode("dashboard")
         elif button_id == "btn-pause":

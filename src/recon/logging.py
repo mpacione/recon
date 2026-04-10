@@ -21,6 +21,14 @@ _CONFIGURED = False
 _LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
 
 
+class _FlushingFileHandler(logging.FileHandler):
+    """FileHandler that flushes after every emit so tail -f sees writes."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        self.flush()
+
+
 def configure_logging(
     level: str = "INFO",
     log_file: Path | None = None,
@@ -46,7 +54,7 @@ def configure_logging(
 
     if log_file is not None:
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
+        file_handler = _FlushingFileHandler(log_file, mode="a", encoding="utf-8")
         file_handler.setFormatter(formatter)
         root.addHandler(file_handler)
 

@@ -214,10 +214,52 @@ class DashboardScreen(Screen):
         from recon.tui.screens.discovery import DiscoveryScreen
 
         state = DiscoveryState()
-        self.app.push_screen(
-            DiscoveryScreen(state=state, domain=self._data.domain),
-            self.handle_discovery_result,
+        screen = DiscoveryScreen(state=state, domain=self._data.domain)
+
+        agent = self._build_discovery_agent()
+        if agent is not None:
+            _log.info("discovery agent built; wiring search fn")
+            screen.set_search_fn(agent.search)
+        else:
+            _log.warning("discovery agent unavailable; search disabled")
+            self.app.notify(
+                "No API key configured. Add one via .env to enable search.",
+                title="Discovery (manual only)",
+                severity="warning",
+            )
+
+        self.app.push_screen(screen, self.handle_discovery_result)
+
+    def _build_discovery_agent(self):
+        from recon.client_factory import ClientCreationError, create_llm_client
+        from recon.discovery import DiscoveryAgent
+
+        api_key = self._load_api_key()
+        if not api_key:
+            return None
+
+        os.environ.setdefault("ANTHROPIC_API_KEY", api_key)
+        try:
+            client = create_llm_client(model="claude-haiku-4-5")
+        except ClientCreationError as exc:
+            _log.warning("create_llm_client failed: %s", exc)
+            return None
+        except Exception:
+            _log.exception("unexpected error creating LLM client")
+            return None
+
+        return DiscoveryAgent(
+            llm_client=client,
+            domain=self._data.domain,
         )
+
+    def _load_api_key(self) -> str | None:
+        env_path = self._workspace_path / ".env"
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                if line.startswith("ANTHROPIC_API_KEY="):
+                    return line.split("=", 1)[1].strip()
+        return os.environ.get("ANTHROPIC_API_KEY")
 
     def _show_manual_add_input(self) -> None:
         existing = self.query("#manual-add-input")

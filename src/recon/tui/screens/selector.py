@@ -13,6 +13,10 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
+from recon.logging import get_logger
+
+_log = get_logger(__name__)
+
 
 class CompetitorSelectorScreen(ModalScreen[list[str]]):
     """Checkbox list of competitors with select all / done."""
@@ -91,6 +95,7 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
+        _log.info("CompetitorSelectorScreen button pressed id=%s", button_id)
         if button_id == "btn-done":
             self.dismiss(self.selected)
         elif button_id == "btn-cancel":
