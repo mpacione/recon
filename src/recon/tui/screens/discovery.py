@@ -93,11 +93,10 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         return self._cursor_index
 
     def set_search_fn(self, fn: SearchFn) -> None:
+        """Wire a search function. Call before push_screen to enable
+        auto-start on mount. Safe to call before the screen is mounted
+        -- the actual search is deferred until on_mount fires."""
         self._search_fn = fn
-        if not self._auto_started and not self._state.all_candidates:
-            self._auto_started = True
-            _log.info("DiscoveryScreen: auto-starting initial search")
-            self._do_search()
 
     def on_mount(self) -> None:
         _log.info(

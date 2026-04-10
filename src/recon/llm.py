@@ -5,8 +5,11 @@ Wraps the Anthropic async API with token counting and usage tracking.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
+
+_DEFAULT_TIMEOUT = 120.0
 
 
 @dataclass(frozen=True)
@@ -24,6 +27,7 @@ class LLMClient:
 
     client: Any
     model: str
+    timeout: float = _DEFAULT_TIMEOUT
     total_input_tokens: int = field(default=0, init=False)
     total_output_tokens: int = field(default=0, init=False)
     call_count: int = field(default=0, init=False)
@@ -34,6 +38,7 @@ class LLMClient:
         user_prompt: str,
         max_tokens: int = 4096,
         tools: list[dict[str, Any]] | None = None,
+        timeout: float | None = None,
     ) -> LLMResponse:
         """Send a message and return a structured response."""
         kwargs: dict[str, Any] = {
@@ -45,7 +50,11 @@ class LLMClient:
         if tools is not None:
             kwargs["tools"] = tools
 
-        message = await self.client.messages.create(**kwargs)
+        effective_timeout = timeout if timeout is not None else self.timeout
+        message = await asyncio.wait_for(
+            self.client.messages.create(**kwargs),
+            timeout=effective_timeout,
+        )
 
         text = ""
         for block in message.content:

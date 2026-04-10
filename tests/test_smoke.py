@@ -102,6 +102,74 @@ class TestTuiLaunchSmoke:
         await asyncio.wait_for(_launch(), timeout=_LAUNCH_TIMEOUT)
 
 
+class TestDiscoveryAutoStart:
+    async def test_search_fn_runs_after_mount(self, tmp_workspace: Path) -> None:
+        from textual.app import App, ComposeResult
+        from textual.widgets import Static
+
+        from recon.discovery import CompetitorTier, DiscoveryCandidate, DiscoveryState
+        from recon.tui.screens.discovery import DiscoveryScreen
+
+        search_calls: list[int] = []
+
+        async def fake_search(state: DiscoveryState | None = None) -> list[DiscoveryCandidate]:
+            search_calls.append(1)
+            return [
+                DiscoveryCandidate(
+                    name="TestCo",
+                    url="https://testco.com",
+                    blurb="A test competitor.",
+                    provenance="smoke test",
+                    suggested_tier=CompetitorTier.ESTABLISHED,
+                ),
+            ]
+
+        class _DiscoveryApp(App):
+            def compose(self) -> ComposeResult:
+                yield Static("")
+
+            def on_mount(self) -> None:
+                state = DiscoveryState()
+                screen = DiscoveryScreen(state=state, domain="test domain")
+                screen.set_search_fn(fake_search)
+                self.push_screen(screen)
+
+        app = _DiscoveryApp()
+
+        async def _launch() -> None:
+            async with app.run_test(size=(120, 50)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+                assert len(search_calls) == 1, (
+                    f"Expected exactly 1 search call (auto-start on mount), "
+                    f"got {len(search_calls)}"
+                )
+                screen = app.screen
+                assert isinstance(screen, DiscoveryScreen)
+                assert len(screen.state.all_candidates) == 1
+
+        await asyncio.wait_for(_launch(), timeout=_LAUNCH_TIMEOUT)
+
+    async def test_search_fn_set_before_push_does_not_fire_early(self) -> None:
+        from recon.discovery import DiscoveryState
+        from recon.tui.screens.discovery import DiscoveryScreen
+
+        called = []
+
+        async def fake_search(state: DiscoveryState | None = None):
+            called.append(1)
+            return []
+
+        state = DiscoveryState()
+        screen = DiscoveryScreen(state=state, domain="test")
+        screen.set_search_fn(fake_search)
+        assert called == [], (
+            "set_search_fn must not invoke the search function immediately; "
+            "the screen is not mounted yet"
+        )
+
+
 class TestCliImports:
     def test_cli_main_imports(self) -> None:
         from recon.cli import main
