@@ -22,6 +22,7 @@ class RunStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     STOPPING = "stopping"
+    CANCELLED = "cancelled"
 
 
 class CompetitorStatus(StrEnum):

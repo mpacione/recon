@@ -17,6 +17,7 @@ Supported operations:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
 from collections.abc import Callable, Coroutine
@@ -211,6 +212,9 @@ def build_pipeline_fn(
                 }
                 return [t for t in themes if t.label in kept_labels]
 
+            cancel_event = asyncio.Event()
+            screen.app._pipeline_cancel_event = cancel_event
+
             pipeline = Pipeline(
                 workspace=ws,
                 state_store=store,
@@ -218,6 +222,7 @@ def build_pipeline_fn(
                 config=config,
                 progress_callback=on_progress,
                 theme_curation_callback=curate_themes,
+                cancel_event=cancel_event,
             )
 
             screen.current_phase = "planning"
@@ -225,17 +230,28 @@ def build_pipeline_fn(
             run_id = await pipeline.plan()
 
             screen.add_activity(f"Run {run_id} started")
-            await pipeline.execute(run_id)
+            try:
+                await pipeline.execute(run_id)
+            finally:
+                # Always release the cancel event so the next run starts clean
+                with contextlib.suppress(AttributeError):
+                    screen.app._pipeline_cancel_event = None
 
-            screen.current_phase = "done"
-            screen.progress = 1.0
-            screen.add_activity("Pipeline complete")
+            if cancel_event.is_set():
+                screen.current_phase = "cancelled"
+                screen.add_activity("Pipeline cancelled by user")
+            else:
+                screen.current_phase = "done"
+                screen.progress = 1.0
+                screen.add_activity("Pipeline complete")
 
             total_cost = await store.get_run_total_cost(run_id)
             screen.cost_usd = float(total_cost)
         except Exception as exc:  # noqa: BLE001 -- surface any pipeline failure to the user
             _log.exception("pipeline_fn failed")
             screen.current_phase = "error"
+            with contextlib.suppress(AttributeError):
+                screen.app._pipeline_cancel_event = None
             with contextlib.suppress(Exception):
                 screen.app.notify(
                     f"Pipeline failed: {exc}",

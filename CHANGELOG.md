@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- ADD_NEW handoff and cancellation plumbing
+
+- **`ADD_NEW` planner operation is wired.** Selecting "Add new
+  competitors" from the run planner now pushes `DiscoveryScreen`,
+  creates profiles for the candidates the user accepts, and starts a
+  pipeline run scoped to just those new names. Pre-existing
+  competitors are not re-researched.
+- **`asyncio.Event` cancellation token plumbed through the pipeline.**
+  - `WorkerPool.run(cancel_event=)` checks the event before each task
+    and marks any unstarted task as cancelled (`success=False`,
+    `error=PipelineCancelledError`).
+  - `ResearchOrchestrator.research_all(cancel_event=)` and
+    `EnrichmentOrchestrator.enrich_all(cancel_event=)` accept a token
+    and pass it down to the pool. They also break out of the
+    section-batch loop early when the event fires.
+  - `Pipeline(cancel_event=)` checks the event between every stage
+    transition and marks the run as `RunStatus.CANCELLED` instead of
+    `COMPLETED` if it fires.
+- **`RunStatus.CANCELLED`** -- new terminal state distinguishing
+  user-stop from a crash. `STOPPING` remains the brief transitional
+  state.
+- **TUI Stop button works.** `RunScreen._request_stop` finds the
+  cancel event the runner stashed on `app._pipeline_cancel_event`,
+  sets it, transitions the screen to `stopping`, and adds an activity
+  log entry. The pipeline finishes its current stage and exits
+  cleanly with status `cancelled`. Pause is still a no-op (real
+  pause/resume needs WorkerPool semaphore suspension; deferred).
+- **`tui/pipeline_runner.build_pipeline_fn`** creates a fresh
+  `asyncio.Event` per run, stashes it on
+  `screen.app._pipeline_cancel_event`, passes it into `Pipeline`, and
+  always clears the reference in a `finally` so the next run starts
+  with a clean slate.
+- **`tui/pipeline_runner` ADD_NEW support**: ADD_NEW is no longer in
+  the "not implemented" branch -- the dashboard handles the discovery
+  push and then re-uses the UPDATE_SPECIFIC pipeline shape with the
+  new names. The runner test for unsupported operations now uses a
+  synthetic enum value to keep the no-op branch tested.
+- **8 new tests**:
+  - `test_workers.py::TestWorkerPoolCancellation` (3 tests covering
+    pre-set, mid-run, and no-event behavior)
+  - `test_research.py::test_research_all_honors_cancel_event`
+  - `test_pipeline.py::TestPipelineCancellation` (2 tests:
+    cancelled-before-start, mid-pipeline cancel)
+  - `test_tui_run_screen.py` (Stop button sets event, Stop with no
+    active pipeline notifies)
+  - `test_tui_integration.py::TestPlannerAddNewFlow` (full ADD_NEW
+    journey from planner → discovery → profile creation → pipeline
+    scoped to new names)
+
 ### Added -- Diff and rerun operations (engine follow-ups)
 
 - **Per-section `section_status` frontmatter.** Each profile now

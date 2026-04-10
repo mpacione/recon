@@ -32,7 +32,9 @@ A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agen
 | TUI: run button → planner → pipeline execution | **Working** | Planner-to-pipeline wiring landed; all six research-facing planner operations call the real engine via `tui/pipeline_runner.py` |
 | TUI: competitor selector (update specific / diff specific) | **Working** | Pushed from planner when the chosen op needs targets |
 | TUI: diff update / rerun failed operations | **Working** | `DIFF_ALL` / `DIFF_SPECIFIC` re-research sections older than the staleness window; `RERUN_FAILED` retries sections marked `failed` in frontmatter |
-| TUI: add new (discover + research) | **WIP** | The `ADD_NEW` planner option still notifies "not implemented" — it needs a discovery round handoff before the pipeline runs |
+| TUI: add new (discover + research) | **Working** | The `ADD_NEW` planner option pushes `DiscoveryScreen`, creates profiles for accepted candidates, then runs the pipeline scoped to just those new names |
+| TUI: Stop button | **Working** | Sets a cancel event the pipeline checks between stages and inside `WorkerPool`; run finishes the current stage and ends with `RunStatus.CANCELLED` |
+| TUI: Pause button | **WIP** | Still notifies "not yet implemented" — needs `WorkerPool` semaphore suspension semantics |
 | Real-API E2E tests | **Available** | Opt-in via `ANTHROPIC_API_KEY`, tests in `tests/test_e2e_real.py` |
 | Fake-LLM CLI E2E tests | **Stable** | `tests/test_cli_e2e_fake_llm.py` covers `research`, `enrich`, and `run` via `CliRunner` |
 

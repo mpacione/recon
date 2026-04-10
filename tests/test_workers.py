@@ -9,6 +9,60 @@ import asyncio
 from recon.workers import WorkerPool
 
 
+class TestWorkerPoolCancellation:
+    async def test_cancel_event_set_before_start_skips_all_tasks(self) -> None:
+        ran: list[int] = []
+
+        async def task(item: int) -> int:
+            ran.append(item)
+            return item
+
+        event = asyncio.Event()
+        event.set()
+
+        pool = WorkerPool(max_workers=2)
+        outcomes = await pool.run(task, [1, 2, 3, 4], cancel_event=event)
+
+        assert ran == []
+        assert all(not o.success for o in outcomes)
+        assert all(o.error is not None for o in outcomes)
+
+    async def test_cancel_event_mid_run_stops_dispatching(self) -> None:
+        ran: list[int] = []
+        event = asyncio.Event()
+
+        async def task(item: int) -> int:
+            ran.append(item)
+            if item == 2:
+                event.set()
+            await asyncio.sleep(0.01)
+            return item
+
+        pool = WorkerPool(max_workers=1)
+        outcomes = await pool.run(task, [1, 2, 3, 4, 5], cancel_event=event)
+
+        # Items 1 and 2 should have started; 3/4/5 should be cancelled
+        # (item 2 sets the event while the semaphore holds 3/4/5)
+        assert 1 in ran
+        assert 2 in ran
+        # At least one task should have been cancelled
+        cancelled = [o for o in outcomes if not o.success]
+        assert len(cancelled) >= 1
+
+    async def test_no_cancel_event_all_tasks_run(self) -> None:
+        ran: list[int] = []
+
+        async def task(item: int) -> int:
+            ran.append(item)
+            return item
+
+        pool = WorkerPool(max_workers=2)
+        outcomes = await pool.run(task, [1, 2, 3])
+
+        assert sorted(ran) == [1, 2, 3]
+        assert all(o.success for o in outcomes)
+
+
 class TestWorkerPool:
     async def test_executes_tasks(self) -> None:
         results: list[str] = []

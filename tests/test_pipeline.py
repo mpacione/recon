@@ -243,6 +243,83 @@ def _fill_profile(ws: object, slug: str, content: str) -> None:
     path.write_text(fm.dumps(post))
 
 
+class TestPipelineCancellation:
+    async def test_cancelled_before_start_marks_run_cancelled(
+        self, tmp_workspace: Path
+    ) -> None:
+        import asyncio
+
+        from recon.state import RunStatus, StateStore
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        cancel_event = asyncio.Event()
+        cancel_event.set()
+
+        llm = _mock_llm()
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=llm,
+            config=PipelineConfig(
+                verification_enabled=False,
+                start_from=PipelineStage.RESEARCH,
+                stop_after=PipelineStage.RESEARCH,
+            ),
+            cancel_event=cancel_event,
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        run = await store.get_run(run_id)
+        assert run["status"] == RunStatus.CANCELLED.value
+        # No LLM call should have happened
+        assert llm.complete.call_count == 0
+
+    async def test_cancel_mid_pipeline_stops_at_next_stage(
+        self, tmp_workspace: Path
+    ) -> None:
+        import asyncio
+
+        from recon.state import RunStatus, StateStore
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        cancel_event = asyncio.Event()
+
+        async def on_progress(stage: str, phase: str) -> None:
+            if stage == "research" and phase == "complete":
+                cancel_event.set()
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=_mock_llm(),
+            config=PipelineConfig(
+                verification_enabled=False,
+                start_from=PipelineStage.RESEARCH,
+                stop_after=PipelineStage.ENRICH,
+            ),
+            progress_callback=on_progress,
+            cancel_event=cancel_event,
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        run = await store.get_run(run_id)
+        assert run["status"] == RunStatus.CANCELLED.value
+
+
 class TestPipelineThemesStage:
     async def test_themes_stage_discovers_and_tags(self, tmp_workspace: Path) -> None:
         from recon.state import StateStore

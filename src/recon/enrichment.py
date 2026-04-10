@@ -8,6 +8,7 @@ Three progressive enrichment passes:
 
 from __future__ import annotations
 
+import asyncio  # noqa: TCH003 -- used at runtime for cancel_event type
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -70,7 +71,12 @@ class EnrichmentOrchestrator:
     enrichment_pass: EnrichmentPass
     max_workers: int = 5
 
-    async def enrich_all(self, targets: list[str] | None = None) -> list[dict[str, Any]]:
+    async def enrich_all(
+        self,
+        targets: list[str] | None = None,
+        *,
+        cancel_event: asyncio.Event | None = None,
+    ) -> list[dict[str, Any]]:
         """Run the enrichment pass on eligible profiles.
 
         If ``targets`` is provided, only those competitors are enriched
@@ -100,8 +106,13 @@ class EnrichmentOrchestrator:
         if not eligible:
             return []
 
+        if cancel_event is not None and cancel_event.is_set():
+            return []
+
         pool = WorkerPool(max_workers=self.max_workers)
-        outcomes = await pool.run(self._enrich_one, eligible)
+        outcomes = await pool.run(
+            self._enrich_one, eligible, cancel_event=cancel_event,
+        )
 
         return [o.value for o in outcomes if o.success and o.value]
 

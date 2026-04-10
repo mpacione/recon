@@ -10,10 +10,14 @@ Supports three scoping modes via ``research_all``:
   within ``max_age_days``
 - ``failed_only``: only research sections whose ``section_status`` is
   ``failed`` or missing (never successfully researched)
+
+A ``cancel_event`` (asyncio.Event) can be passed to short-circuit a
+running batch -- the worker pool checks it before starting each task.
 """
 
 from __future__ import annotations
 
+import asyncio  # noqa: TCH003 -- used at runtime in type hints
 import datetime as dt
 from dataclasses import dataclass
 from typing import Any
@@ -93,6 +97,7 @@ class ResearchOrchestrator:
         stale_only: bool = False,
         max_age_days: int = 30,
         failed_only: bool = False,
+        cancel_event: asyncio.Event | None = None,
     ) -> list[dict]:
         """Research sections for competitors in the workspace.
 
@@ -154,10 +159,14 @@ class ResearchOrchestrator:
             if not tasks:
                 continue
 
+            if cancel_event is not None and cancel_event.is_set():
+                break
+
             pool = WorkerPool(max_workers=self.max_workers)
             outcomes = await pool.run(
                 lambda task: self._research_one(system_prompt, task),
                 tasks,
+                cancel_event=cancel_event,
             )
 
             for outcome in outcomes:

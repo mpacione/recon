@@ -158,6 +158,92 @@ class TestPlannerStartsPipelineWithRunScreen:
                 )
 
 
+class TestPlannerAddNewFlow:
+    async def test_add_new_pushes_discovery_then_starts_pipeline_with_new_targets(
+        self, tmp_workspace: Path, monkeypatch
+    ) -> None:
+        from unittest.mock import patch
+
+        from recon.tui.screens.discovery import DiscoveryScreen
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Existing Co")  # one pre-existing profile
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        execute_calls: list[list[str] | None] = []
+
+        async def fake_execute(self, run_id: str) -> None:
+            execute_calls.append(
+                list(self.config.targets) if self.config.targets else None,
+            )
+            if self.progress_callback is not None:
+                await self.progress_callback("research", "start")
+                await self.progress_callback("research", "complete")
+
+        app = ReconApp(workspace_path=tmp_workspace)
+        with patch("recon.pipeline.Pipeline.execute", fake_execute):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, DashboardScreen)
+
+                app.screen.query_one("#btn-run", Button).press()
+                await pilot.pause()
+                assert isinstance(app.screen, RunPlannerScreen)
+
+                # btn-op-0 is ADD_NEW (first option, index 0)
+                app.screen.query_one("#btn-op-0", Button).press()
+                await pilot.pause()
+                await pilot.pause()
+
+                assert isinstance(app.screen, DiscoveryScreen)
+
+                # Inject two candidates and confirm
+                discovery_screen = app.screen
+                discovery_screen.state.add_round([
+                    DiscoveryCandidate(
+                        name="NewCo",
+                        url="https://newco.com",
+                        blurb="A new competitor",
+                        provenance="test",
+                        suggested_tier=CompetitorTier.ESTABLISHED,
+                    ),
+                    DiscoveryCandidate(
+                        name="Other Inc",
+                        url="https://other.com",
+                        blurb="Another new competitor",
+                        provenance="test",
+                        suggested_tier=CompetitorTier.ESTABLISHED,
+                    ),
+                ])
+                app.screen.query_one("#btn-done", Button).press()
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+                # Should now be in run mode
+                assert app.current_mode == "run"
+
+                for _ in range(10):
+                    if execute_calls:
+                        break
+                    await pilot.pause()
+
+                assert execute_calls, "Pipeline.execute was never called"
+                # The new targets should NOT include the pre-existing profile
+                targets = execute_calls[0]
+                assert targets is not None
+                assert "Existing Co" not in targets
+                assert "NewCo" in targets
+                assert "Other Inc" in targets
+
+                # The new competitors should now exist as profiles
+                ws_after = Workspace.open(tmp_workspace)
+                names = [p["name"] for p in ws_after.list_profiles()]
+                assert "NewCo" in names
+                assert "Other Inc" in names
+
+
 class TestPlannerUpdateSpecificFlow:
     async def test_update_specific_pushes_selector_then_pipeline(
         self, tmp_workspace: Path, monkeypatch

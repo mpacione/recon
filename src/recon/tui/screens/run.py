@@ -99,7 +99,18 @@ class RunScreen(Screen):
         elif button_id == "btn-pause":
             self.app.notify("Pause not yet implemented", severity="warning")
         elif button_id == "btn-stop":
-            self.app.notify("Stop not yet implemented", severity="warning")
+            self._request_stop()
+
+    def _request_stop(self) -> None:
+        """Set the cancel event the TUI runner stored on the app, if any."""
+        cancel_event = getattr(self.app, "_pipeline_cancel_event", None)
+        if cancel_event is None:
+            self.app.notify("No active pipeline to stop", severity="warning")
+            return
+        cancel_event.set()
+        self.current_phase = "stopping"
+        self.add_activity("Stop requested -- waiting for current stage to finish")
+        self.app.notify("Stop requested", severity="warning")
 
     def watch_current_phase(self, value: str) -> None:
         with contextlib.suppress(Exception):

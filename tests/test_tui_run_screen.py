@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from textual.app import App, ComposeResult
 from textual.widgets import Static
 
@@ -94,6 +96,42 @@ class TestRunScreen:
             await pilot.pause()
             assert "research" in phases_seen
             assert "complete" in phases_seen
+
+    async def test_stop_button_sets_app_cancel_event(self) -> None:
+        import asyncio
+
+        from textual.widgets import Button
+
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            event = asyncio.Event()
+            app._pipeline_cancel_event = event
+
+            screen = app.query_one(RunScreen)
+            stop_btn = screen.query_one("#btn-stop", Button)
+            stop_btn.press()
+            await pilot.pause()
+
+            assert event.is_set()
+            assert screen.current_phase == "stopping"
+
+    async def test_stop_button_with_no_active_pipeline_notifies(self) -> None:
+        from textual.widgets import Button
+
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(RunScreen)
+
+            notifications: list[str] = []
+            with patch.object(
+                type(app),
+                "notify",
+                lambda self, msg, **kw: notifications.append(msg),
+            ):
+                screen.query_one("#btn-stop", Button).press()
+                await pilot.pause()
+
+            assert any("No active pipeline" in m for m in notifications)
 
     async def test_push_theme_gate(self) -> None:
         from textual.widgets import Button

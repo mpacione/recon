@@ -419,6 +419,29 @@ class TestResearchOrchestrator:
 
         assert llm.complete.call_count == 0
 
+    async def test_research_all_honors_cancel_event(self, tmp_workspace: Path) -> None:
+        import asyncio
+
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        ws.create_profile("Beta")
+
+        llm = _mock_llm_client()
+        cancel_event = asyncio.Event()
+        cancel_event.set()  # Cancelled before we start
+
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+        )
+
+        await orchestrator.research_all(cancel_event=cancel_event)
+
+        assert llm.complete.call_count == 0
+
     async def test_research_marks_section_failed_on_exception(
         self, tmp_workspace: Path
     ) -> None:

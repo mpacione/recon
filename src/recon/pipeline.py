@@ -9,6 +9,7 @@ curation gates.
 
 from __future__ import annotations
 
+import asyncio  # noqa: TCH003 -- used at runtime for cancel_event type
 import contextlib
 import re
 from collections.abc import Awaitable, Callable
@@ -143,11 +144,16 @@ class Pipeline:
     config: PipelineConfig = field(default_factory=PipelineConfig)
     progress_callback: ProgressCallback | None = None
     theme_curation_callback: ThemeCurationCallback | None = None
+    cancel_event: asyncio.Event | None = None
 
     # Populated during execute()
     discovered_themes: list[DiscoveredTheme] = field(default_factory=list)
     syntheses: list[SynthesisResult] = field(default_factory=list)
     verification_results: list[VerificationOutcome] = field(default_factory=list)
+
+    @property
+    def _cancelled(self) -> bool:
+        return self.cancel_event is not None and self.cancel_event.is_set()
 
     async def _emit(self, stage: str, phase: str) -> None:
         if self.progress_callback is None:
@@ -204,9 +210,21 @@ class Pipeline:
 
         try:
             for stage in _STAGE_ORDER[start_idx : stop_idx + 1]:
+                if self._cancelled:
+                    await self._emit(stage.value, "cancelled")
+                    await self.state_store.update_run_status(
+                        run_id, RunStatus.CANCELLED,
+                    )
+                    return
                 await self._emit(stage.value, "start")
                 await self._execute_stage(run_id, stage, cost_tracker)
                 await self._emit(stage.value, "complete")
+
+            if self._cancelled:
+                await self.state_store.update_run_status(
+                    run_id, RunStatus.CANCELLED,
+                )
+                return
 
             await self.state_store.update_run_status(run_id, RunStatus.COMPLETED)
         except Exception:
@@ -275,6 +293,7 @@ class Pipeline:
             stale_only=self.config.stale_only,
             max_age_days=self.config.max_age_days,
             failed_only=self.config.failed_only,
+            cancel_event=self.cancel_event,
         )
 
         total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
@@ -395,7 +414,10 @@ class Pipeline:
                 enrichment_pass=enrichment_pass,
                 max_workers=self.config.max_enrich_workers,
             )
-            results = await orchestrator.enrich_all(targets=self.config.targets)
+            results = await orchestrator.enrich_all(
+                targets=self.config.targets,
+                cancel_event=self.cancel_event,
+            )
 
             total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
             total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)

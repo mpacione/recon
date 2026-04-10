@@ -343,11 +343,85 @@ class DashboardScreen(Screen):
         if not isinstance(operation, Operation):
             return
 
+        if operation == Operation.ADD_NEW:
+            self._push_discovery_then_start_pipeline()
+            return
+
         if operation in OPERATIONS_REQUIRING_SELECTION:
             self._push_selector_then_start(operation)
             return
 
         self._start_pipeline_for_operation(operation, targets=None)
+
+    def _push_discovery_then_start_pipeline(self) -> None:
+        """ADD_NEW handoff: discover candidates, create profiles, then run.
+
+        Pushes :class:`DiscoveryScreen` like :meth:`_push_discovery`, but
+        the dismiss handler creates the chosen profiles and immediately
+        starts a pipeline run scoped to just those new names. This is
+        the only planner operation that pre-discovers before research.
+        """
+        import contextlib
+
+        from recon.discovery import DiscoveryState
+        from recon.tui.screens.discovery import DiscoveryScreen
+        from recon.tui.screens.planner import Operation
+        from recon.workspace import Workspace
+
+        state = DiscoveryState()
+        screen = DiscoveryScreen(state=state, domain=self._data.domain)
+
+        agent = self._build_discovery_agent()
+        if agent is not None:
+            screen.set_search_fn(agent.search)
+        else:
+            self.app.notify(
+                "No API key configured. Add one via .env to enable search.",
+                title="Add new (manual only)",
+                severity="warning",
+            )
+
+        def handle(candidates: object | None) -> None:
+            if not isinstance(candidates, list) or not candidates:
+                self.app.notify(
+                    "No candidates selected; add new cancelled.",
+                    severity="information",
+                )
+                return
+
+            try:
+                ws = Workspace.open(self._workspace_path)
+            except Exception:
+                _log.exception("could not open workspace for ADD_NEW")
+                return
+
+            new_names: list[str] = []
+            for candidate in candidates:
+                name = getattr(candidate, "name", None)
+                if not name:
+                    continue
+                with contextlib.suppress(FileExistsError):
+                    ws.create_profile(name)
+                    new_names.append(name)
+
+            if not new_names:
+                self.app.notify(
+                    "All selected candidates already exist; nothing to research.",
+                    severity="warning",
+                )
+                return
+
+            # Refresh dashboard data so the next return shows them
+            from recon.tui.models.dashboard import build_dashboard_data
+
+            self.refresh_data(build_dashboard_data(ws))
+
+            # Now run the pipeline scoped to just the new competitors
+            self._start_pipeline_for_operation(
+                Operation.UPDATE_SPECIFIC, targets=new_names,
+            )
+
+        self.app.push_screen(screen, handle)
 
     def _start_pipeline_for_operation(
         self, operation: object, targets: list[str] | None
