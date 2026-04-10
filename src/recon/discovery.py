@@ -14,6 +14,9 @@ from enum import StrEnum
 from urllib.parse import urlparse
 
 from recon.llm import LLMClient  # noqa: TCH001
+from recon.logging import get_logger
+
+_log = get_logger(__name__)
 
 
 class CompetitorTier(StrEnum):
@@ -115,12 +118,51 @@ def _tier_from_string(value: str) -> CompetitorTier:
         return CompetitorTier.UNKNOWN
 
 
+def _extract_json_object(raw: str) -> str | None:
+    """Find the first balanced JSON object in `raw` and return it.
+
+    Tolerates prose before/after the JSON, markdown fences, and multiple
+    objects (returns the first). Returns None if no valid object found.
+    """
+    text = raw.strip()
+
+    fence_match = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
+    if fence_match:
+        return fence_match.group(1).strip()
+
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"' and not escape:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
+        start = text.find("{", start + 1)
+    return None
+
+
 def parse_candidates_response(raw: str) -> list[DiscoveryCandidate]:
     """Parse LLM JSON response into candidate objects."""
-    json_str = raw.strip()
-    fence_match = re.search(r"```(?:json)?\s*\n(.*?)```", json_str, re.DOTALL)
-    if fence_match:
-        json_str = fence_match.group(1).strip()
+    json_str = _extract_json_object(raw)
+    if json_str is None:
+        return []
 
     try:
         data = json.loads(json_str)
@@ -172,6 +214,20 @@ _WEB_SEARCH_TOOL = {
 }
 
 
+_SEARCH_SYSTEM_PROMPT_NO_WEB = """\
+You are a competitive intelligence research agent. Your task is to discover \
+competitors in a given market domain using your training knowledge.
+
+Return your findings as a JSON object with a "candidates" array. Each candidate \
+must have: name, url, blurb (2-line description), provenance (where you found it, \
+e.g. "well-known in the industry"), and suggested_tier (established, emerging, \
+or experimental).
+
+Err on the side of inclusion. Return 10-15 candidates per batch.
+
+Return ONLY the JSON object, no other text."""
+
+
 class DiscoveryAgent:
     """LLM-powered competitor discovery agent."""
 
@@ -211,13 +267,55 @@ class DiscoveryAgent:
         user_prompt = "\n".join(prompt_parts)
 
         tools = [_WEB_SEARCH_TOOL] if self._use_web_search else None
-        response = await self._client.complete(
-            system_prompt=_SEARCH_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            tools=tools,
-            max_tokens=8192,
+        _log.info(
+            "DiscoveryAgent.search domain=%s seeds=%d tools=%s",
+            self._domain,
+            len(self._seeds),
+            "web_search" if tools else "none",
         )
-        return parse_candidates_response(response.text)
+
+        try:
+            response = await self._client.complete(
+                system_prompt=_SEARCH_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                tools=tools,
+                max_tokens=8192,
+            )
+        except Exception as exc:
+            msg = str(exc).lower()
+            if tools and ("web_search" in msg or "tool" in msg or "not enabled" in msg):
+                _log.warning(
+                    "DiscoveryAgent.search web_search tool unavailable, "
+                    "falling back to training-data mode: %s",
+                    exc,
+                )
+                self._use_web_search = False
+                response = await self._client.complete(
+                    system_prompt=_SEARCH_SYSTEM_PROMPT_NO_WEB,
+                    user_prompt=user_prompt,
+                    max_tokens=4096,
+                )
+            else:
+                _log.exception("DiscoveryAgent.search LLM call failed")
+                raise
+
+        _log.info(
+            "DiscoveryAgent.search got response model=%s stop=%s "
+            "input_tokens=%d output_tokens=%d text_len=%d",
+            response.model,
+            response.stop_reason,
+            response.input_tokens,
+            response.output_tokens,
+            len(response.text),
+        )
+        _log.debug("DiscoveryAgent.search response text: %r", response.text[:2000])
+
+        candidates = parse_candidates_response(response.text)
+        _log.info(
+            "DiscoveryAgent.search parsed %d candidates from response",
+            len(candidates),
+        )
+        return candidates
 
     async def analyze_patterns(self, state: DiscoveryState) -> str:
         accepted = [c.name for c in state.accepted_candidates]

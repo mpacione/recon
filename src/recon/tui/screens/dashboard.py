@@ -236,11 +236,12 @@ class DashboardScreen(Screen):
 
         api_key = self._load_api_key()
         if not api_key:
+            _log.warning("no API key found; discovery will be manual only")
             return None
 
-        os.environ.setdefault("ANTHROPIC_API_KEY", api_key)
+        os.environ["ANTHROPIC_API_KEY"] = api_key
         try:
-            client = create_llm_client(model="claude-haiku-4-5")
+            client = create_llm_client(model="claude-sonnet-4-5")
         except ClientCreationError as exc:
             _log.warning("create_llm_client failed: %s", exc)
             return None
@@ -248,6 +249,11 @@ class DashboardScreen(Screen):
             _log.exception("unexpected error creating LLM client")
             return None
 
+        _log.info(
+            "built DiscoveryAgent model=%s domain=%s",
+            "claude-sonnet-4-5",
+            self._data.domain,
+        )
         return DiscoveryAgent(
             llm_client=client,
             domain=self._data.domain,

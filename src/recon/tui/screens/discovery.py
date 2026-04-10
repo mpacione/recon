@@ -81,6 +81,8 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         self._domain = domain
         self._search_fn: SearchFn | None = None
         self._cursor_index: int = 0
+        self._is_searching: bool = False
+        self._auto_started: bool = False
 
     @property
     def state(self) -> DiscoveryState:
@@ -92,6 +94,26 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
 
     def set_search_fn(self, fn: SearchFn) -> None:
         self._search_fn = fn
+        if not self._auto_started and not self._state.all_candidates:
+            self._auto_started = True
+            _log.info("DiscoveryScreen: auto-starting initial search")
+            self._do_search()
+
+    def on_mount(self) -> None:
+        _log.info(
+            "DiscoveryScreen mounted domain=%s candidates=%d has_search_fn=%s",
+            self._domain,
+            len(self._state.all_candidates),
+            self._search_fn is not None,
+        )
+        if (
+            self._search_fn is not None
+            and not self._auto_started
+            and not self._state.all_candidates
+        ):
+            self._auto_started = True
+            _log.info("DiscoveryScreen: auto-starting initial search on mount")
+            self._do_search()
 
     def action_cursor_up(self) -> None:
         count = len(self._state.all_candidates)
@@ -138,10 +160,17 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
     def _build_candidate_list(self):
         candidates = self._state.all_candidates
         if not candidates:
-            yield Static(
-                "[#a89984]No candidates yet. Use Search More to find competitors.[/]",
-                id="discovery-empty",
-            )
+            if self._is_searching:
+                yield Static(
+                    "[#e0a044]Searching the web for competitors...[/]\n"
+                    "[#a89984]This usually takes 10-30 seconds.[/]",
+                    id="discovery-empty",
+                )
+            else:
+                yield Static(
+                    "[#a89984]No candidates yet. Click Search More to find competitors.[/]",
+                    id="discovery-empty",
+                )
             return
 
         for i, candidate in enumerate(candidates):
@@ -215,21 +244,34 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
             _log.warning("DiscoveryScreen._do_search called but _search_fn is None")
             return
 
+        if self._is_searching:
+            _log.info("DiscoveryScreen: search already in progress, ignoring")
+            return
+
+        self._is_searching = True
         _log.info("DiscoveryScreen: starting search in domain=%s", self._domain)
-        self.app.notify("Searching for competitors...", title="Discovery", timeout=3)
+        await self.recompose()
 
         try:
             candidates = await self._search_fn(self._state)
         except Exception as exc:
-            _log.exception("DiscoveryScreen: search failed")
+            _log.exception("DiscoveryScreen: search raised exception")
+            self._is_searching = False
             self.app.notify(
                 f"Search failed: {exc}",
                 title="Discovery error",
                 severity="error",
+                timeout=10,
             )
+            await self.recompose()
             return
 
-        _log.info("DiscoveryScreen: search returned %d candidates", len(candidates))
+        _log.info(
+            "DiscoveryScreen: search returned %d candidates",
+            len(candidates),
+        )
+        self._is_searching = False
+
         if candidates:
             self._state.add_round(candidates)
             self.app.notify(
@@ -237,13 +279,17 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
                 title="Discovery",
                 timeout=3,
             )
-            self._schedule_recompose()
         else:
             self.app.notify(
-                "Agent returned no candidates. Try a different seed or add manually.",
+                "Agent returned no candidates. The LLM may need web search "
+                "enabled in your Anthropic console, or the domain may be too "
+                "narrow. Try Add Manually.",
                 title="Discovery",
                 severity="warning",
+                timeout=10,
             )
+
+        await self.recompose()
 
     def _refresh_display(self) -> None:
         self._schedule_recompose()
