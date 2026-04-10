@@ -8,7 +8,25 @@
 ░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓██████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░
 ```
 
-A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agents to discover competitors, research them section-by-section against a structured schema, verify findings through multi-agent consensus, and synthesize the results into thematic analyses and executive summaries -- all stored locally as Obsidian-compatible markdown.
+A CLI (and WIP TUI) for competitive intelligence research. Recon orchestrates LLM agents to discover competitors, research them section-by-section against a structured schema, and synthesize the results into thematic analyses and executive summaries -- all stored locally as Obsidian-compatible markdown.
+
+> **Status: v0.1 (alpha).** The CLI is fully functional end-to-end against the live Anthropic API. The TUI is a usable but incomplete facade -- wizard, discovery, and workspace browsing work; the Run button is not wired to the pipeline engine. See [`design/wiring-audit.md`](design/wiring-audit.md) for the detailed audit. **Use the CLI for real work until the TUI is finished.**
+
+## Status
+
+| Component | State | Notes |
+|---|---|---|
+| Engine layer (pipeline, research, verification, enrichment, index, themes, synthesis, deliver, discovery, tag) | **Stable** | 395+ unit tests, 25 integration tests, lint clean |
+| `recon init` / `add` / `status` | **Stable** | Headless init produces full 8-section default schema |
+| `recon discover` | **Stable** | Uses `web_search_20250305` tool for live competitor discovery |
+| `recon research` | **Stable** | Uses web search per section, updates `research_status` frontmatter |
+| `recon index` / `retrieve` | **Stable** | Local fastembed + ChromaDB, incremental via SHA-256 hashes |
+| `recon tag` | **Stable** | K-means clustering with LLM-generated strategic theme labels |
+| `recon synthesize` / `distill` / `summarize` | **Stable** | Single-pass + deep 4-pass synthesis, distillation, meta-synthesis |
+| `recon run` (full pipeline) | **Stable** | Pipeline orchestrator wires all stages with state tracking |
+| TUI: welcome / wizard / dashboard / discovery / browser | **Working** | Screens render, navigate, accept input, write profiles |
+| TUI: run screen / pipeline execution / theme gate | **WIP** | RunScreen displays but the Run button is not wired to the engine. Use `recon run` on the CLI instead. |
+| Real-API E2E tests | **Available** | Opt-in via `ANTHROPIC_API_KEY`, tests in `tests/test_e2e_real.py` |
 
 ## Dependencies and setup
 
@@ -169,9 +187,64 @@ recon run --dry-run                   # show plan + cost estimate
 recon run                             # execute everything
 recon run --from research --deep      # resume from a stage, deep synthesis
 
-# TUI
-recon tui                             # interactive terminal UI
+# TUI (partial -- see Status section)
+recon tui                             # launch the interactive UI
 ```
+
+### Verified end-to-end flow
+
+The full CLI pipeline has been exercised against the live Anthropic API
+using DuckDuckGo as a test scenario. Every stage produced real artifacts:
+
+```bash
+# 1. Create workspace with 8-section default schema
+recon init ~/recon/my-project --headless \
+  --domain "privacy-focused search engines" \
+  --company "DuckDuckGo" \
+  --products "DuckDuckGo Search"
+
+# 2. Discover competitors via live web search
+cd ~/recon/my-project
+recon discover --rounds 1 --batch-size 10 --seed "DuckDuckGo" --auto-accept
+# → 12-15 candidates with real URLs, tiers, and provenance
+
+# 3. Research each section of each competitor via live web search
+recon research --all --workers 3
+# → profiles filled with multi-paragraph sections and cited sources
+
+# 4. Index into local ChromaDB
+recon index
+# → chunks by section, local fastembed embeddings, no API cost
+
+# 5. Retrieve semantically
+recon retrieve --query "decentralized peer to peer search engine" --n-results 5
+
+# 6. Discover themes (k-means) and label via LLM
+recon tag --n-themes 3
+# → strategic labels like "Privacy-First Search Infrastructure"
+
+# 7. Synthesize, distill, meta-summarize
+recon synthesize --theme "Privacy-First Search Infrastructure"
+recon distill --theme "Privacy-First Search Infrastructure"
+recon summarize
+# → themes/*.md, themes/distilled/*.md, executive_summary.md
+```
+
+**Cost profile** (measured on the 3-competitor × 8-section verification run):
+
+| Stage | Input tokens | Output tokens | Approx cost |
+|---|---:|---:|---:|
+| discover (1 round, web search) | ~225K | ~2K | ~$0.70 |
+| research (24 calls, web search) | 1.88M | 40K | ~$6 |
+| index + retrieve + tag labeling | ~3K | ~50 | <$0.01 |
+| synthesize (single pass) | 21K | 1.4K | ~$0.10 |
+| distill + summarize | ~1K | ~1.5K | ~$0.03 |
+| **Total** | **~2.1M** | **~45K** | **~$7** |
+
+Research cost dominates because `web_search_20250305` inflates input
+tokens 100× over training-data-only calls. That's the right tradeoff
+for competitive intelligence -- results cite live sources dated today
+instead of hallucinating from model training data.
 
 ### Profiles are plain markdown
 
@@ -223,17 +296,27 @@ AI-native code editor built on VS Code...
 | `deliver.py` | Distillation + cross-theme meta-synthesis |
 | `discovery.py` | Iterative competitor discovery with LLM agent |
 | `pipeline.py` | Full pipeline orchestrator with state tracking |
-| `tui/app.py` | Textual app with view switching (dashboard/themes/monitor) |
+| `logging.py` | Central file-based logging with live flush (`~/.recon/logs/recon.log`) |
+| `tui/app.py` | Textual app with `MODES` (dashboard + run), global state |
 | `tui/theme.py` | Warm amber retro terminal theme |
-| `tui/screens.py` | Dashboard data preparation |
 | `tui/widgets.py` | Status panel, competitor table, progress bar, curation/monitor panels |
-| `tui/curation.py` | Theme curation data model (toggle, rename, filter by strength) |
-| `tui/monitor.py` | Run monitor data model (phase, workers, cost, activity feed) |
+| `tui/models/dashboard.py` | `DashboardData` + `build_dashboard_data` |
+| `tui/models/curation.py` | Theme curation data model |
+| `tui/models/monitor.py` | Run monitor data model |
+| `tui/screens/welcome.py` | New/open/recent workspace picker + `RecentProjectsManager` |
+| `tui/screens/wizard.py` | 4-phase schema wizard as a pushable `ModalScreen` |
+| `tui/screens/dashboard.py` | Workspace dashboard + button-first action bar |
+| `tui/screens/discovery.py` | Discovery candidate accumulation with live search |
+| `tui/screens/planner.py` | 7-option run planner with clickable operation buttons |
+| `tui/screens/run.py` | Live pipeline monitor (reactive state, not currently wired) |
+| `tui/screens/curation.py` | Theme curation pipeline gate (`push_screen_wait`) |
+| `tui/screens/browser.py` | Competitor browser with detail pane |
+| `tui/screens/selector.py` | Competitor multi-select modal |
 
 ## Development
 
 ```bash
-# Run tests (363 tests, ~10s)
+# Run tests (534 passing, 4 skipped real-API tests, ~35s)
 pytest tests/ -q
 
 # Run with coverage
@@ -242,11 +325,25 @@ pytest tests/ --cov=recon --cov-report=term-missing
 # Lint
 ruff check src/ tests/
 
-# Type check (optional)
-mypy src/recon/
+# Real-API E2E tests (opt-in, costs pennies)
+ANTHROPIC_API_KEY=sk-ant-... pytest tests/test_e2e_real.py -v
 ```
 
 TDD is non-negotiable. Every line of production code responds to a failing test.
+
+### Logging
+
+The CLI writes structured logs to `~/.recon/logs/recon.log` on every
+invocation:
+
+```bash
+recon --log-level DEBUG tui            # or any subcommand
+tail -f ~/.recon/logs/recon.log
+```
+
+Every CLI entry point, LLM call, and pipeline stage logs start/finish
+events with token counts. Use `--log-level DEBUG` to capture full
+response text (truncated at 2000 chars) for diagnosing parser issues.
 
 ## Design docs
 
