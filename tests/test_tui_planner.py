@@ -81,12 +81,10 @@ class TestRunPlannerScreen:
     async def test_all_operations_defined(self) -> None:
         assert len(Operation) == 7
 
-    async def test_number_key_selects_operation(self) -> None:
+    async def test_number_key_selects_and_confirms(self) -> None:
         app = _PlannerTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             await pilot.press("7")
             await pilot.pause()
-            screen = app.screen
-            assert isinstance(screen, RunPlannerScreen)
-            assert screen.selected == Operation.FULL_PIPELINE
+            assert app.selected_operation == Operation.FULL_PIPELINE

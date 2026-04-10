@@ -136,6 +136,17 @@ class DashboardScreen(Screen):
                 f"across {self._data.run_count} runs",
             )
 
+    def on_screen_resume(self) -> None:
+        from recon.tui.models.dashboard import build_dashboard_data
+        from recon.workspace import Workspace
+
+        try:
+            ws = Workspace.open(self._workspace_path)
+            new_data = build_dashboard_data(ws)
+            self.refresh_data(new_data)
+        except Exception:
+            pass
+
     def refresh_data(self, data: DashboardData) -> None:
         self._data = data
         self._do_recompose()
@@ -201,7 +212,7 @@ class DashboardScreen(Screen):
     def handle_planner_result(self, operation: object | None) -> None:
         if operation is None:
             return
-        self.app.notify(f"Starting: {operation}", title="Pipeline")
+        self.app.switch_mode("run")
 
     def _api_key_status(self) -> str:
         env_path = self._workspace_path / ".env"

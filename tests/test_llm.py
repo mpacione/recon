@@ -100,6 +100,32 @@ class TestLLMClient:
         assert client.call_count == 2
 
 
+    async def test_passes_tools_when_provided(self) -> None:
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=_make_mock_message())
+
+        client = LLMClient(client=mock_client, model="claude-sonnet-4-20250514")
+        tools = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}]
+        await client.complete(
+            system_prompt="Sys.",
+            user_prompt="Search for competitors.",
+            tools=tools,
+        )
+
+        call_kwargs = mock_client.messages.create.call_args[1]
+        assert call_kwargs["tools"] == tools
+
+    async def test_omits_tools_when_not_provided(self) -> None:
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=_make_mock_message())
+
+        client = LLMClient(client=mock_client, model="claude-sonnet-4-20250514")
+        await client.complete(system_prompt="Sys.", user_prompt="Prompt.")
+
+        call_kwargs = mock_client.messages.create.call_args[1]
+        assert "tools" not in call_kwargs
+
+
 class TestLLMResponse:
     def test_response_fields(self) -> None:
         response = LLMResponse(

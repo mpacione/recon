@@ -153,15 +153,21 @@ class TestDashboardButtonWiring:
             stats = app.query_one("#competitor-stats", Static)
             assert "10" in str(stats.content)
 
-    async def test_run_planner_dismiss_triggers_mode_switch(self, tmp_path: Path) -> None:
+    async def test_planner_result_switches_to_run_mode(self, tmp_workspace: Path) -> None:
+        from recon.tui.app import ReconApp
         from recon.tui.screens.planner import Operation
 
-        data = _make_dashboard_data(total_competitors=10, status_counts={"scaffold": 10})
-        app = _DashboardTestApp(data, tmp_path)
+        app = ReconApp(workspace_path=tmp_workspace)
         async with app.run_test(size=(120, 40)) as pilot:
-            screen = app.query_one(DashboardScreen)
+            await pilot.pause()
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, DashboardScreen)
             screen.handle_planner_result(Operation.FULL_PIPELINE)
             await pilot.pause()
+            await pilot.pause()
+            await pilot.pause()
+            assert app.current_mode == "run"
 
     async def test_discovery_dismiss_creates_profiles(self, tmp_workspace: Path) -> None:
         from recon.discovery import CompetitorTier, DiscoveryCandidate

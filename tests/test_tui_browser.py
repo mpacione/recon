@@ -85,3 +85,13 @@ class TestCompetitorBrowserScreen:
             await pilot.pause()
             detail = app.screen.query_one("#browser-detail", Static)
             assert detail is not None
+
+    async def test_row_highlight_updates_detail(self) -> None:
+        app = _BrowserTestApp(data=_make_data(5))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            table = app.screen.query_one(DataTable)
+            table.move_cursor(row=2)
+            await pilot.pause()
+            detail = app.screen.query_one("#browser-detail", Static)
+            assert "Competitor 2" in str(detail.content)

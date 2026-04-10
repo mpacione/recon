@@ -75,3 +75,16 @@ class CompetitorBrowserScreen(Screen):
 
         for row in self._data.competitor_rows:
             table.add_row(row["name"], row["type"], row["status"])
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.row_key is None:
+            return
+        row_index = event.cursor_row
+        if 0 <= row_index < len(self._data.competitor_rows):
+            row = self._data.competitor_rows[row_index]
+            detail = self.query_one("#browser-detail", Static)
+            detail.update(
+                f"[bold #e0a044]{row['name']}[/]\n"
+                f"[#a89984]Type:[/] {row['type']}  "
+                f"[#a89984]Status:[/] {row['status']}"
+            )

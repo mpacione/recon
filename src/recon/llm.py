@@ -33,14 +33,19 @@ class LLMClient:
         system_prompt: str,
         user_prompt: str,
         max_tokens: int = 4096,
+        tools: list[dict[str, Any]] | None = None,
     ) -> LLMResponse:
         """Send a message and return a structured response."""
-        message = await self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_prompt}],
+        }
+        if tools is not None:
+            kwargs["tools"] = tools
+
+        message = await self.client.messages.create(**kwargs)
 
         text = ""
         for block in message.content:

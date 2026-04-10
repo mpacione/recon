@@ -143,6 +143,7 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
         op = _OPERATION_BY_NUMBER.get(number)
         if op:
             self._selected = op
+            self.dismiss(self._selected)
 
     def action_select_1(self) -> None:
         self._select_by_number("1")
