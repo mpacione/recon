@@ -15,10 +15,13 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import Footer, Header
 
+from recon.logging import get_logger
 from recon.tui.screens.dashboard import DashboardScreen
 from recon.tui.screens.run import RunScreen
 from recon.tui.screens.welcome import WelcomeScreen
 from recon.tui.theme import RECON_CSS
+
+_log = get_logger(__name__)
 
 
 class ReconApp(App):
@@ -40,6 +43,11 @@ class ReconApp(App):
         super().__init__()
         self._workspace_path = workspace_path
         self._initial_wizard_dir = initial_wizard_dir
+        _log.info(
+            "ReconApp.__init__ workspace_path=%s initial_wizard_dir=%s",
+            workspace_path,
+            initial_wizard_dir,
+        )
 
     @property
     def workspace_path(self) -> Path | None:
@@ -86,11 +94,14 @@ class ReconApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        _log.info("ReconApp.on_mount -- registering modes")
         self.add_mode("dashboard", self._make_dashboard_screen)
         self.add_mode("run", RunScreen)
         self.switch_mode("dashboard")
+        _log.info("ReconApp.on_mount -- switched to dashboard mode")
 
         if self._initial_wizard_dir is not None:
+            _log.info("ReconApp.on_mount -- pushing wizard for %s", self._initial_wizard_dir)
             from recon.tui.screens.wizard import WizardScreen
 
             self.push_screen(
@@ -99,13 +110,16 @@ class ReconApp(App):
             )
 
     def on_welcome_screen_workspace_selected(self, event: WelcomeScreen.WorkspaceSelected) -> None:
+        _log.info("WorkspaceSelected path=%s", event.path)
         self._workspace_path = Path(event.path)
         self.switch_mode("run")
         self.remove_mode("dashboard")
         self.add_mode("dashboard", self._make_dashboard_screen)
         self.switch_mode("dashboard")
+        _log.info("workspace loaded, dashboard mode active")
 
     def on_welcome_screen_new_project_requested(self, event: WelcomeScreen.NewProjectRequested) -> None:
+        _log.info("NewProjectRequested path=%s", event.path)
         from recon.tui.screens.wizard import WizardScreen
 
         output_dir = Path(event.path)
@@ -117,7 +131,9 @@ class ReconApp(App):
     def _handle_wizard_result(self, result: object | None) -> None:
         from recon.tui.screens.wizard import WizardResult
 
+        _log.info("wizard dismissed result=%s", type(result).__name__)
         if not isinstance(result, WizardResult) or result.schema is None:
+            _log.info("wizard cancelled or empty result")
             return
 
         self._create_workspace_from_wizard(result)
@@ -131,6 +147,7 @@ class ReconApp(App):
         if not isinstance(result, WizardResult) or result.schema is None:
             return
 
+        _log.info("creating workspace at %s", result.output_dir)
         try:
             result.output_dir.mkdir(parents=True, exist_ok=True)
             (result.output_dir / "recon.yaml").write_text(
@@ -140,7 +157,9 @@ class ReconApp(App):
                 env_path = result.output_dir / ".env"
                 env_path.write_text(f"ANTHROPIC_API_KEY={result.api_key}\n")
             Workspace.init(root=result.output_dir)
+            _log.info("workspace created successfully")
         except Exception as exc:
+            _log.exception("failed to create workspace")
             self.notify(f"Failed to create workspace: {exc}", severity="error")
             return
 
@@ -149,6 +168,7 @@ class ReconApp(App):
         self.remove_mode("dashboard")
         self.add_mode("dashboard", self._make_dashboard_screen)
         self.switch_mode("dashboard")
+        _log.info("switched to dashboard mode after wizard")
 
     def action_help(self) -> None:
         self.notify("Q=Quit  ?=Help", title="Keybinds")

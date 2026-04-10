@@ -13,10 +13,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import Button, Input, Static
+
+from recon.logging import get_logger
+
+_log = get_logger(__name__)
 
 
 @dataclass
@@ -127,7 +131,7 @@ class WelcomeScreen(Screen):
             yield Static("[bold #e0a044]recon[/]", classes="title")
             yield Static("[#a89984]competitive intelligence[/]")
             yield Static("")
-            with Vertical(classes="action-row"):
+            with Horizontal(classes="action-row"):
                 yield Button("New Project", id="btn-new", variant="primary")
                 yield Button("Open Existing", id="btn-open")
             yield Static("")
@@ -148,6 +152,7 @@ class WelcomeScreen(Screen):
             )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        _log.debug("WelcomeScreen button pressed id=%s", event.button.id)
         if event.button.id == "btn-new":
             self._show_new_input()
         elif event.button.id == "btn-open":
@@ -181,6 +186,11 @@ class WelcomeScreen(Screen):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         path_str = event.value.strip()
+        _log.debug(
+            "WelcomeScreen input submitted id=%s value=%s",
+            event.input.id,
+            path_str,
+        )
         if not path_str:
             return
         if event.input.id == "open-path-input":

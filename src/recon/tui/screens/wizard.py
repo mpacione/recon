@@ -18,7 +18,10 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, SelectionList, Static
 
+from recon.logging import get_logger
 from recon.wizard import DecisionContext, DefaultSections, WizardPhase, WizardState
+
+_log = get_logger(__name__)
 
 _PHASE_LABELS = {
     WizardPhase.IDENTITY: "Identity",
@@ -176,6 +179,7 @@ class WizardScreen(ModalScreen[WizardResult]):
             yield Vertical(id="phase-content")
 
     def on_mount(self) -> None:
+        _log.info("WizardScreen mounted, phase=%s", self.state.phase)
         self._refresh_phase()
 
     def _indicator_text(self) -> str:
@@ -205,6 +209,7 @@ class WizardScreen(ModalScreen[WizardResult]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
+        _log.debug("WizardScreen button pressed id=%s phase=%s", button_id, self.state.phase)
 
         if button_id == "btn-continue":
             self._handle_continue()

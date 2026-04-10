@@ -25,8 +25,32 @@ def _try_create_client(model: str = "claude-sonnet-4-20250514"):
 
 @click.group()
 @click.version_option()
-def main():
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    default="INFO",
+    help="Log verbosity. Use DEBUG to diagnose hangs or unexpected behavior.",
+)
+@click.option(
+    "--log-file",
+    type=click.Path(),
+    default=None,
+    help="Log file path. Default: ~/.recon/logs/recon.log",
+)
+@click.pass_context
+def main(ctx, log_level, log_file):
     """recon -- Competitive intelligence CLI."""
+    from recon.logging import configure_logging
+
+    log_file_path = (
+        Path.home() / ".recon" / "logs" / "recon.log"
+        if log_file is None
+        else Path(log_file)
+    )
+
+    configure_logging(level=log_level, log_file=log_file_path)
+    ctx.ensure_object(dict)
+    ctx.obj["log_file"] = log_file_path
 
 
 @main.command()

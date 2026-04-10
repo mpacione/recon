@@ -10,7 +10,7 @@ from enum import StrEnum
 
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
@@ -135,7 +135,7 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
                 )
 
             yield Static("")
-            with Vertical(classes="action-bar"):
+            with Horizontal(classes="action-bar"):
                 yield Button("Confirm", id="btn-confirm", variant="primary")
                 yield Button("Back", id="btn-back")
 

@@ -8,7 +8,7 @@ competitors (update specific, diff update specific).
 from __future__ import annotations
 
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
@@ -78,7 +78,7 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
                     id=f"selector-{i}",
                 )
             yield Static("")
-            with Vertical(classes="action-bar"):
+            with Horizontal(classes="action-bar"):
                 yield Button("Done", id="btn-done", variant="primary")
                 yield Button("Select All", id="btn-select-all")
 

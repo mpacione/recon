@@ -9,7 +9,7 @@ RunScreen's pipeline worker.
 from __future__ import annotations
 
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
@@ -85,7 +85,7 @@ class ThemeCurationScreen(ModalScreen[list[DiscoveredTheme]]):
                 "[V] View evidence  [+] Investigate topic[/]"
             )
             yield Static("")
-            with Vertical(classes="action-bar"):
+            with Horizontal(classes="action-bar"):
                 yield Button(
                     "Done -- synthesize selected",
                     id="btn-done",
