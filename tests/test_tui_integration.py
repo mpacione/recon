@@ -84,6 +84,9 @@ class TestDashboardDiscoveryFlow:
 
 class TestDashboardToPlannerToRunFlow:
     async def test_planner_to_run_mode(self, tmp_workspace: Path) -> None:
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Placeholder Co")
+
         app = ReconApp(workspace_path=tmp_workspace)
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
@@ -95,7 +98,7 @@ class TestDashboardToPlannerToRunFlow:
             await pilot.pause()
             assert isinstance(app.screen, RunPlannerScreen)
 
-            await pilot.press("7")
+            app.screen.query_one("#btn-op-6", Button).press()
             await pilot.pause()
             await pilot.pause()
             await pilot.pause()

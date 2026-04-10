@@ -8,6 +8,7 @@ RunScreen's pipeline worker.
 
 from __future__ import annotations
 
+from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
@@ -34,8 +35,8 @@ class ThemeCurationScreen(ModalScreen[list[DiscoveredTheme]]):
         overflow-y: auto;
     }
     .theme-entry {
+        width: 100%;
         height: auto;
-        padding: 0 1;
         margin: 0 0 1 0;
     }
     .action-bar {
@@ -69,29 +70,54 @@ class ThemeCurationScreen(ModalScreen[list[DiscoveredTheme]]):
             )
             yield Static("")
 
-            for i, entry in enumerate(self._model.entries):
-                checkbox = "[x]" if entry.enabled else "[ ]"
-                yield Static(
-                    f"{checkbox} [bold #efe5c0]{i + 1}. {entry.label}[/]  "
-                    f"[#a89984]({entry.chunk_count} chunks, "
-                    f"{entry.evidence_strength})[/]",
-                    classes="theme-entry",
+            for i, _entry in enumerate(self._model.entries):
+                yield Button(
+                    self._theme_label(i),
                     id=f"theme-{i}",
+                    classes="theme-entry",
                 )
 
-            yield Static("")
-            yield Static(
-                "[#a89984][Space] Toggle  [E] Edit name  "
-                "[V] View evidence  [+] Investigate topic[/]"
-            )
             yield Static("")
             with Horizontal(classes="action-bar"):
                 yield Button(
-                    "Done -- synthesize selected",
+                    "Done — synthesize selected",
                     id="btn-done",
                     variant="primary",
                 )
+                yield Button("Select All", id="btn-select-all-themes")
+                yield Button("Clear All", id="btn-clear-all-themes")
+                yield Button("Cancel", id="btn-cancel-curation")
+
+    def _theme_label(self, index: int) -> str:
+        entry = self._model.entries[index]
+        checkbox = "[x]" if entry.enabled else "[ ]"
+        return (
+            f"{checkbox}  {index + 1}. {entry.label}  "
+            f"({entry.chunk_count} chunks, {entry.evidence_strength})"
+        )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-done":
+        button_id = event.button.id or ""
+        if button_id == "btn-done":
             self.dismiss(self._model.to_discovered_themes())
+        elif button_id == "btn-cancel-curation":
+            self.dismiss([])
+        elif button_id == "btn-select-all-themes":
+            for entry in self._model.entries:
+                entry.enabled = True
+            self._schedule_recompose()
+        elif button_id == "btn-clear-all-themes":
+            for entry in self._model.entries:
+                entry.enabled = False
+            self._schedule_recompose()
+        elif button_id.startswith("theme-"):
+            try:
+                index = int(button_id.removeprefix("theme-"))
+            except ValueError:
+                return
+            self._model.toggle(index)
+            self._schedule_recompose()
+
+    @work
+    async def _schedule_recompose(self) -> None:
+        await self.recompose()

@@ -13,10 +13,10 @@ from typing import Any
 
 from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import Button, Static
 
 from recon.tui.widgets import format_progress_bar
 
@@ -44,6 +44,14 @@ class RunScreen(Screen):
         height: auto;
         margin: 1 0;
     }
+    .action-bar {
+        height: auto;
+        margin: 1 0;
+        layout: horizontal;
+    }
+    .action-bar Button {
+        margin: 0 1 0 0;
+    }
     """
 
     progress: reactive[float] = reactive(0.0)
@@ -66,10 +74,19 @@ class RunScreen(Screen):
             yield Static("[bold #e0a044]ACTIVITY[/]")
             yield Static("[#a89984]Waiting...[/]", id="run-activity")
         yield Static("")
-        yield Static(
-            "[#a89984][P] Pause  [S] Stop  [D] Dashboard[/]",
-            id="run-controls",
-        )
+        with Horizontal(classes="action-bar"):
+            yield Button("Pause", id="btn-pause")
+            yield Button("Stop", id="btn-stop", variant="error")
+            yield Button("Back to Dashboard", id="btn-back-to-dashboard", variant="primary")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        if button_id == "btn-back-to-dashboard":
+            self.app.switch_mode("dashboard")
+        elif button_id == "btn-pause":
+            self.app.notify("Pause not yet implemented", severity="warning")
+        elif button_id == "btn-stop":
+            self.app.notify("Stop not yet implemented", severity="warning")
 
     def watch_current_phase(self, value: str) -> None:
         with contextlib.suppress(Exception):

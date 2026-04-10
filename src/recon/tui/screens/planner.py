@@ -81,13 +81,10 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
         background: #0d0d0d;
         overflow-y: auto;
     }
-    .operation-item {
+    .operation-button {
+        width: 100%;
         height: auto;
-        padding: 0 1;
         margin: 0 0 1 0;
-    }
-    .selected-operation {
-        background: #1a1a1a;
     }
     .action-bar {
         height: auto;
@@ -127,16 +124,14 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
             operations = list(Operation)
             for i, op in enumerate(operations):
                 label, description = _OPERATION_LABELS[op]
-                yield Static(
-                    f"[#e0a044][{i + 1}][/] {label}\n"
-                    f"    [#a89984]{description}[/]",
-                    classes="operation-item",
-                    id=f"operation-{i}",
+                yield Button(
+                    f"[{i + 1}]  {label}  —  {description}",
+                    id=f"btn-op-{i}",
+                    classes="operation-button",
                 )
 
             yield Static("")
             with Horizontal(classes="action-bar"):
-                yield Button("Confirm", id="btn-confirm", variant="primary")
                 yield Button("Back", id="btn-back")
 
     def _select_by_number(self, number: str) -> None:
@@ -167,7 +162,15 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
         self._select_by_number("7")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-confirm" and self._selected is not None:
-            self.dismiss(self._selected)
-        elif event.button.id == "btn-back":
+        button_id = event.button.id or ""
+        if button_id.startswith("btn-op-"):
+            try:
+                index = int(button_id.removeprefix("btn-op-"))
+            except ValueError:
+                return
+            operations = list(Operation)
+            if 0 <= index < len(operations):
+                self._selected = operations[index]
+                self.dismiss(self._selected)
+        elif button_id == "btn-back":
             self.dismiss(None)

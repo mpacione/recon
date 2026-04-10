@@ -116,8 +116,9 @@ class WelcomeScreen(Screen):
         height: auto;
     }
     .recent-item {
+        width: 100%;
         height: auto;
-        padding: 0 1;
+        margin: 0 0 1 0;
     }
     """
 
@@ -146,17 +147,32 @@ class WelcomeScreen(Screen):
             return
         for i, project in enumerate(projects):
             display_path = project.path.replace(str(Path.home()), "~")
-            yield Static(
-                f"[#e0a044]{i + 1}.[/] {project.name}  [#a89984]{display_path}[/]",
+            yield Button(
+                f"{project.name}  —  {display_path}",
+                id=f"btn-recent-{i}",
                 classes="recent-item",
             )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        _log.debug("WelcomeScreen button pressed id=%s", event.button.id)
-        if event.button.id == "btn-new":
+        button_id = event.button.id or ""
+        _log.info("WelcomeScreen button pressed id=%s", button_id)
+        if button_id == "btn-new":
             self._show_new_input()
-        elif event.button.id == "btn-open":
+        elif button_id == "btn-open":
             self._show_open_input()
+        elif button_id.startswith("btn-recent-"):
+            self._open_recent(button_id)
+
+    def _open_recent(self, button_id: str) -> None:
+        try:
+            index = int(button_id.removeprefix("btn-recent-"))
+        except ValueError:
+            return
+        projects = self._manager.load()
+        if 0 <= index < len(projects):
+            path = projects[index].path
+            _log.info("WelcomeScreen opening recent path=%s", path)
+            self.post_message(self.WorkspaceSelected(path))
 
     def _show_new_input(self) -> None:
         container = self.query_one("#welcome-container", Vertical)

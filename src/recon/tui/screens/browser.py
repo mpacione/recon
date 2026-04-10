@@ -8,8 +8,9 @@ for the selected competitor on the right.
 from __future__ import annotations
 
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
+from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import DataTable, Static
+from textual.widgets import Button, DataTable, Static
 
 from recon.tui.models.dashboard import DashboardData  # noqa: TCH001
 
@@ -30,6 +31,14 @@ class CompetitorBrowserScreen(Screen):
         margin: 1 0;
         padding: 1 2;
         border: solid #3a3a3a;
+    }
+    .action-bar {
+        height: auto;
+        margin: 1 0;
+        layout: horizontal;
+    }
+    .action-bar Button {
+        margin: 0 1 0 0;
     }
     """
 
@@ -61,9 +70,12 @@ class CompetitorBrowserScreen(Screen):
             )
 
         yield Static("")
-        yield Static(
-            "[#a89984][/] Search  [F] Filter  [S] Sort  [Esc] Back[/]"
-        )
+        with Horizontal(classes="action-bar"):
+            yield Button("Back to Dashboard", id="btn-back", variant="primary")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-back":
+            self.app.pop_screen()
 
     def on_mount(self) -> None:
         if not self._data.competitor_rows:

@@ -76,3 +76,21 @@ class TestCompetitorSelectorScreen:
             assert len(screen.selected) == 1
             screen.select_all()
             assert len(screen.selected) == 3
+
+    async def test_item_button_click_toggles(self) -> None:
+        app = _SelectorTestApp(["Cursor", "Linear"])
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.screen.query_one("#selector-0", Button).press()
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, CompetitorSelectorScreen)
+            assert screen.selected == ["Linear"]
+
+    async def test_cancel_button_dismisses_empty(self) -> None:
+        app = _SelectorTestApp(["Cursor", "Linear"])
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.screen.query_one("#btn-cancel", Button).press()
+            await pilot.pause()
+            assert app.dismissed_result == []

@@ -14,11 +14,14 @@ from pathlib import Path  # noqa: TCH003 -- used at runtime
 from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Static
+from textual.widgets import Button, Input, Static
 
+from recon.logging import get_logger
 from recon.tui.models.dashboard import DashboardData  # noqa: TCH001 -- used at runtime
+
+_log = get_logger(__name__)
 
 
 class DashboardScreen(Screen):
@@ -61,6 +64,13 @@ class DashboardScreen(Screen):
         padding: 1 2;
         border: solid #3a3a3a;
     }
+    .empty-actions {
+        height: auto;
+        margin: 1 0 0 0;
+    }
+    .empty-actions Button {
+        margin: 0 1 0 0;
+    }
     """
 
     def __init__(self, data: DashboardData, workspace_path: Path) -> None:
@@ -77,7 +87,7 @@ class DashboardScreen(Screen):
         yield Static(f"Workspace: {display_path}", id="workspace-path")
 
         if self._data.total_competitors == 0:
-            yield self._compose_empty_prompt()
+            yield from self._compose_empty_prompt()
         else:
             yield from self._compose_workspace_status()
 
@@ -87,16 +97,26 @@ class DashboardScreen(Screen):
             yield Button("Browse", id="btn-browse")
             yield Button("Quit", id="btn-quit", variant="error")
 
-    def _compose_empty_prompt(self) -> Static:
-        return Static(
-            "[#efe5c0]No competitors yet.[/]\n\n"
-            "Search for competitors in this domain?\n"
-            "The agent will search the web and present\n"
-            "candidates for you to review.\n\n"
-            "[#e0a044][Y][/] Yes, start discovery  "
-            "[#e0a044][N][/] No, add manually",
-            id="empty-prompt",
-        )
+    def _compose_empty_prompt(self):
+        with Vertical(id="empty-prompt"):
+            yield Static("[#efe5c0]No competitors yet.[/]")
+            yield Static("")
+            yield Static(
+                "Search the web for competitors in this domain,\n"
+                "or add them manually by name.",
+                classes="dim",
+            )
+            yield Static("")
+            with Horizontal(classes="empty-actions"):
+                yield Button(
+                    "Start Discovery",
+                    id="btn-empty-discover",
+                    variant="primary",
+                )
+                yield Button(
+                    "Add Manually",
+                    id="btn-empty-manual",
+                )
 
     def _compose_workspace_status(self):
         yield Static(
@@ -160,13 +180,28 @@ class DashboardScreen(Screen):
             self._push_discovery()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-browse":
+        button_id = event.button.id
+        _log.info(
+            "DashboardScreen button pressed id=%s competitors=%d",
+            button_id,
+            self._data.total_competitors,
+        )
+        if button_id in ("btn-browse", "btn-empty-browse"):
             self._push_browser()
-        elif event.button.id == "btn-discover":
+        elif button_id in ("btn-discover", "btn-empty-discover"):
             self._push_discovery()
-        elif event.button.id == "btn-run":
+        elif button_id == "btn-empty-manual":
+            self._show_manual_add_input()
+        elif button_id == "btn-run":
+            if self._data.total_competitors == 0:
+                self.app.notify(
+                    "No competitors yet. Discover or add some first.",
+                    title="Nothing to run",
+                    severity="warning",
+                )
+                return
             self._push_planner()
-        elif event.button.id == "btn-quit":
+        elif button_id == "btn-quit":
             self.app.exit()
 
     def _push_browser(self) -> None:
@@ -183,6 +218,45 @@ class DashboardScreen(Screen):
             DiscoveryScreen(state=state, domain=self._data.domain),
             self.handle_discovery_result,
         )
+
+    def _show_manual_add_input(self) -> None:
+        existing = self.query("#manual-add-input")
+        if existing:
+            return
+        try:
+            prompt_container = self.query_one("#empty-prompt", Vertical)
+        except Exception:
+            return
+        add_input = Input(
+            placeholder="Competitor name (Enter to add, Esc to cancel)",
+            id="manual-add-input",
+        )
+        prompt_container.mount(add_input)
+        add_input.focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id != "manual-add-input":
+            return
+        name = event.value.strip()
+        if not name:
+            event.input.remove()
+            return
+        from recon.workspace import Workspace
+
+        try:
+            ws = Workspace.open(self._workspace_path)
+            ws.create_profile(name)
+            _log.info("manually added competitor name=%s", name)
+            self.app.notify(f"Added: {name}", title="Competitor added")
+            event.input.remove()
+            from recon.tui.models.dashboard import build_dashboard_data
+
+            self.refresh_data(build_dashboard_data(ws))
+        except FileExistsError:
+            self.app.notify(f"{name} already exists", severity="warning")
+        except Exception as exc:
+            _log.exception("failed to add competitor")
+            self.app.notify(str(exc), severity="error")
 
     def handle_discovery_result(self, candidates: list | None) -> None:
         if not candidates:

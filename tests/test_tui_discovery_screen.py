@@ -69,7 +69,7 @@ class TestDiscoveryScreen:
         app = _DiscoveryTestApp(state=_make_state(_make_candidates(3)))
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            items = app.screen.query(".candidate-item")
+            items = app.screen.query(".candidate-row")
             assert len(items) == 3
 
     async def test_toggle_candidate(self) -> None:

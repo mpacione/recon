@@ -75,8 +75,9 @@ class TestDashboardScreen:
         data = _make_dashboard_data(total_competitors=0)
         app = _DashboardTestApp(data, tmp_path)
         async with app.run_test(size=(120, 40)):
-            prompt = app.query_one("#empty-prompt", Static)
-            assert "No competitors" in str(prompt.content)
+            assert app.query_one("#empty-prompt")
+            assert app.query_one("#btn-empty-discover", Button)
+            assert app.query_one("#btn-empty-manual", Button)
 
     async def test_populated_workspace_hides_empty_prompt(self, tmp_path: Path) -> None:
         data = _make_dashboard_data(total_competitors=10)

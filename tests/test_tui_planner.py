@@ -47,26 +47,14 @@ class TestRunPlannerScreen:
         app = _PlannerTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            items = app.screen.query(".operation-item")
+            items = app.screen.query(".operation-button")
             assert len(items) == 7
 
-    async def test_select_full_pipeline(self) -> None:
+    async def test_operation_button_dismisses_with_selection(self) -> None:
         app = _PlannerTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            screen = app.screen
-            assert isinstance(screen, RunPlannerScreen)
-            screen.select_operation(Operation.FULL_PIPELINE)
-            assert screen.selected == Operation.FULL_PIPELINE
-
-    async def test_confirm_dismisses_with_operation(self) -> None:
-        app = _PlannerTestApp()
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            screen = app.screen
-            assert isinstance(screen, RunPlannerScreen)
-            screen.select_operation(Operation.FULL_PIPELINE)
-            app.screen.query_one("#btn-confirm", Button).press()
+            app.screen.query_one("#btn-op-6", Button).press()
             await pilot.pause()
             assert app.selected_operation == Operation.FULL_PIPELINE
 

@@ -36,7 +36,7 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         align: center middle;
     }
     #discovery-container {
-        width: 90;
+        width: 100;
         height: auto;
         max-height: 90%;
         padding: 1 2;
@@ -44,10 +44,17 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         background: #0d0d0d;
         overflow-y: auto;
     }
-    .candidate-item {
+    .candidate-row {
         height: auto;
-        padding: 0 1;
         margin: 0 0 1 0;
+    }
+    .candidate-toggle {
+        width: 10;
+        margin: 0 1 0 0;
+    }
+    .candidate-detail {
+        width: 1fr;
+        height: auto;
     }
     .action-bar {
         height: auto;
@@ -135,17 +142,21 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
             return
 
         for i, candidate in enumerate(candidates):
-            checkbox = "[x]" if candidate.accepted else "[ ]"
             tier_display = candidate.suggested_tier.value.capitalize()
-            yield Static(
-                f"{checkbox} [bold #efe5c0]{candidate.name}[/]  "
-                f"[#a89984]{candidate.url}[/]\n"
-                f"    {candidate.blurb}\n"
-                f"    [#a89984]Found via: {candidate.provenance}  |  "
-                f"Tier: {tier_display}[/]",
-                classes="candidate-item",
-                id=f"candidate-{i}",
-            )
+            with Horizontal(classes="candidate-row", id=f"candidate-{i}"):
+                yield Button(
+                    "[x]" if candidate.accepted else "[ ]",
+                    id=f"btn-toggle-{i}",
+                    classes="candidate-toggle",
+                )
+                yield Static(
+                    f"[bold #efe5c0]{candidate.name}[/]  "
+                    f"[#a89984]{candidate.url}[/]\n"
+                    f"{candidate.blurb}\n"
+                    f"[#a89984]Found via: {candidate.provenance}  |  "
+                    f"Tier: {tier_display}[/]",
+                    classes="candidate-detail",
+                )
 
     def _build_roster_summary(self):
         accepted = self._state.accepted_candidates
@@ -163,15 +174,23 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         self._state.toggle(index)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-done":
+        button_id = event.button.id or ""
+        if button_id == "btn-done":
             self.dismiss(self._state.accepted_candidates)
-        elif event.button.id == "btn-search-more":
+        elif button_id == "btn-search-more":
             self._do_search()
-        elif event.button.id == "btn-accept-all":
+        elif button_id == "btn-accept-all":
             self._state.accept_all()
             self._refresh_display()
-        elif event.button.id == "btn-reject-all":
+        elif button_id == "btn-reject-all":
             self._state.reject_all()
+            self._refresh_display()
+        elif button_id.startswith("btn-toggle-"):
+            try:
+                index = int(button_id.removeprefix("btn-toggle-"))
+            except ValueError:
+                return
+            self._state.toggle(index)
             self._refresh_display()
 
     @work

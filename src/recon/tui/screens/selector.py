@@ -7,6 +7,7 @@ competitors (update specific, diff update specific).
 
 from __future__ import annotations
 
+from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
@@ -30,8 +31,9 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
         overflow-y: auto;
     }
     .selector-item {
+        width: 100%;
         height: auto;
-        padding: 0 1;
+        margin: 0 0 1 0;
     }
     .action-bar {
         height: auto;
@@ -70,20 +72,43 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
                 id="selector-title",
             )
             yield Static("")
-            for i, name in enumerate(self._competitors):
-                checkbox = "[x]" if self._selected_flags[i] else "[ ]"
-                yield Static(
-                    f"{checkbox} {name}",
-                    classes="selector-item",
+            for i, _name in enumerate(self._competitors):
+                yield Button(
+                    self._item_label(i),
                     id=f"selector-{i}",
+                    classes="selector-item",
                 )
             yield Static("")
             with Horizontal(classes="action-bar"):
                 yield Button("Done", id="btn-done", variant="primary")
                 yield Button("Select All", id="btn-select-all")
+                yield Button("Clear All", id="btn-clear-all")
+                yield Button("Cancel", id="btn-cancel")
+
+    def _item_label(self, index: int) -> str:
+        checkbox = "[x]" if self._selected_flags[index] else "[ ]"
+        return f"{checkbox}  {self._competitors[index]}"
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-done":
+        button_id = event.button.id or ""
+        if button_id == "btn-done":
             self.dismiss(self.selected)
-        elif event.button.id == "btn-select-all":
+        elif button_id == "btn-cancel":
+            self.dismiss([])
+        elif button_id == "btn-select-all":
             self.select_all()
+            self._schedule_recompose()
+        elif button_id == "btn-clear-all":
+            self._selected_flags = [False] * len(self._competitors)
+            self._schedule_recompose()
+        elif button_id.startswith("selector-"):
+            try:
+                index = int(button_id.removeprefix("selector-"))
+            except ValueError:
+                return
+            self.toggle(index)
+            self._schedule_recompose()
+
+    @work
+    async def _schedule_recompose(self) -> None:
+        await self.recompose()
