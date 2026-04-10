@@ -134,7 +134,7 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
     def compose(self) -> ComposeResult:
         with Vertical(id="discovery-container"):
             yield Static(
-                f"[bold #e0a044]DISCOVERY[/] -- {self._domain}",
+                f"[bold #e0a044]── DISCOVERY ──[/] [#a89984]·[/] [#efe5c0]{self._domain}[/]",
                 id="discovery-title",
             )
             yield self._build_summary()
@@ -153,7 +153,9 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         accepted = len(self._state.accepted_candidates)
         rejected = len(self._state.rejected_candidates)
         return Static(
-            f"[#a89984]{accepted} accepted, {rejected} rejected[/]",
+            f"[#a89984]rounds:[/] [#e0a044]{self._state.round_count}[/]  "
+            f"[#3a3a3a]·[/]  [#a89984]accepted:[/] [#e0a044]{accepted}[/]  "
+            f"[#3a3a3a]·[/]  [#a89984]rejected:[/] [#e0a044]{rejected}[/]",
             id="discovery-summary",
         )
 

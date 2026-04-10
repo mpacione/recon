@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed -- TUI audit Phase D (retro visual language)
+
+A consistent visual pass across every screen so the TUI feels like
+htop / lazygit / k9s and not a Bootstrap form rendered in textmode.
+
+- **`── HEADING ──` section dividers** applied uniformly:
+  - Dashboard COMPETITORS / SECTIONS / THEMES / COST sections
+  - Run monitor RUN MONITOR / ACTIVITY blocks
+  - Browser COMPETITORS title
+  - Curation THEME CURATION title with hint subtitle
+  - Selector SELECT COMPETITORS title with hint subtitle
+  - Discovery DISCOVERY title (now uses · separator instead of `--`)
+- **Wizard step indicator redesigned** as a 4-dot progress meter
+  (`● ● ○ ○`) plus the section name and `step N/4` counter, instead
+  of the plain "Step 2 of 4 -- Sections" string.
+- **Welcome ASCII banner** -- the recon block-letter logo replaces
+  the bare "recon" title.
+- **Selector checkboxes** now use color contrast: `[x]` in amber for
+  selected, `[ ]` in dim grey for unselected. The selected name is
+  bright; the unselected is dim. This was the audit's
+  hardest-to-read state and is now legible.
+- **Dashboard section progress** uses interpunct dot leaders
+  (`section ························ 2/3`) and color-codes the
+  progress count (grey for 0, amber for partial, green for
+  complete).
+- **Status breakdown bullets** use `·` separators with amber
+  count and dim label (`scaffold 1 · researched 2`).
+- **Discovery summary line** shows rounds, accepted, and rejected
+  in a single rule (`rounds: 1 · accepted: 3 · rejected: 0`).
+
+The chrome strip from Phase B already gave every screen a
+persistent header / log pane / keybind hint. Phase D unifies the
+typography of the body content so it matches.
+
+Snapshot baselines regenerated for Welcome, Discovery, Curation,
+Selector, and Planner.
+
 ### Added -- TUI audit Phase C (engine event bus)
 
 A small in-process publish/subscribe primitive the engine modules

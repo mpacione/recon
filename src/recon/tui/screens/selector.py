@@ -72,8 +72,13 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
     def compose(self) -> ComposeResult:
         with Vertical(id="selector-container"):
             yield Static(
-                f"[bold #e0a044]SELECT COMPETITORS[/]  ({len(self._competitors)} available)",
+                f"[bold #e0a044]── SELECT COMPETITORS ──[/]  "
+                f"[#e0a044]{len(self._competitors)}[/] available",
                 id="selector-title",
+            )
+            yield Static(
+                "[#a89984]toggle to choose which profiles the run targets[/]",
+                id="selector-hint",
             )
             yield Static("")
             for i, _name in enumerate(self._competitors):
@@ -90,8 +95,9 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
                 yield Button("Cancel", id="btn-cancel")
 
     def _item_label(self, index: int) -> str:
-        checkbox = "[x]" if self._selected_flags[index] else "[ ]"
-        return f"{checkbox}  {self._competitors[index]}"
+        if self._selected_flags[index]:
+            return f"[#e0a044][x][/]  {self._competitors[index]}"
+        return f"[#3a3a3a][ ][/]  [#a89984]{self._competitors[index]}[/]"
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""

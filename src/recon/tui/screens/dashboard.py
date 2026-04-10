@@ -118,40 +118,50 @@ class DashboardScreen(ReconScreen):
 
     def _compose_workspace_status(self):
         yield Static(
-            f"[bold #e0a044]COMPETITORS[/]  {self._data.total_competitors} total",
+            f"[bold #e0a044]── COMPETITORS ──[/] [#e0a044]{self._data.total_competitors}[/] total",
             id="competitor-stats",
         )
 
         if self._data.status_counts:
-            parts = [f"{status}: {count}" for status, count in sorted(self._data.status_counts.items())]
+            parts = [
+                f"[#a89984]{status}[/] [#e0a044]{count}[/]"
+                for status, count in sorted(self._data.status_counts.items())
+            ]
             yield Static(
-                "  " + "  |  ".join(parts),
+                "  " + "  [#3a3a3a]·[/]  ".join(parts),
                 id="status-breakdown",
             )
 
         if self._data.section_statuses:
             yield Static("")
             yield Static(
-                f"[bold #e0a044]SECTIONS[/]  {self._data.total_sections} defined",
+                f"[bold #e0a044]── SECTIONS ──[/] [#e0a044]{self._data.total_sections}[/] defined",
                 id="section-stats",
             )
             for ss in self._data.section_statuses:
-                dots = "." * max(1, 20 - len(ss.title))
-                progress = "complete" if ss.completed == ss.total else f"{ss.completed}/{ss.total}"
-                yield Static(f"  {ss.title} {dots} {progress}")
+                dots = "·" * max(1, 24 - len(ss.title))
+                if ss.completed == ss.total and ss.total > 0:
+                    progress = "[#98971a]complete[/]"
+                elif ss.completed == 0:
+                    progress = f"[#a89984]{ss.completed}/{ss.total}[/]"
+                else:
+                    progress = f"[#e0a044]{ss.completed}/{ss.total}[/]"
+                yield Static(f"  [#efe5c0]{ss.title}[/] [#3a3a3a]{dots}[/] {progress}")
 
         if self._data.theme_count > 0:
             yield Static("")
             yield Static(
-                f"[bold #e0a044]THEMES[/]  {self._data.theme_count} discovered, "
-                f"{self._data.themes_selected} selected",
+                f"[bold #e0a044]── THEMES ──[/]  "
+                f"[#e0a044]{self._data.theme_count}[/] discovered, "
+                f"[#e0a044]{self._data.themes_selected}[/] selected",
             )
 
         if self._data.total_cost > 0 or self._data.run_count > 0:
             yield Static("")
             yield Static(
-                f"[bold #e0a044]COST[/]  [#e0a044]${self._data.total_cost:.2f}[/] "
-                f"across {self._data.run_count} run"
+                f"[bold #e0a044]── COST ──[/]  "
+                f"[#e0a044]${self._data.total_cost:.2f}[/] "
+                f"[#a89984]across[/] [#e0a044]{self._data.run_count}[/] run"
                 f"{'s' if self._data.run_count != 1 else ''}",
             )
             if self._data.last_run_cost > 0:

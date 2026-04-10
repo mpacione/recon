@@ -185,7 +185,17 @@ class WizardScreen(ModalScreen[WizardResult]):
     def _indicator_text(self) -> str:
         idx = _PHASE_ORDER.index(self.state.phase) + 1
         label = _PHASE_LABELS[self.state.phase]
-        return f"[bold #e0a044]Step {idx} of 4 -- {label}[/]"
+        # Render a 4-dot progress meter that highlights the current step
+        dots = []
+        for i in range(1, 5):
+            if i < idx:
+                dots.append("[#98971a]●[/]")
+            elif i == idx:
+                dots.append("[#e0a044]●[/]")
+            else:
+                dots.append("[#3a3a3a]○[/]")
+        meter = " ".join(dots)
+        return f"[bold #e0a044]── WIZARD ── {label} ──[/]  {meter}  [#a89984]step {idx}/4[/]"
 
     def _refresh_phase(self) -> None:
         try:

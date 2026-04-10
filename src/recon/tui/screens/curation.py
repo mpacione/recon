@@ -66,10 +66,15 @@ class ThemeCurationScreen(ModalScreen[list[DiscoveredTheme]]):
     def compose(self) -> ComposeResult:
         with Vertical(id="curation-container"):
             yield Static(
-                f"[bold #e0a044]THEME CURATION[/]  "
-                f"{len(self._model.entries)} themes discovered, "
-                f"{self._model.selected_count} selected",
+                f"[bold #e0a044]── THEME CURATION ──[/]  "
+                f"[#e0a044]{len(self._model.entries)}[/] discovered  "
+                f"[#3a3a3a]·[/]  "
+                f"[#e0a044]{self._model.selected_count}[/] selected",
                 id="curation-title",
+            )
+            yield Static(
+                "[#a89984]toggle themes to choose what gets synthesized[/]",
+                id="curation-hint",
             )
             yield Static("")
 
