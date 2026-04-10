@@ -9,9 +9,9 @@ from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.containers import Vertical
 from textual.widgets import DataTable, Static
 
-from recon.tui.curation import ThemeCurationModel  # noqa: TCH001
-from recon.tui.monitor import RunMonitorModel, WorkerStatus  # noqa: TCH001
-from recon.tui.screens import DashboardData  # noqa: TCH001
+from recon.tui.models.curation import ThemeCurationModel  # noqa: TCH001
+from recon.tui.models.dashboard import DashboardData  # noqa: TCH001
+from recon.tui.models.monitor import RunMonitorModel, WorkerStatus  # noqa: TCH001
 
 
 class StatusPanel(Vertical):

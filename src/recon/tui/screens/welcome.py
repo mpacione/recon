@@ -1,0 +1,153 @@
+"""WelcomeScreen for recon TUI.
+
+Entry point when no workspace is specified. Lets the user create a new
+project, open an existing one, or resume from a recent project.
+Recent projects stored in ~/.recon/recent.json.
+"""
+
+from __future__ import annotations
+
+import datetime
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
+from textual.containers import Vertical
+from textual.screen import Screen
+from textual.widgets import Button, Input, Static
+
+
+@dataclass
+class RecentProject:
+    path: str
+    name: str
+    last_opened: str
+
+    @classmethod
+    def from_path(cls, project_path: Path, name: str | None = None) -> RecentProject:
+        return cls(
+            path=str(project_path),
+            name=name or project_path.name,
+            last_opened=datetime.datetime.now(tz=datetime.UTC).isoformat(),
+        )
+
+
+_DEFAULT_MAX_ENTRIES = 10
+
+
+class RecentProjectsManager:
+    """Load/save/add recent projects to a JSON file."""
+
+    def __init__(self, json_path: Path, max_entries: int = _DEFAULT_MAX_ENTRIES) -> None:
+        self._json_path = json_path
+        self._max_entries = max_entries
+
+    def load(self) -> list[RecentProject]:
+        if not self._json_path.exists():
+            return []
+        try:
+            data = json.loads(self._json_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return []
+        return [
+            RecentProject(path=entry["path"], name=entry["name"], last_opened=entry["last_opened"])
+            for entry in data
+            if isinstance(entry, dict) and "path" in entry and "name" in entry and "last_opened" in entry
+        ]
+
+    def save(self, projects: list[RecentProject]) -> None:
+        self._json_path.parent.mkdir(parents=True, exist_ok=True)
+        data = [{"path": p.path, "name": p.name, "last_opened": p.last_opened} for p in projects]
+        self._json_path.write_text(json.dumps(data, indent=2))
+
+    def add(self, project_path: Path, name: str) -> None:
+        projects = self.load()
+        path_str = str(project_path)
+        projects = [p for p in projects if p.path != path_str]
+        new_entry = RecentProject.from_path(project_path, name)
+        projects.insert(0, new_entry)
+        projects = projects[: self._max_entries]
+        self.save(projects)
+
+
+_DEFAULT_RECENT_PATH = Path.home() / ".recon" / "recent.json"
+
+
+class WelcomeScreen(Screen):
+    """Workspace picker: new, open, or recent project."""
+
+    DEFAULT_CSS = """
+    WelcomeScreen {
+        align: center middle;
+    }
+    #welcome-container {
+        width: 60;
+        height: auto;
+        padding: 2 4;
+        border: solid #3a3a3a;
+        background: #0d0d0d;
+    }
+    .action-row {
+        height: auto;
+        margin: 1 0;
+        layout: horizontal;
+    }
+    .action-row Button {
+        margin: 0 1 0 0;
+    }
+    #recent-section {
+        margin: 1 0 0 0;
+        height: auto;
+    }
+    .recent-item {
+        height: auto;
+        padding: 0 1;
+    }
+    """
+
+    def __init__(self, recent_projects_path: Path = _DEFAULT_RECENT_PATH) -> None:
+        super().__init__()
+        self._recent_path = recent_projects_path
+        self._manager = RecentProjectsManager(self._recent_path)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="welcome-container"):
+            yield Static("[bold #e0a044]recon[/]", classes="title")
+            yield Static("[#a89984]competitive intelligence[/]")
+            yield Static("")
+            with Vertical(classes="action-row"):
+                yield Button("New Project", id="btn-new", variant="primary")
+                yield Button("Open Existing", id="btn-open")
+            yield Static("")
+            with Vertical(id="recent-section"):
+                yield Static("[bold #e0a044]RECENT PROJECTS[/]")
+                yield from self._compose_recent_list()
+
+    def _compose_recent_list(self):
+        projects = self._manager.load()
+        if not projects:
+            yield Static("[#a89984]No recent projects[/]", id="recent-empty")
+            return
+        for i, project in enumerate(projects):
+            display_path = project.path.replace(str(Path.home()), "~")
+            yield Static(
+                f"[#e0a044]{i + 1}.[/] {project.name}  [#a89984]{display_path}[/]",
+                classes="recent-item",
+            )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-open":
+            self._show_open_input()
+
+    def _show_open_input(self) -> None:
+        container = self.query_one("#welcome-container", Vertical)
+        existing = self.query("#open-path-input")
+        if existing:
+            return
+        path_input = Input(
+            placeholder="Path to workspace directory",
+            id="open-path-input",
+        )
+        container.mount(path_input)
+        path_input.focus()

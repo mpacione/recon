@@ -1,4 +1,4 @@
-"""TUI screen data and logic for recon.
+"""Dashboard data model for recon TUI.
 
 Separates data preparation from rendering so screens can be tested
 without running the Textual app.

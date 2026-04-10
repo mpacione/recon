@@ -128,25 +128,159 @@ The visual style is warm retro terminal — professional warez aesthetic. Seriou
 - Warez-style loaders for long operations
 - No emoji anywhere in the interface
 
+### TUI Application Architecture
+
+**Textual Modes** for top-level navigation with independent screen stacks:
+
+```
+MODES:
+  dashboard ─── DashboardScreen (base)
+  │               ├── push DiscoveryScreen
+  │               ├── push RunPlannerScreen
+  │               │     └── push CompetitorSelectorScreen
+  │               └── push CompetitorBrowserScreen
+  │
+  run ─────── RunScreen (base)
+                └── push ThemeCurationScreen (pipeline gate)
+
+Transitions:
+  dashboard → run:  RunPlannerScreen confirms → switch_mode("run")
+  run → dashboard:  Pipeline completes or user presses [D]
+```
+
+**Key patterns:**
+- `push_screen_wait` for pipeline gates (theme curation) -- worker suspends, UI stays live
+- `ModalScreen[T]` with typed dismiss for DiscoveryScreen and ThemeCurationScreen
+- Reactive attributes + `data_bind()` for live monitor updates
+- `@work(exclusive=True)` for pipeline execution
+- Constructor injection for screen data (workspace, API key, etc.)
+
+**File structure:**
+
+```
+tui/
+  app.py                 -- ReconApp (modes, global state, screen coordination)
+  theme.py               -- CSS + colors
+  wizard.py              -- Standalone WizardApp
+  widgets.py             -- Shared widgets
+
+  models/                -- Pure data models (no Textual dependency)
+    dashboard.py         -- DashboardData
+    monitor.py           -- RunMonitorModel, WorkerState
+    curation.py          -- ThemeCurationModel, ThemeCurationEntry
+
+  screens/               -- Screen subclasses (Textual UI)
+    welcome.py           -- WelcomeScreen (new/open/recent workspace picker)
+    dashboard.py         -- DashboardScreen (status, actions, workspace path)
+    discovery.py         -- DiscoveryScreen (accumulating candidate search)
+    planner.py           -- RunPlannerScreen (7-option menu + cost estimate)
+    run.py               -- RunScreen (live pipeline monitor)
+    curation.py          -- ThemeCurationScreen (pipeline gate)
+    browser.py           -- CompetitorBrowserScreen (browse/drill profiles)
+    selector.py          -- CompetitorSelectorScreen (pick specific competitors)
+```
+
 ### TUI Screens
+
+#### 0. Welcome Screen (app entry point)
+
+The TUI can be launched from any directory. The WelcomeScreen handles workspace selection:
+
+```
++-- recon ------------------------------------------------+
+|                                                          |
+|  [N] New project                                         |
+|  [O] Open existing project                               |
+|                                                          |
+|  Recent projects:                                        |
+|    1. Acme CI Research    ~/projects/acme-ci              |
+|    2. Fintech Scan        ~/projects/fintech              |
+|    3. DevTools Landscape  ~/projects/devtools             |
+|                                                          |
+|  [1-3] Open recent  [Q] Quit                            |
++----------------------------------------------------------+
+```
+
+"New project" prompts for output directory (default: `~/recon/<project-name>`) then launches the WizardApp. "Open existing" accepts a path. Recent workspaces stored in `~/.recon/recent.json` (user-level, updated on every workspace open).
+
+**Decoupling from working directory:** The user never needs to `cd` into a workspace. `recon` (no args) launches the TUI with the WelcomeScreen. `recon tui /path` opens directly to a specific workspace. `recon init /path` runs headless init at a path.
 
 #### 1. Wizard Screen (`recon init`)
 
-Multi-step form implementing the setup wizard:
+Standalone `WizardApp` for guided workspace creation:
 - Identity phase: text inputs, multi-select
 - Sections phase: toggleable list with descriptions
 - Source preferences phase: per-section configuration
-- Review phase: full schema display with edit/confirm/cancel
-- Competitor discovery: iterative batch presentation with toggle/search/done
+- Review phase: full schema display with edit/confirm/cancel, API key input
 
-Each step has a progress indicator showing wizard position (Step 2/5).
+Each step has a progress indicator showing wizard position (Step 2/4).
 
-#### 2. Dashboard Screen (home / `recon status`)
+On wizard completion, the ReconApp launches and DashboardScreen detects an empty workspace.
 
-Workspace status at a glance:
+#### 1b. First-Run Auto-Prompt
+
+When the dashboard detects zero competitors (fresh workspace), it immediately shows:
+
+```
++----------------------------------------------------------+
+|                                                          |
+|  Workspace created. No competitors yet.                  |
+|                                                          |
+|  Search for competitors in this domain?                  |
+|  The agent will search the web and present               |
+|  candidates for you to review.                           |
+|                                                          |
+|  [Y] Yes, start discovery                                |
+|  [N] No, I'll add them manually                          |
++----------------------------------------------------------+
+```
+
+Y pushes DiscoveryScreen. N drops to empty dashboard.
+
+#### 2. Discovery Screen
+
+Accumulating competitor search -- the user keeps searching until satisfied. No fixed round limit. Can scale to hundreds of competitors.
+
+```
++-- DISCOVERY -- Developer Tools --------------------------+
+|  47 accepted, 8 rejected                                 |
+|                                                          |
+|  --- Latest batch ---------------------------------      |
+|                                                          |
+|  [x] Earthly          earthly.dev                        |
+|      Build automation. YC W21, $6.5M seed                |
+|      Found via: "alternatives to Bazel"                  |
+|      Tier: Emerging                                      |
+|                                                          |
+|  [x] Dagger           dagger.io                          |
+|      Programmable CI/CD engine                           |
+|      Found via: HN frontpage, ProductHunt                |
+|      Tier: Emerging                                      |
+|                                                          |
+|  [ ] Old Dead Tool    deadtool.com                       |
+|      Defunct since 2024                                   |
+|                                                          |
+|  --- Accepted roster (47) ------------------------       |
+|  Cursor, Linear, GitHub Actions, CircleCI, ...           |
+|  [V] View/edit full roster                               |
+|                                                          |
++----------------------------------------------------------+
+|  [Space] Toggle  [A] Accept all  [M] Add manually        |
+|  [S] Search more  [V] View all  [D] Done                |
++----------------------------------------------------------+
+```
+
+"Search more" triggers another agent search (using web search tool), results appended to the list. "View full roster" shows all candidates in a scrollable, searchable, toggleable list. "Done" dismisses with accepted candidates.
+
+**Web search:** Discovery uses Anthropic's server-side web search tool ($0.01/search) so candidates come from live web data (G2, ProductHunt, Crunchbase, etc.), not just model training data.
+
+#### 3. Dashboard Screen (home / `recon status`)
+
+Always shows the workspace path so the user knows where files live.
 
 ```
 +-- recon // Acme Corp -- Developer Tools ----------------+
+|  Workspace: ~/projects/acme-ci                           |
 |                                                          |
 |  Competitors    47 total                                 |
 |    scaffolded    0  |  researched   12  |  verified  35  |
@@ -171,7 +305,7 @@ Workspace status at a glance:
 |    last run      $48.20 (verified tier)                  |
 |                                                          |
 +----------------------------------------------------------+
-|  [R] Run  [S] Status detail  [B] Browse  [Q] Quit       |
+|  [R] Run  [D] Discover more  [B] Browse  [Q] Quit       |
 +----------------------------------------------------------+
 ```
 
