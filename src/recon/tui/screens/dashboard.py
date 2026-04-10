@@ -7,6 +7,7 @@ empty workspace.
 
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path  # noqa: TCH003 -- used at runtime
 
@@ -133,7 +134,23 @@ class DashboardScreen(Screen):
         from recon.tui.screens.discovery import DiscoveryScreen
 
         state = DiscoveryState()
-        self.app.push_screen(DiscoveryScreen(state=state, domain=self._data.domain))
+        self.app.push_screen(
+            DiscoveryScreen(state=state, domain=self._data.domain),
+            self.handle_discovery_result,
+        )
+
+    def handle_discovery_result(self, candidates: list | None) -> None:
+        if not candidates:
+            return
+        from recon.workspace import Workspace
+
+        try:
+            ws = Workspace.open(self._workspace_path)
+            for candidate in candidates:
+                with contextlib.suppress(FileExistsError):
+                    ws.create_profile(candidate.name)
+        except Exception:
+            pass
 
     def _push_planner(self) -> None:
         from recon.tui.screens.planner import RunPlannerScreen

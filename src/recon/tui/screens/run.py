@@ -8,7 +8,10 @@ curation gate is pushed via push_screen_wait.
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Callable, Coroutine
+from typing import Any
 
+from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.containers import Vertical
 from textual.reactive import reactive
@@ -16,6 +19,8 @@ from textual.screen import Screen
 from textual.widgets import Static
 
 from recon.tui.widgets import format_progress_bar
+
+PipelineFn = Callable[["RunScreen"], Coroutine[Any, Any, None]]
 
 
 class RunScreen(Screen):
@@ -48,6 +53,7 @@ class RunScreen(Screen):
     def __init__(self) -> None:
         super().__init__()
         self._activity: list[str] = []
+        self._pipeline_fn: PipelineFn | None = None
 
     def compose(self) -> ComposeResult:
         yield Static("[bold #e0a044]RUN MONITOR[/]", id="run-title")
@@ -76,6 +82,16 @@ class RunScreen(Screen):
     def watch_cost_usd(self, value: float) -> None:
         with contextlib.suppress(Exception):
             self.query_one("#run-cost", Static).update(self._format_cost())
+
+    def start_pipeline(self, pipeline_fn: PipelineFn) -> None:
+        self._pipeline_fn = pipeline_fn
+        self._execute_pipeline()
+
+    @work(exclusive=True)
+    async def _execute_pipeline(self) -> None:
+        if self._pipeline_fn is None:
+            return
+        await self._pipeline_fn(self)
 
     def add_activity(self, message: str) -> None:
         self._activity.append(message)

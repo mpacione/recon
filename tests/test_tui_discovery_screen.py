@@ -100,3 +100,43 @@ class TestDiscoveryScreen:
             await pilot.pause()
             empty_msg = app.screen.query_one("#discovery-empty", Static)
             assert empty_msg is not None
+
+    async def test_has_search_more_button(self) -> None:
+        app = _DiscoveryTestApp(state=_make_state(_make_candidates(3)))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            btn = app.screen.query_one("#btn-search-more", Button)
+            assert btn is not None
+
+    async def test_has_add_manually_button(self) -> None:
+        app = _DiscoveryTestApp(state=_make_state(_make_candidates(3)))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            btn = app.screen.query_one("#btn-add-manual", Button)
+            assert btn is not None
+
+    async def test_search_more_adds_candidates(self) -> None:
+        new_batch = [
+            DiscoveryCandidate(
+                name="NewCo",
+                url="https://newco.com",
+                blurb="A new competitor",
+                provenance="search",
+                suggested_tier=CompetitorTier.EMERGING,
+            ),
+        ]
+
+        async def mock_search(state: DiscoveryState | None = None) -> list[DiscoveryCandidate]:
+            return new_batch
+
+        state = _make_state(_make_candidates(2))
+        app = _DiscoveryTestApp(state=state)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, DiscoveryScreen)
+            screen.set_search_fn(mock_search)
+            app.screen.query_one("#btn-search-more", Button).press()
+            await pilot.pause()
+            await pilot.pause()
+            assert len(state.all_candidates) == 3

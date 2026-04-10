@@ -138,3 +138,29 @@ class TestDashboardButtonWiring:
             await pilot.press("y")
             await pilot.pause()
             assert isinstance(app.screen, DiscoveryScreen)
+
+    async def test_discovery_dismiss_creates_profiles(self, tmp_workspace: Path) -> None:
+        from recon.discovery import CompetitorTier, DiscoveryCandidate
+        from recon.workspace import Workspace
+
+        data = _make_dashboard_data(total_competitors=0)
+        app = _DashboardTestApp(data, tmp_workspace)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(DashboardScreen)
+            candidates = [
+                DiscoveryCandidate(
+                    name="TestCo",
+                    url="https://testco.com",
+                    blurb="A test company",
+                    provenance="test",
+                    suggested_tier=CompetitorTier.ESTABLISHED,
+                    accepted=True,
+                ),
+            ]
+            screen.handle_discovery_result(candidates)
+            await pilot.pause()
+
+            ws = Workspace.open(tmp_workspace)
+            profiles = ws.list_profiles()
+            names = [p["name"] for p in profiles]
+            assert "TestCo" in names

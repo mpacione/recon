@@ -155,3 +155,30 @@ class TestWelcomeScreenWiring:
             await pilot.pause()
             path_input = app.query_one("#open-path-input", Input)
             assert path_input is not None
+
+    async def test_open_path_submit_posts_message(self, tmp_workspace: Path) -> None:
+        from textual.app import App, ComposeResult
+        from textual.widgets import Input
+
+        json_path = tmp_workspace.parent / "recent.json"
+        workspace_opened: list[str] = []
+
+        class TestApp(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield WelcomeScreen(recent_projects_path=json_path)
+
+            def on_welcome_screen_workspace_selected(self, event: WelcomeScreen.WorkspaceSelected) -> None:
+                workspace_opened.append(event.path)
+
+        app = TestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            app.query_one("#btn-open", Button).press()
+            await pilot.pause()
+            path_input = app.query_one("#open-path-input", Input)
+            path_input.value = str(tmp_workspace)
+            path_input.post_message(Input.Submitted(path_input, str(tmp_workspace)))
+            await pilot.pause()
+            assert len(workspace_opened) == 1
+            assert workspace_opened[0] == str(tmp_workspace)

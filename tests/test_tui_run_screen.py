@@ -75,3 +75,60 @@ class TestRunScreen:
             await pilot.pause()
             log = app.query_one("#run-activity", Static)
             assert "Cursor" in str(log.content)
+
+    async def test_start_pipeline_updates_phase(self) -> None:
+        phases_seen: list[str] = []
+
+        async def mock_pipeline(screen: RunScreen) -> None:
+            screen.current_phase = "research"
+            phases_seen.append("research")
+            screen.progress = 0.5
+            screen.current_phase = "complete"
+            phases_seen.append("complete")
+
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(RunScreen)
+            screen.start_pipeline(mock_pipeline)
+            await pilot.pause()
+            await pilot.pause()
+            assert "research" in phases_seen
+            assert "complete" in phases_seen
+
+    async def test_push_theme_gate(self) -> None:
+        from textual.widgets import Button
+
+        from recon.themes import DiscoveredTheme
+        from recon.tui.models.curation import ThemeCurationModel
+        from recon.tui.screens.curation import ThemeCurationScreen
+
+        themes = [
+            DiscoveredTheme(
+                label="Theme A",
+                evidence_chunks=[{"text": "evidence"}],
+                evidence_strength="strong",
+                suggested_queries=["q1"],
+                cluster_center=[0.1],
+            ),
+        ]
+        gate_result: list[DiscoveredTheme] = []
+
+        async def mock_pipeline(screen: RunScreen) -> None:
+            screen.current_phase = "themes"
+            model = ThemeCurationModel.from_themes(themes)
+            curated = await screen.app.push_screen_wait(ThemeCurationScreen(model=model))
+            gate_result.extend(curated)
+            screen.current_phase = "complete"
+
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(RunScreen)
+            screen.start_pipeline(mock_pipeline)
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, ThemeCurationScreen)
+            app.screen.query_one("#btn-done", Button).press()
+            await pilot.pause()
+            await pilot.pause()
+            assert len(gate_result) >= 1
+            assert screen.current_phase == "complete"

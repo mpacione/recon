@@ -14,6 +14,7 @@ from pathlib import Path
 
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.containers import Vertical
+from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import Button, Input, Static
 
@@ -76,6 +77,11 @@ _DEFAULT_RECENT_PATH = Path.home() / ".recon" / "recent.json"
 
 class WelcomeScreen(Screen):
     """Workspace picker: new, open, or recent project."""
+
+    class WorkspaceSelected(Message):
+        def __init__(self, path: str) -> None:
+            super().__init__()
+            self.path = path
 
     DEFAULT_CSS = """
     WelcomeScreen {
@@ -151,3 +157,10 @@ class WelcomeScreen(Screen):
         )
         container.mount(path_input)
         path_input.focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id != "open-path-input":
+            return
+        path_str = event.value.strip()
+        if path_str:
+            self.post_message(self.WorkspaceSelected(path_str))

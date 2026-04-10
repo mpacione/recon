@@ -7,12 +7,18 @@ candidates when done.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Coroutine
+from typing import Any
+
+from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from recon.discovery import DiscoveryCandidate, DiscoveryState  # noqa: TCH001
+
+SearchFn = Callable[[DiscoveryState | None], Coroutine[Any, Any, list[DiscoveryCandidate]]]
 
 
 class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
@@ -56,10 +62,14 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         super().__init__()
         self._state = state
         self._domain = domain
+        self._search_fn: SearchFn | None = None
 
     @property
     def state(self) -> DiscoveryState:
         return self._state
+
+    def set_search_fn(self, fn: SearchFn) -> None:
+        self._search_fn = fn
 
     def compose(self) -> ComposeResult:
         with Vertical(id="discovery-container"):
@@ -74,6 +84,8 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
             yield Static("")
             with Vertical(classes="action-bar"):
                 yield Button("Done", id="btn-done", variant="primary")
+                yield Button("Search More", id="btn-search-more")
+                yield Button("Add Manually", id="btn-add-manual")
                 yield Button("Accept All", id="btn-accept-all")
                 yield Button("Reject All", id="btn-reject-all")
 
@@ -125,6 +137,8 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-done":
             self.dismiss(self._state.accepted_candidates)
+        elif event.button.id == "btn-search-more":
+            self._do_search()
         elif event.button.id == "btn-accept-all":
             self._state.accept_all()
             self._refresh_display()
@@ -132,22 +146,18 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
             self._state.reject_all()
             self._refresh_display()
 
-    def _refresh_display(self) -> None:
-        container = self.query_one("#discovery-container", Vertical)
-        container.remove_children()
-        container.mount_all(list(self.compose_children()))
+    @work
+    async def _do_search(self) -> None:
+        if self._search_fn is None:
+            return
+        candidates = await self._search_fn(self._state)
+        if candidates:
+            self._state.add_round(candidates)
+            self._schedule_recompose()
 
-    def compose_children(self) -> ComposeResult:
-        yield Static(
-            f"[bold #e0a044]DISCOVERY[/] -- {self._domain}",
-            id="discovery-title",
-        )
-        yield self._build_summary()
-        yield Static("")
-        yield from self._build_candidate_list()
-        yield from self._build_roster_summary()
-        yield Static("")
-        with Vertical(classes="action-bar"):
-            yield Button("Done", id="btn-done", variant="primary")
-            yield Button("Accept All", id="btn-accept-all")
-            yield Button("Reject All", id="btn-reject-all")
+    def _refresh_display(self) -> None:
+        self._schedule_recompose()
+
+    @work
+    async def _schedule_recompose(self) -> None:
+        await self.recompose()
