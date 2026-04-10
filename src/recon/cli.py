@@ -390,6 +390,122 @@ def enrich(target, all_targets, pass_name, workers, dry_run):
 
 
 @main.command()
+@click.argument("target", required=False)
+@click.option("--all", "all_targets", is_flag=True, help="Verify every researched profile")
+@click.option(
+    "--tier",
+    type=click.Choice(["standard", "verified", "deep"]),
+    default=None,
+    help="Override section tiers from the schema",
+)
+@click.option("--dry-run", is_flag=True, help="Show what would be verified")
+def verify(target, all_targets, tier, dry_run):
+    """Verify research sources via multi-agent consensus.
+
+    Iterates researched profiles, splits them by section, and calls the
+    verification engine at the tier declared for each section in the
+    schema (or at the tier provided on the command line). Writes a
+    per-section verification summary to each profile's frontmatter.
+    """
+    from recon.pipeline import Pipeline, PipelineConfig, PipelineStage
+    from recon.state import StateStore
+    from recon.workspace import Workspace
+
+    ws = Workspace.open(Path("."))
+
+    if not target and not all_targets:
+        click.echo("Specify a competitor name or pass --all to verify every researched profile.")
+        return
+
+    if target and all_targets:
+        click.echo("Cannot combine a target argument with --all.")
+        return
+
+    profiles = ws.list_profiles()
+    all_names = [p["name"] for p in profiles]
+
+    if target:
+        resolved = next(
+            (name for name in all_names if name.lower() == target.lower()),
+            None,
+        )
+        if resolved is None:
+            available = ", ".join(all_names) or "(none)"
+            click.echo(f"Unknown competitor: {target}. Available: {available}")
+            return
+        selected_names: list[str] | None = [resolved]
+    else:
+        selected_names = None
+
+    if dry_run:
+        schema = ws.schema
+        if schema is None:
+            click.echo("No schema loaded; cannot plan verification.")
+            return
+        per_section = [
+            (s.key, (tier or s.verification_tier.value)) for s in schema.sections
+        ]
+        to_verify = [(k, t) for k, t in per_section if t != "standard"]
+        click.echo(f"Verify plan: {len(to_verify)} section(s) above standard tier")
+        for key, eff_tier in to_verify:
+            click.echo(f"  {key}: {eff_tier}")
+        return
+
+    client, error = _try_create_client()
+    if error:
+        click.echo(f"ANTHROPIC_API_KEY not set. {error}")
+        return
+
+    state = StateStore(db_path=ws.root / ".recon" / "state.db")
+    _run_async(state.initialize())
+
+    config = PipelineConfig(
+        verification_enabled=True,
+        start_from=PipelineStage.VERIFY,
+        stop_after=PipelineStage.VERIFY,
+        targets=selected_names,
+    )
+
+    # If --tier was given, temporarily flip every section's tier to
+    # match. The Pipeline reads schema.sections at stage execution time,
+    # so we mutate the in-memory schema object here.
+    if tier is not None and ws.schema is not None:
+        from recon.schema import VerificationTier
+
+        override = VerificationTier(tier)
+        for section in ws.schema.sections:
+            object.__setattr__(section, "verification_tier", override)
+
+    pipeline = Pipeline(
+        workspace=ws,
+        state_store=state,
+        llm_client=client,
+        config=config,
+    )
+
+    label = f"'{selected_names[0]}'" if selected_names else "all profiles"
+    click.echo(f"Starting verification for {label}...")
+    run_id = _run_async(pipeline.plan())
+    _run_async(pipeline.execute(run_id))
+
+    outcomes = pipeline.verification_results
+    if not outcomes:
+        click.echo("No sections required verification (check schema tiers).")
+        return
+
+    click.echo(f"Verified {len(outcomes)} section(s):")
+    for outcome in outcomes:
+        confirmed = sum(1 for s in outcome.source_results if s.status.value == "confirmed")
+        disputed = sum(1 for s in outcome.source_results if s.status.value == "disputed")
+        unverified = sum(1 for s in outcome.source_results if s.status.value == "unverified")
+        click.echo(
+            f"  {outcome.competitor_name} / {outcome.section_key} "
+            f"({outcome.tier}) -> "
+            f"{confirmed} confirmed, {disputed} disputed, {unverified} unverified",
+        )
+
+
+@main.command()
 @click.option("--incremental/--full", default=True, help="Only index new/changed files")
 @click.option("--workspace", "workspace_dir", default=".", help="Workspace directory")
 def index(incremental, workspace_dir):

@@ -21,6 +21,7 @@ A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agen
 | `recon discover` | **Stable** | Uses `web_search_20250305` tool for live competitor discovery |
 | `recon research [target | --all]` | **Stable** | Target argument now honored; single-profile filtering case-insensitive |
 | `recon enrich [target | --all]` | **Stable** | Target argument honored; unknown names error clearly |
+| `recon verify [target | --all] [--tier ...]` | **Stable** | Per-section verification honoring schema tiers; writes summary to profile frontmatter |
 | `recon index` / `retrieve` | **Stable** | Local fastembed + ChromaDB, incremental via SHA-256 hashes |
 | `recon tag` | **Stable** | K-means clustering with LLM-generated strategic theme labels |
 | `recon synthesize` / `distill` / `summarize` | **Stable** | Single-pass + deep 4-pass synthesis, distillation, meta-synthesis |

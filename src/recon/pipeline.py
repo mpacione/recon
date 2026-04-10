@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+import frontmatter
+
 from recon.cost import CostTracker, ModelPricing
 from recon.deliver import Distiller, MetaSynthesizer
 from recon.enrichment import EnrichmentOrchestrator, EnrichmentPass
@@ -23,11 +25,13 @@ from recon.index import IndexManager, chunk_markdown
 from recon.llm import LLMClient  # noqa: TCH001
 from recon.logging import get_logger
 from recon.research import ResearchOrchestrator
+from recon.schema import VerificationTier
 from recon.state import RunStatus, StateStore  # noqa: TCH001
 from recon.synthesis import SynthesisEngine, SynthesisMode, SynthesisResult
 from recon.tag import Tagger
 from recon.themes import DiscoveredTheme, ThemeDiscovery, build_workspace_chunks
 from recon.verification import (
+    SourceStatus,
     VerificationEngine,
     VerificationOutcome,
     VerificationRequest,
@@ -56,12 +60,61 @@ _STAGE_ORDER = list(PipelineStage)
 
 _SOURCE_URL_RE = re.compile(r"\((https?://[^)\s]+)\)")
 _DEFAULT_MODEL = "claude-sonnet-4-20250514"
+_SECTION_HEADING_RE = re.compile(r"^(#{2,4})\s+(.+)$", re.MULTILINE)
 
 
 def _theme_slug(label: str) -> str:
     """File-safe slug for theme label."""
     cleaned = re.sub(r"[^\w\s-]", "", label).strip().lower()
     return re.sub(r"[-\s]+", "_", cleaned) or "unnamed_theme"
+
+
+def _split_markdown_sections(content: str) -> list[tuple[str, str]]:
+    """Split markdown content into (title, body) pairs by heading.
+
+    Returns an empty list if no headings are found. Drops a leading
+    'Sources' section to avoid treating citation URLs as first-class
+    section content.
+    """
+    matches = list(_SECTION_HEADING_RE.finditer(content))
+    if not matches:
+        return []
+
+    sections: list[tuple[str, str]] = []
+    for i, match in enumerate(matches):
+        title = match.group(2).strip()
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
+        sections.append((title, content[start:end]))
+    return sections
+
+
+def _summarize_outcome(outcome: VerificationOutcome) -> dict[str, Any]:
+    """Build a compact frontmatter-safe summary of a verification outcome."""
+    counts: dict[str, int] = {
+        SourceStatus.CONFIRMED.value: 0,
+        SourceStatus.CORROBORATED.value: 0,
+        SourceStatus.DISPUTED.value: 0,
+        SourceStatus.UNVERIFIED.value: 0,
+    }
+    for result in outcome.source_results:
+        counts[result.status.value] = counts.get(result.status.value, 0) + 1
+
+    return {
+        "tier": outcome.tier,
+        "confirmed": counts[SourceStatus.CONFIRMED.value],
+        "corroborated": counts[SourceStatus.CORROBORATED.value],
+        "disputed": counts[SourceStatus.DISPUTED.value],
+        "unverified": counts[SourceStatus.UNVERIFIED.value],
+        "sources": [
+            {
+                "url": r.url,
+                "status": r.status.value,
+                "notes": r.notes,
+            }
+            for r in outcome.source_results
+        ],
+    }
 
 
 @dataclass
@@ -223,19 +276,27 @@ class Pipeline:
     async def _stage_verify(self, run_id: str, cost_tracker: CostTracker) -> None:
         """Execute the verification stage.
 
-        Iterates profiles that have been researched, extracts source URLs
-        from each one's content, and runs the verification engine at the
-        configured tier. Outcomes are stored on ``self.verification_results``
-        for inspection; the profile content is not mutated.
+        Iterates profiles that have been researched, splits each one by
+        section header, and runs the verification engine at the tier
+        declared for that section in the schema. Skips sections whose
+        declared tier is ``standard`` (no LLM call needed). Outcomes are
+        stored on ``self.verification_results`` and attached to each
+        profile's frontmatter as a structured ``verification`` dict so
+        users can see per-section status without re-running the pipeline.
         """
         profiles = self.workspace.list_profiles()
         if self.config.targets is not None:
             lowered = {t.lower() for t in self.config.targets}
             profiles = [p for p in profiles if p["name"].lower() in lowered]
 
-        engine = VerificationEngine(llm_client=self.llm_client)
         schema = self.workspace.schema
-        section_key = schema.sections[0].key if schema and schema.sections else "overview"
+        if schema is None or not schema.sections:
+            self.verification_results = []
+            return
+
+        engine = VerificationEngine(llm_client=self.llm_client)
+        section_tiers = {s.key: s.verification_tier for s in schema.sections}
+        title_to_key = {s.title: s.key for s in schema.sections}
 
         outcomes: list[VerificationOutcome] = []
         for profile_meta in profiles:
@@ -246,25 +307,76 @@ class Pipeline:
                 continue
 
             content = full["_content"]
-            sources = _SOURCE_URL_RE.findall(content)
-            if not sources:
-                continue
+            sections = _split_markdown_sections(content)
 
-            request = VerificationRequest(
-                content=content,
-                sources=sources,
-                section_key=section_key,
-                competitor_name=profile_meta.get("name", profile_meta["_slug"]),
-                tier=self.config.verification_tier,
-            )
-            try:
-                outcome = await engine.verify(request)
-            except Exception:
-                _log.exception("verification failed for %s", profile_meta.get("name"))
-                continue
-            outcomes.append(outcome)
+            profile_summary: dict[str, dict[str, Any]] = {}
+
+            for section_title, section_text in sections:
+                key = title_to_key.get(section_title)
+                if key is None:
+                    # Try case-insensitive title match as a fallback
+                    matches = [k for t, k in title_to_key.items() if t.lower() == section_title.lower()]
+                    if not matches:
+                        continue
+                    key = matches[0]
+
+                tier = section_tiers.get(key, VerificationTier.STANDARD)
+                if tier == VerificationTier.STANDARD:
+                    continue
+
+                sources = _SOURCE_URL_RE.findall(section_text)
+                if not sources:
+                    continue
+
+                request = VerificationRequest(
+                    content=section_text,
+                    sources=sources,
+                    section_key=key,
+                    competitor_name=profile_meta.get("name", profile_meta["_slug"]),
+                    tier=tier.value,
+                )
+                try:
+                    outcome = await engine.verify(request)
+                except Exception:
+                    _log.exception(
+                        "verification failed for %s/%s",
+                        profile_meta.get("name"),
+                        key,
+                    )
+                    continue
+
+                outcomes.append(outcome)
+                profile_summary[key] = _summarize_outcome(outcome)
+                await self._record_tokens(
+                    run_id,
+                    cost_tracker,
+                    outcome.input_tokens,
+                    outcome.output_tokens,
+                )
+
+            if profile_summary:
+                self._write_verification_frontmatter(
+                    profile_meta["_slug"], profile_summary,
+                )
 
         self.verification_results = outcomes
+
+    def _write_verification_frontmatter(
+        self,
+        slug: str,
+        summary: dict[str, dict[str, Any]],
+    ) -> None:
+        path = self.workspace.competitors_dir / f"{slug}.md"
+        if not path.exists():
+            return
+        post = frontmatter.load(str(path))
+        existing = post.metadata.get("verification")
+        if isinstance(existing, dict):
+            existing.update(summary)
+            post["verification"] = existing
+        else:
+            post["verification"] = summary
+        path.write_text(frontmatter.dumps(post))
 
     async def _stage_enrich(self, run_id: str, cost_tracker: CostTracker) -> None:
         """Execute all enrichment passes."""

@@ -180,6 +180,126 @@ class TestEnrichCliE2E:
         assert "Enriched only" not in ws.read_profile("beta")["_content"]
 
 
+VERIFY_SCHEMA = {
+    "domain": "Developer Tools",
+    "identity": {
+        "company_name": "Acme Corp",
+        "products": ["Acme IDE"],
+        "decision_context": [],
+    },
+    "rating_scales": {},
+    "sections": [
+        {
+            "key": "overview",
+            "title": "Overview",
+            "description": "High-level summary.",
+            "allowed_formats": ["prose"],
+            "preferred_format": "prose",
+            "verification_tier": "verified",
+        },
+    ],
+}
+
+
+def _setup_verify_workspace(ws_dir: Path, competitors: list[str]) -> Workspace:
+    ws_dir.mkdir(parents=True, exist_ok=True)
+    (ws_dir / "competitors").mkdir(exist_ok=True)
+    (ws_dir / ".recon").mkdir(exist_ok=True)
+    (ws_dir / ".recon" / "logs").mkdir(exist_ok=True)
+    (ws_dir / "recon.yaml").write_text(yaml.dump(VERIFY_SCHEMA))
+    ws = Workspace.open(ws_dir)
+    for name in competitors:
+        ws.create_profile(name)
+        slug = name.lower().replace(" ", "_")
+        path = ws.competitors_dir / f"{slug}.md"
+        post = frontmatter.load(str(path))
+        post.content = f"## Overview\n\n{name} details. Source: [Docs](https://example.com)\n"
+        post["research_status"] = "researched"
+        path.write_text(frontmatter.dumps(post))
+    return ws
+
+
+class TestVerifyCliE2E:
+    def test_verify_all_writes_frontmatter_summary(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws_dir = tmp_path / "ws"
+        _setup_verify_workspace(ws_dir, ["Alpha"])
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.chdir(ws_dir)
+
+        fake = AsyncMock()
+        fake.complete = AsyncMock(
+            return_value=LLMResponse(
+                text='{"sources": [{"url": "https://example.com", "status": "confirmed", "notes": "match"}], "corroboration": "ok"}',
+                input_tokens=200,
+                output_tokens=50,
+                model="claude-sonnet-4-5",
+                stop_reason="end_turn",
+            ),
+        )
+        with patch("recon.client_factory.create_llm_client", return_value=fake):
+            runner = CliRunner()
+            result = runner.invoke(main, ["verify", "--all"], catch_exceptions=False)
+
+        assert result.exit_code == 0, result.output
+        assert "confirmed" in result.output
+
+        ws = Workspace.open(ws_dir)
+        alpha = ws.read_profile("alpha")
+        verification = alpha.get("verification")
+        assert isinstance(verification, dict)
+        assert "overview" in verification
+        assert verification["overview"]["confirmed"] == 1
+
+    def test_verify_dry_run_lists_sections(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws_dir = tmp_path / "ws"
+        _setup_verify_workspace(ws_dir, ["Alpha"])
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.chdir(ws_dir)
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["verify", "--all", "--dry-run"], catch_exceptions=False)
+
+        assert result.exit_code == 0, result.output
+        assert "overview" in result.output
+        assert "verified" in result.output
+
+    def test_verify_with_target_filters(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws_dir = tmp_path / "ws"
+        _setup_verify_workspace(ws_dir, ["Alpha", "Beta"])
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.chdir(ws_dir)
+
+        fake = AsyncMock()
+        fake.complete = AsyncMock(
+            return_value=LLMResponse(
+                text='{"sources": [{"url": "https://example.com", "status": "confirmed", "notes": "ok"}], "corroboration": "ok"}',
+                input_tokens=100,
+                output_tokens=50,
+                model="claude-sonnet-4-5",
+                stop_reason="end_turn",
+            ),
+        )
+        with patch("recon.client_factory.create_llm_client", return_value=fake):
+            runner = CliRunner()
+            result = runner.invoke(main, ["verify", "Beta"], catch_exceptions=False)
+
+        assert result.exit_code == 0, result.output
+        # Only one LLM call should have been made (Beta, not Alpha)
+        assert fake.complete.call_count == 1
+
+        ws = Workspace.open(ws_dir)
+        alpha = ws.read_profile("alpha")
+        beta = ws.read_profile("beta")
+        assert alpha.get("verification") is None
+        assert beta.get("verification") is not None
+
+
 class TestRunCliE2E:
     def test_run_command_executes_pipeline_without_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

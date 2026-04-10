@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- Deep verification (Option V)
+
+- **Per-section verification honoring schema tiers.** `Pipeline._stage_verify`
+  now splits each researched profile by `##` heading, looks up each
+  section's declared `verification_tier` in the schema, and runs the
+  verification engine only on sections whose tier is `verified` or
+  `deep`. Sections with `standard` tier are skipped with no LLM cost.
+- **Verification summary attached to profile frontmatter.** Each
+  verified profile gets a `verification:` block in its frontmatter
+  keyed by section, with counts for `confirmed`, `corroborated`,
+  `disputed`, `unverified`, and the per-source list (`url`, `status`,
+  `notes`). Users can see the verification state of any profile
+  without re-running the pipeline.
+- **Verification cost recorded through the state store.** The verify
+  stage now calls `_record_tokens` per outcome so `get_run_total_cost`
+  reflects verification spend alongside research/enrich/synthesize.
+- **`VerificationOutcome`** gained optional `competitor_name`,
+  `section_key`, `input_tokens`, and `output_tokens` fields so
+  downstream consumers (pipeline, CLI, frontmatter writer) can trace
+  outcomes back to profiles and cost.
+- **`recon verify [target | --all]` CLI command.** Runs just the
+  verify stage, respecting per-section tiers. Supports `--tier`
+  override (`standard` / `verified` / `deep`) and `--dry-run` to show
+  which sections would be verified. Prints a per-section confirmed /
+  disputed / unverified breakdown.
+- **3 new `recon verify` fake-LLM e2e tests** (`test_cli_e2e_fake_llm.py`)
+  covering `--all`, `--dry-run`, and single-target filter behavior.
+- **3 new `Pipeline._stage_verify` tests** covering schema tier
+  honoring, frontmatter summary writing, and cost recording.
+
 ### Added -- Pipeline completeness (Option P)
 
 - **New `THEMES` pipeline stage.** `Pipeline` now discovers themes

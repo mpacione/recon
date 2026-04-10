@@ -427,19 +427,279 @@ class TestPipelineDeliverStage:
         assert list(distilled_dir.glob("*.md")), "deliver stage should write distilled theme files"
 
 
-class TestPipelineVerifyStage:
-    async def test_verify_stage_runs_when_enabled_and_content_present(
+class TestPipelineVerifyStagePerSection:
+    async def test_verify_honors_per_section_schema_tier(
         self, tmp_workspace: Path
     ) -> None:
+        """Sections with tier=standard should not cost LLM calls; only
+        sections with tier=verified or deep trigger the engine.
+        """
+        import yaml as y
+
         from recon.state import StateStore
         from recon.workspace import Workspace
+
+        schema = {
+            "domain": "Developer Tools",
+            "identity": {
+                "company_name": "Acme Corp",
+                "products": ["Acme IDE"],
+                "decision_context": [],
+            },
+            "rating_scales": {},
+            "sections": [
+                {
+                    "key": "overview",
+                    "title": "Overview",
+                    "description": "High-level summary.",
+                    "allowed_formats": ["prose"],
+                    "preferred_format": "prose",
+                    "verification_tier": "standard",
+                },
+                {
+                    "key": "pricing",
+                    "title": "Pricing",
+                    "description": "Pricing model.",
+                    "allowed_formats": ["prose"],
+                    "preferred_format": "prose",
+                    "verification_tier": "verified",
+                },
+            ],
+        }
+        (tmp_workspace / "recon.yaml").write_text(y.dump(schema))
 
         ws = Workspace.open(tmp_workspace)
         ws.create_profile("Alpha")
         _fill_profile(
             ws,
             "alpha",
-            "## Overview\n\nAlpha content.\n\n## Sources\n- [Docs](https://example.com) -- 2026-01-01\n",
+            (
+                "## Overview\n\nAlpha overview content.\n\n"
+                "Source: [Docs](https://overview.example.com)\n\n"
+                "## Pricing\n\nAlpha pricing details.\n\n"
+                "Source: [Pricing](https://pricing.example.com)\n"
+            ),
+        )
+
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        verify_llm = AsyncMock()
+        verify_llm.complete = AsyncMock(
+            return_value=LLMResponse(
+                text='{"sources": [{"url": "https://pricing.example.com", "status": "confirmed", "notes": "ok"}], "corroboration": "verified"}',
+                input_tokens=100,
+                output_tokens=50,
+                model="claude-sonnet-4-5",
+                stop_reason="end_turn",
+            ),
+        )
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=verify_llm,
+            config=PipelineConfig(
+                verification_enabled=True,
+                start_from=PipelineStage.VERIFY,
+                stop_after=PipelineStage.VERIFY,
+            ),
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        # Only the pricing section should trigger an LLM call
+        assert verify_llm.complete.call_count == 1
+        # And only the pricing section should appear in results
+        section_keys = {o.section_key for o in pipeline.verification_results}
+        assert section_keys == {"pricing"}
+
+    async def test_verify_writes_summary_to_profile_frontmatter(
+        self, tmp_workspace: Path
+    ) -> None:
+        import yaml as y
+
+        from recon.state import StateStore
+        from recon.workspace import Workspace
+
+        schema = {
+            "domain": "Developer Tools",
+            "identity": {
+                "company_name": "Acme Corp",
+                "products": ["Acme IDE"],
+                "decision_context": [],
+            },
+            "rating_scales": {},
+            "sections": [
+                {
+                    "key": "overview",
+                    "title": "Overview",
+                    "description": "High-level summary.",
+                    "allowed_formats": ["prose"],
+                    "preferred_format": "prose",
+                    "verification_tier": "verified",
+                },
+            ],
+        }
+        (tmp_workspace / "recon.yaml").write_text(y.dump(schema))
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        _fill_profile(
+            ws,
+            "alpha",
+            (
+                "## Overview\n\nAlpha overview content.\n\n"
+                "Source: [Docs](https://example.com)\n"
+            ),
+        )
+
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        verify_llm = AsyncMock()
+        verify_llm.complete = AsyncMock(
+            return_value=LLMResponse(
+                text='{"sources": [{"url": "https://example.com", "status": "confirmed", "notes": "match"}], "corroboration": "ok"}',
+                input_tokens=100,
+                output_tokens=50,
+                model="claude-sonnet-4-5",
+                stop_reason="end_turn",
+            ),
+        )
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=verify_llm,
+            config=PipelineConfig(
+                verification_enabled=True,
+                start_from=PipelineStage.VERIFY,
+                stop_after=PipelineStage.VERIFY,
+            ),
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        alpha = ws.read_profile("alpha")
+        verification = alpha.get("verification")
+        assert verification is not None, "verify stage should attach frontmatter"
+        assert "overview" in verification
+        overview_entry = verification["overview"]
+        assert overview_entry["tier"] == "verified"
+        assert overview_entry["confirmed"] == 1
+        assert any(
+            s["url"] == "https://example.com" and s["status"] == "confirmed"
+            for s in overview_entry["sources"]
+        )
+
+    async def test_verify_records_cost_through_state_store(
+        self, tmp_workspace: Path
+    ) -> None:
+        import yaml as y
+
+        from recon.state import StateStore
+        from recon.workspace import Workspace
+
+        schema = {
+            "domain": "Developer Tools",
+            "identity": {
+                "company_name": "Acme Corp",
+                "products": ["Acme IDE"],
+                "decision_context": [],
+            },
+            "rating_scales": {},
+            "sections": [
+                {
+                    "key": "overview",
+                    "title": "Overview",
+                    "description": "High-level summary.",
+                    "allowed_formats": ["prose"],
+                    "preferred_format": "prose",
+                    "verification_tier": "verified",
+                },
+            ],
+        }
+        (tmp_workspace / "recon.yaml").write_text(y.dump(schema))
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        _fill_profile(
+            ws,
+            "alpha",
+            "## Overview\n\nContent.\n\nSource: [Docs](https://example.com)\n",
+        )
+
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        verify_llm = AsyncMock()
+        verify_llm.complete = AsyncMock(
+            return_value=LLMResponse(
+                text='{"sources": [{"url": "https://example.com", "status": "confirmed", "notes": "ok"}], "corroboration": "verified"}',
+                input_tokens=500,
+                output_tokens=200,
+                model="claude-sonnet-4-5",
+                stop_reason="end_turn",
+            ),
+        )
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=verify_llm,
+            config=PipelineConfig(
+                verification_enabled=True,
+                start_from=PipelineStage.VERIFY,
+                stop_after=PipelineStage.VERIFY,
+            ),
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        total = await store.get_run_total_cost(run_id)
+        assert total > 0.0, "verify stage should record cost"
+
+
+class TestPipelineVerifyStage:
+    async def test_verify_stage_runs_when_enabled_and_section_tier_requires_it(
+        self, tmp_workspace: Path
+    ) -> None:
+        import yaml as y
+
+        from recon.state import StateStore
+        from recon.workspace import Workspace
+
+        schema = {
+            "domain": "Developer Tools",
+            "identity": {
+                "company_name": "Acme Corp",
+                "products": ["Acme IDE"],
+                "decision_context": [],
+            },
+            "rating_scales": {},
+            "sections": [
+                {
+                    "key": "overview",
+                    "title": "Overview",
+                    "description": "High-level summary.",
+                    "allowed_formats": ["prose"],
+                    "preferred_format": "prose",
+                    "verification_tier": "verified",
+                },
+            ],
+        }
+        (tmp_workspace / "recon.yaml").write_text(y.dump(schema))
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        _fill_profile(
+            ws,
+            "alpha",
+            "## Overview\n\nAlpha content. Source: [Docs](https://example.com)\n",
         )
 
         store = StateStore(tmp_workspace / ".recon" / "state.db")

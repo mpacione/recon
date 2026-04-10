@@ -46,6 +46,10 @@ class VerificationOutcome:
     content: str
     source_results: list[SourceResult]
     corroboration_notes: str = ""
+    competitor_name: str = ""
+    section_key: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 _AGENT_B_SYSTEM = """You are a verification agent. Your job is to check the accuracy
@@ -103,6 +107,8 @@ class VerificationEngine:
                 SourceResult(url=url, status=SourceStatus.UNVERIFIED)
                 for url in request.sources
             ],
+            competitor_name=request.competitor_name,
+            section_key=request.section_key,
         )
 
     async def _verified_verification(self, request: VerificationRequest) -> VerificationOutcome:
@@ -127,6 +133,10 @@ class VerificationEngine:
             content=request.content,
             source_results=source_results,
             corroboration_notes=corroboration,
+            competitor_name=request.competitor_name,
+            section_key=request.section_key,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
         )
 
     async def _deep_verification(self, request: VerificationRequest) -> VerificationOutcome:
@@ -155,6 +165,10 @@ class VerificationEngine:
             content=request.content,
             source_results=source_results if source_results else verified.source_results,
             corroboration_notes=self._extract_field(response.text, "additional_corroboration"),
+            competitor_name=request.competitor_name,
+            section_key=request.section_key,
+            input_tokens=verified.input_tokens + response.input_tokens,
+            output_tokens=verified.output_tokens + response.output_tokens,
         )
 
     def _parse_source_results(self, text: str, fallback_urls: list[str]) -> list[SourceResult]:
