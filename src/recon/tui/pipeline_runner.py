@@ -213,7 +213,10 @@ def build_pipeline_fn(
                 return [t for t in themes if t.label in kept_labels]
 
             cancel_event = asyncio.Event()
+            pause_event = asyncio.Event()
+            pause_event.set()  # set = running, cleared = paused
             screen.app._pipeline_cancel_event = cancel_event
+            screen.app._pipeline_pause_event = pause_event
 
             pipeline = Pipeline(
                 workspace=ws,
@@ -223,6 +226,7 @@ def build_pipeline_fn(
                 progress_callback=on_progress,
                 theme_curation_callback=curate_themes,
                 cancel_event=cancel_event,
+                pause_event=pause_event,
             )
 
             screen.current_phase = "planning"
@@ -233,9 +237,12 @@ def build_pipeline_fn(
             try:
                 await pipeline.execute(run_id)
             finally:
-                # Always release the cancel event so the next run starts clean
+                # Always release the cancel/pause events so the next run
+                # starts clean
                 with contextlib.suppress(AttributeError):
                     screen.app._pipeline_cancel_event = None
+                with contextlib.suppress(AttributeError):
+                    screen.app._pipeline_pause_event = None
 
             if cancel_event.is_set():
                 screen.current_phase = "cancelled"
@@ -252,6 +259,8 @@ def build_pipeline_fn(
             screen.current_phase = "error"
             with contextlib.suppress(AttributeError):
                 screen.app._pipeline_cancel_event = None
+            with contextlib.suppress(AttributeError):
+                screen.app._pipeline_pause_event = None
             with contextlib.suppress(Exception):
                 screen.app.notify(
                     f"Pipeline failed: {exc}",

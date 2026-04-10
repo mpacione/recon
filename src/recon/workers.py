@@ -41,6 +41,7 @@ class WorkerPool:
         task_fn: Callable[[T], Awaitable[R]],
         items: list[T],
         cancel_event: asyncio.Event | None = None,
+        pause_event: asyncio.Event | None = None,
     ) -> list[WorkResult[T, R]]:
         """Execute ``task_fn`` on all items with bounded concurrency.
 
@@ -49,7 +50,13 @@ class WorkerPool:
 
         If ``cancel_event`` is provided and becomes set before a task
         starts, that task is marked cancelled (``success=False`` with a
-        :class:`PipelineCancelled` error) instead of running.
+        :class:`PipelineCancelledError`) instead of running.
+
+        If ``pause_event`` is provided, each worker waits for the event
+        to be set before dispatching its task. The semantics are
+        ``set = running`` and ``cleared = paused``. Cancellation
+        always wins over pause -- a paused worker that observes a
+        cancel_event becoming set returns immediately.
         """
         if not items:
             return []
@@ -57,9 +64,28 @@ class WorkerPool:
         semaphore = asyncio.Semaphore(self.max_workers)
         results: list[WorkResult[T, R]] = [None] * len(items)  # type: ignore[list-item]
 
+        async def _wait_for_resume() -> bool:
+            """Block until pause_event is set or cancel_event fires.
+
+            Returns True if cancelled while waiting, False otherwise.
+            """
+            if pause_event is None:
+                return False
+            while not pause_event.is_set():
+                if cancel_event is not None and cancel_event.is_set():
+                    return True
+                try:
+                    await asyncio.wait_for(pause_event.wait(), timeout=0.05)
+                except TimeoutError:
+                    continue
+            return False
+
         async def _wrapped(index: int, item: T) -> None:
             async with semaphore:
-                if cancel_event is not None and cancel_event.is_set():
+                cancelled_during_pause = await _wait_for_resume()
+                if cancelled_during_pause or (
+                    cancel_event is not None and cancel_event.is_set()
+                ):
                     results[index] = WorkResult(
                         item=item,
                         index=index,

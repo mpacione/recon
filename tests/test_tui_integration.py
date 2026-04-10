@@ -464,6 +464,125 @@ class TestStopButtonCancelsRunningPipeline:
         assert latest["status"] == RunStatus.CANCELLED.value
 
 
+class TestPauseResumeIntegration:
+    async def test_pause_then_resume_completes_pipeline(
+        self, tmp_workspace: Path, monkeypatch
+    ) -> None:
+        """Full integration: start a pipeline, press Pause, verify the
+        button label flips, press Resume, verify the run completes
+        normally with status COMPLETED.
+        """
+        import asyncio
+        from unittest.mock import patch
+
+        from recon.state import RunStatus, StateStore
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        # Slow execute that observes pause_event between steps so the
+        # test can flip pause/resume mid-run. Total runtime is bounded
+        # by allow_finish, which the test sets after it has confirmed
+        # the pause/resume cycle.
+        execute_started = asyncio.Event()
+        allow_finish = asyncio.Event()
+        steps_completed: list[int] = []
+
+        async def slow_execute(self, run_id: str) -> None:
+            execute_started.set()
+            i = 0
+            while True:
+                if self.pause_event is not None:
+                    while not self.pause_event.is_set():
+                        if self.cancel_event is not None and self.cancel_event.is_set():
+                            await self.state_store.update_run_status(
+                                run_id, RunStatus.CANCELLED,
+                            )
+                            return
+                        await asyncio.sleep(0.02)
+                if self.cancel_event is not None and self.cancel_event.is_set():
+                    await self.state_store.update_run_status(
+                        run_id, RunStatus.CANCELLED,
+                    )
+                    return
+                steps_completed.append(i)
+                i += 1
+                if allow_finish.is_set() and i >= 4:
+                    break
+                await asyncio.sleep(0.02)
+            await self.state_store.update_run_status(run_id, RunStatus.COMPLETED)
+
+        app = ReconApp(workspace_path=tmp_workspace)
+        with patch("recon.pipeline.Pipeline.execute", slow_execute):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app.screen.query_one("#btn-run", Button).press()
+                await pilot.pause()
+                app.screen.query_one("#btn-op-6", Button).press()
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+                assert app.current_mode == "run"
+
+                for _ in range(20):
+                    if execute_started.is_set():
+                        break
+                    await pilot.pause()
+                assert execute_started.is_set()
+
+                # The runner should have stashed both events on the app
+                stashed_pause = getattr(app, "_pipeline_pause_event", None)
+                assert stashed_pause is not None, (
+                    "TUI runner should stash pause_event on the app"
+                )
+                assert stashed_pause.is_set(), "pause_event starts in running state"
+
+                # Pause -- the steps_completed counter should freeze
+                pause_btn = app.screen.query_one("#btn-pause", Button)
+                pause_btn.press()
+                await pilot.pause()
+                steps_at_pause = len(steps_completed)
+                assert not stashed_pause.is_set(), "pause should clear the event"
+                assert str(pause_btn.label) == "Resume"
+
+                # Hold the pause for a moment and confirm work doesn't advance
+                for _ in range(5):
+                    await pilot.pause()
+                    await asyncio.sleep(0.02)
+                assert len(steps_completed) == steps_at_pause, (
+                    "steps should not advance while paused"
+                )
+
+                # Resume + tell the fake it can wrap up
+                pause_btn.press()
+                await pilot.pause()
+                assert str(pause_btn.label) == "Pause"
+                allow_finish.set()
+
+                # Wait for the screen to report the run is done
+                from recon.tui.screens.run import RunScreen
+
+                run_screen = app.screen
+                assert isinstance(run_screen, RunScreen)
+                for _ in range(80):
+                    if run_screen.current_phase in ("done", "error", "cancelled"):
+                        break
+                    await pilot.pause()
+
+                assert run_screen.current_phase == "done", (
+                    f"Pipeline ended in {run_screen.current_phase!r}"
+                )
+                assert len(steps_completed) >= 4
+
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+        runs = await store.list_runs()
+        assert runs[-1]["status"] == RunStatus.COMPLETED.value
+
+
 class TestFullPipelineThroughTuiNoMock:
     async def test_full_pipeline_runs_real_engine_with_fake_llm(
         self, tmp_workspace: Path, monkeypatch

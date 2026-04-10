@@ -9,6 +9,63 @@ import asyncio
 from recon.workers import WorkerPool
 
 
+class TestWorkerPoolPause:
+    async def test_pause_event_unset_blocks_dispatch_until_resumed(self) -> None:
+        ran: list[int] = []
+
+        async def task(item: int) -> int:
+            ran.append(item)
+            return item
+
+        pause_event = asyncio.Event()
+        # Start paused -- nothing should run until we set it
+        # (set = running, cleared = paused)
+
+        pool = WorkerPool(max_workers=2)
+
+        async def resume_after_delay() -> None:
+            await asyncio.sleep(0.05)
+            assert ran == [], "tasks should not run while paused"
+            pause_event.set()
+
+        resume_task = asyncio.create_task(resume_after_delay())
+
+        outcomes = await pool.run(task, [1, 2, 3], pause_event=pause_event)
+        await resume_task
+
+        assert sorted(ran) == [1, 2, 3]
+        assert all(o.success for o in outcomes)
+
+    async def test_pause_event_set_runs_normally(self) -> None:
+        ran: list[int] = []
+
+        async def task(item: int) -> int:
+            ran.append(item)
+            return item
+
+        pause_event = asyncio.Event()
+        pause_event.set()
+
+        pool = WorkerPool(max_workers=2)
+        outcomes = await pool.run(task, [1, 2, 3], pause_event=pause_event)
+
+        assert sorted(ran) == [1, 2, 3]
+        assert all(o.success for o in outcomes)
+
+    async def test_no_pause_event_runs_normally(self) -> None:
+        ran: list[int] = []
+
+        async def task(item: int) -> int:
+            ran.append(item)
+            return item
+
+        pool = WorkerPool(max_workers=2)
+        outcomes = await pool.run(task, [1, 2, 3])
+
+        assert sorted(ran) == [1, 2, 3]
+        assert all(o.success for o in outcomes)
+
+
 class TestWorkerPoolCancellation:
     async def test_cancel_event_set_before_start_skips_all_tasks(self) -> None:
         ran: list[int] = []

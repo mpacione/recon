@@ -320,6 +320,68 @@ class TestPipelineCancellation:
         assert run["status"] == RunStatus.CANCELLED.value
 
 
+class TestPipelinePause:
+    async def test_pipeline_blocks_at_stage_boundary_until_resumed(
+        self, tmp_workspace: Path
+    ) -> None:
+        import asyncio
+
+        from recon.state import StateStore
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        pause_event = asyncio.Event()
+        pause_event.set()
+
+        stages_seen: list[tuple[str, str]] = []
+
+        async def on_progress(stage: str, phase: str) -> None:
+            stages_seen.append((stage, phase))
+            # After research starts, pause -- the next stage should not begin
+            if (stage, phase) == ("research", "complete"):
+                pause_event.clear()
+
+        async def resume_after_delay() -> None:
+            await asyncio.sleep(0.1)
+            pause_event.set()
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=_mock_llm(),
+            config=PipelineConfig(
+                verification_enabled=False,
+                start_from=PipelineStage.RESEARCH,
+                stop_after=PipelineStage.ENRICH,
+            ),
+            progress_callback=on_progress,
+            pause_event=pause_event,
+        )
+
+        run_id = await pipeline.plan()
+
+        resume_task = asyncio.create_task(resume_after_delay())
+        await pipeline.execute(run_id)
+        await resume_task
+
+        # Both research and enrich should have completed in order, even
+        # though pause was set after research and only released asynchronously
+        # by resume_after_delay. Verify is in the loop range (research..enrich)
+        # but is a no-op because verification_enabled=False; it still emits
+        # start/complete events.
+        starts = [s for s, p in stages_seen if p == "start"]
+        completes = [s for s, p in stages_seen if p == "complete"]
+        assert "research" in starts
+        assert "enrich" in starts
+        assert "research" in completes
+        assert "enrich" in completes
+        assert starts.index("research") < starts.index("enrich")
+
+
 class TestPipelineThemesStage:
     async def test_themes_stage_discovers_and_tags(self, tmp_workspace: Path) -> None:
         from recon.state import StateStore

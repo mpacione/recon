@@ -97,7 +97,7 @@ class RunScreen(Screen):
         if button_id == "btn-back-to-dashboard":
             self.app.switch_mode("dashboard")
         elif button_id == "btn-pause":
-            self.app.notify("Pause not yet implemented", severity="warning")
+            self._toggle_pause()
         elif button_id == "btn-stop":
             self._request_stop()
 
@@ -108,9 +108,46 @@ class RunScreen(Screen):
             self.app.notify("No active pipeline to stop", severity="warning")
             return
         cancel_event.set()
+        # Make sure a paused pipeline doesn't get wedged behind the
+        # pause event after the user asks for stop -- unblock it so it
+        # can observe the cancel.
+        pause_event = getattr(self.app, "_pipeline_pause_event", None)
+        if pause_event is not None and not pause_event.is_set():
+            pause_event.set()
         self.current_phase = "stopping"
         self.add_activity("Stop requested -- waiting for current stage to finish")
         self.app.notify("Stop requested", severity="warning")
+
+    def _toggle_pause(self) -> None:
+        """Pause / resume the active pipeline.
+
+        Pause is implemented by clearing an asyncio.Event the worker
+        pool waits on before each task. Resume sets it again. The
+        button label flips between "Pause" and "Resume" so the user
+        can see the current state.
+        """
+        pause_event = getattr(self.app, "_pipeline_pause_event", None)
+        if pause_event is None:
+            self.app.notify(
+                "No active pipeline to pause",
+                severity="warning",
+            )
+            return
+
+        pause_button = self.query_one("#btn-pause", Button)
+        if pause_event.is_set():
+            # Currently running -> pause
+            pause_event.clear()
+            pause_button.label = "Resume"
+            self.current_phase = "paused"
+            self.add_activity("Pipeline paused -- click Resume to continue")
+            self.app.notify("Pipeline paused", severity="information")
+        else:
+            # Currently paused -> resume
+            pause_event.set()
+            pause_button.label = "Pause"
+            self.add_activity("Pipeline resumed")
+            self.app.notify("Pipeline resumed", severity="information")
 
     def watch_current_phase(self, value: str) -> None:
         with contextlib.suppress(Exception):

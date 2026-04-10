@@ -145,6 +145,7 @@ class Pipeline:
     progress_callback: ProgressCallback | None = None
     theme_curation_callback: ThemeCurationCallback | None = None
     cancel_event: asyncio.Event | None = None
+    pause_event: asyncio.Event | None = None
 
     # Populated during execute()
     discovered_themes: list[DiscoveredTheme] = field(default_factory=list)
@@ -154,6 +155,23 @@ class Pipeline:
     @property
     def _cancelled(self) -> bool:
         return self.cancel_event is not None and self.cancel_event.is_set()
+
+    async def _await_resume(self) -> None:
+        """Block at the stage boundary while the pause_event is cleared.
+
+        Returns immediately if no pause_event was provided or if the
+        event is set (running). Polls so it can also notice a
+        cancel_event mid-pause.
+        """
+        if self.pause_event is None:
+            return
+        while not self.pause_event.is_set():
+            if self._cancelled:
+                return
+            try:
+                await asyncio.wait_for(self.pause_event.wait(), timeout=0.05)
+            except TimeoutError:
+                continue
 
     async def _emit(self, stage: str, phase: str) -> None:
         if self.progress_callback is None:
@@ -210,6 +228,7 @@ class Pipeline:
 
         try:
             for stage in _STAGE_ORDER[start_idx : stop_idx + 1]:
+                await self._await_resume()
                 if self._cancelled:
                     await self._emit(stage.value, "cancelled")
                     await self.state_store.update_run_status(
@@ -294,6 +313,7 @@ class Pipeline:
             max_age_days=self.config.max_age_days,
             failed_only=self.config.failed_only,
             cancel_event=self.cancel_event,
+            pause_event=self.pause_event,
         )
 
         total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
@@ -417,6 +437,7 @@ class Pipeline:
             results = await orchestrator.enrich_all(
                 targets=self.config.targets,
                 cancel_event=self.cancel_event,
+                pause_event=self.pause_event,
             )
 
             total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)

@@ -98,6 +98,7 @@ class ResearchOrchestrator:
         max_age_days: int = 30,
         failed_only: bool = False,
         cancel_event: asyncio.Event | None = None,
+        pause_event: asyncio.Event | None = None,
     ) -> list[dict]:
         """Research sections for competitors in the workspace.
 
@@ -167,6 +168,7 @@ class ResearchOrchestrator:
                 lambda task: self._research_one(system_prompt, task),
                 tasks,
                 cancel_event=cancel_event,
+                pause_event=pause_event,
             )
 
             for outcome in outcomes:

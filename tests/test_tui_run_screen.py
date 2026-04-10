@@ -115,6 +115,73 @@ class TestRunScreen:
             assert event.is_set()
             assert screen.current_phase == "stopping"
 
+    async def test_pause_button_toggles_pause_event_and_label(self) -> None:
+        import asyncio
+
+        from textual.widgets import Button
+
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            event = asyncio.Event()
+            event.set()
+            app._pipeline_pause_event = event
+
+            screen = app.query_one(RunScreen)
+            pause_btn = screen.query_one("#btn-pause", Button)
+
+            # First press: pause -> event cleared, label "Resume"
+            pause_btn.press()
+            await pilot.pause()
+            assert not event.is_set()
+            assert str(pause_btn.label) == "Resume"
+            assert screen.current_phase == "paused"
+
+            # Second press: resume -> event set, label "Pause"
+            pause_btn.press()
+            await pilot.pause()
+            assert event.is_set()
+            assert str(pause_btn.label) == "Pause"
+
+    async def test_pause_button_with_no_active_pipeline_notifies(self) -> None:
+        from textual.widgets import Button
+
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(RunScreen)
+
+            notifications: list[str] = []
+            with patch.object(
+                type(app),
+                "notify",
+                lambda self, msg, **kw: notifications.append(msg),
+            ):
+                screen.query_one("#btn-pause", Button).press()
+                await pilot.pause()
+
+            assert any("No active pipeline" in m for m in notifications)
+
+    async def test_stop_unblocks_paused_pipeline(self) -> None:
+        """Stop while paused should release the pause so the worker
+        can observe the cancel and exit cleanly.
+        """
+        import asyncio
+
+        from textual.widgets import Button
+
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            cancel = asyncio.Event()
+            pause = asyncio.Event()  # cleared = paused
+            app._pipeline_cancel_event = cancel
+            app._pipeline_pause_event = pause
+
+            screen = app.query_one(RunScreen)
+            screen.query_one("#btn-stop", Button).press()
+            await pilot.pause()
+
+            assert cancel.is_set()
+            assert pause.is_set(), "Stop should release the pause event"
+
     async def test_stop_button_with_no_active_pipeline_notifies(self) -> None:
         from textual.widgets import Button
 

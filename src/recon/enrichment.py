@@ -76,6 +76,7 @@ class EnrichmentOrchestrator:
         targets: list[str] | None = None,
         *,
         cancel_event: asyncio.Event | None = None,
+        pause_event: asyncio.Event | None = None,
     ) -> list[dict[str, Any]]:
         """Run the enrichment pass on eligible profiles.
 
@@ -111,7 +112,10 @@ class EnrichmentOrchestrator:
 
         pool = WorkerPool(max_workers=self.max_workers)
         outcomes = await pool.run(
-            self._enrich_one, eligible, cancel_event=cancel_event,
+            self._enrich_one,
+            eligible,
+            cancel_event=cancel_event,
+            pause_event=pause_event,
         )
 
         return [o.value for o in outcomes if o.success and o.value]
