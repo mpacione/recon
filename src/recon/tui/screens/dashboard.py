@@ -334,7 +334,69 @@ class DashboardScreen(Screen):
     def handle_planner_result(self, operation: object | None) -> None:
         if operation is None:
             return
+
+        from recon.tui.pipeline_runner import (
+            OPERATIONS_REQUIRING_SELECTION,
+        )
+        from recon.tui.screens.planner import Operation
+
+        if not isinstance(operation, Operation):
+            return
+
+        if operation in OPERATIONS_REQUIRING_SELECTION:
+            self._push_selector_then_start(operation)
+            return
+
+        self._start_pipeline_for_operation(operation, targets=None)
+
+    def _start_pipeline_for_operation(
+        self, operation: object, targets: list[str] | None
+    ) -> None:
+        from recon.tui.pipeline_runner import build_pipeline_fn
+        from recon.tui.screens.planner import Operation
+
+        if not isinstance(operation, Operation):
+            return
+
+        pipeline_fn = build_pipeline_fn(
+            workspace_path=self._workspace_path,
+            operation=operation,
+            targets=targets,
+        )
+
+        # Queue the pipeline_fn on the app so RunScreen.on_mount can
+        # pick it up once Textual has actually mounted the run mode.
+        self.app._pending_pipeline_fn = pipeline_fn
         self.app.switch_mode("run")
+
+    def _push_selector_then_start(self, operation: object) -> None:
+        from recon.tui.screens.planner import Operation
+        from recon.tui.screens.selector import CompetitorSelectorScreen
+
+        if not isinstance(operation, Operation):
+            return
+
+        competitors = [row.get("name", "") for row in self._data.competitor_rows if row.get("name")]
+        if not competitors:
+            self.app.notify(
+                "No competitors available to select.",
+                severity="warning",
+            )
+            return
+
+        def handle(selection: object | None) -> None:
+            if not isinstance(selection, list) or not selection:
+                self.app.notify(
+                    "No competitors selected; run cancelled.",
+                    severity="information",
+                )
+                return
+            self._start_pipeline_for_operation(operation, targets=list(selection))
+
+        self.app.push_screen(
+            CompetitorSelectorScreen(competitors=competitors),
+            handle,
+        )
 
     def _api_key_status(self) -> str:
         env_path = self._workspace_path / ".env"

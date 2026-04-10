@@ -77,10 +77,32 @@ class ResearchOrchestrator:
             raise ValueError(msg)
         return self.workspace.schema
 
-    async def research_all(self) -> list[dict]:
-        """Research all sections for all competitors in the workspace."""
+    async def research_all(self, targets: list[str] | None = None) -> list[dict]:
+        """Research sections for competitors in the workspace.
+
+        If ``targets`` is provided, only those competitors are researched
+        (matched case-insensitively against profile names). Unknown targets
+        raise ``ValueError``.
+        """
         profiles = self.workspace.list_profiles()
-        competitors = [p["name"] for p in profiles]
+        all_names = [p["name"] for p in profiles]
+
+        if targets is None:
+            competitors = all_names
+        else:
+            by_lower = {name.lower(): name for name in all_names}
+            resolved: list[str] = []
+            unknown: list[str] = []
+            for requested in targets:
+                canonical = by_lower.get(requested.lower())
+                if canonical is None:
+                    unknown.append(requested)
+                elif canonical not in resolved:
+                    resolved.append(canonical)
+            if unknown:
+                msg = f"Unknown target(s): {', '.join(unknown)}"
+                raise ValueError(msg)
+            competitors = resolved
 
         plan = ResearchPlan.from_schema(schema=self._schema, competitors=competitors)
         system_prompt = compose_system_prompt(self._schema)

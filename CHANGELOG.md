@@ -5,6 +5,58 @@ All notable changes to recon are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`recon research <target>` now honors its positional argument.** The
+  command previously ignored the target and always ran `--all`, silently
+  researching every profile. Now it matches the name case-insensitively
+  against the workspace, errors clearly on unknown names, and fails fast
+  if neither a target nor `--all` is passed.
+- **`recon enrich <target>` also honors its positional argument**, with
+  the same semantics as `research`.
+- **`recon run` no longer crashes on startup.** The CLI was passing an
+  `index_manager` kwarg to `Pipeline()` that the dataclass doesn't accept.
+  Removed the dead argument and wired the command through the existing
+  `Pipeline` config.
+- **TUI Run button now executes the engine.** `DashboardScreen.handle_planner_result`
+  used to switch to the run mode and leave the screen idle. It now builds
+  a real `PipelineFn` via `tui/pipeline_runner.py` and queues it on the
+  app so `RunScreen.on_mount` can kick off the worker. Supports
+  `FULL_PIPELINE`, `UPDATE_ALL`, and `UPDATE_SPECIFIC`; other operations
+  notify the user they are not implemented yet.
+- **`CompetitorSelectorScreen` is now reachable.** Selecting "Update
+  specific" from the planner pushes the selector, and the resolved
+  competitor list is plumbed all the way through `PipelineConfig.targets`
+  into both `ResearchOrchestrator.research_all(targets=...)` and
+  `EnrichmentOrchestrator.enrich_all(targets=...)`.
+
+### Added
+
+- `tests/test_cli_e2e_fake_llm.py` -- 5 end-to-end CLI tests that drive
+  `recon research`, `recon enrich`, and `recon run` through `CliRunner`
+  with the Anthropic client faked at `recon.client_factory.create_llm_client`.
+  These would have caught both the `<target>` regression and the
+  `recon run` `index_manager` crash before they shipped.
+- `Pipeline.progress_callback` -- async `(stage, phase) -> None` hook
+  called before and after each stage. Used by the TUI runner to update
+  `RunScreen.current_phase` / `RunScreen.progress` reactively.
+- `PipelineConfig.targets` -- optional competitor name filter threaded
+  through research and enrich stages.
+- `ResearchOrchestrator.research_all(targets=...)` and
+  `EnrichmentOrchestrator.enrich_all(targets=...)` both accept a
+  case-insensitive name list and raise `ValueError` on unknown names.
+- `src/recon/tui/pipeline_runner.py` -- new module holding the planner
+  `Operation` → `PipelineConfig` mapping, the `PipelineFn` factory, and
+  the set of operations that require a selector push.
+
+### Changed
+
+- `.gitignore` now excludes `.coverage`, `logs_llm/`, and `vectors.db`
+  so `git status` stays quiet after running the test suite or scratch
+  workspaces.
+
 ## [0.1.0] -- 2026-04-09
 
 First alpha release. The CLI is fully functional end-to-end against the

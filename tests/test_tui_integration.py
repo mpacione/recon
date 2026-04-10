@@ -106,6 +106,119 @@ class TestDashboardToPlannerToRunFlow:
             assert isinstance(app.screen, RunScreen)
 
 
+class TestPlannerStartsPipelineWithRunScreen:
+    async def test_planner_full_pipeline_builds_and_starts_pipeline_fn(
+        self, tmp_workspace: Path, monkeypatch
+    ) -> None:
+        from unittest.mock import patch
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Placeholder Co")
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        execute_calls: list[str] = []
+
+        async def fake_execute(self, run_id: str) -> None:
+            execute_calls.append(run_id)
+            if self.progress_callback is not None:
+                await self.progress_callback("research", "start")
+                await self.progress_callback("research", "complete")
+
+        app = ReconApp(workspace_path=tmp_workspace)
+        with patch("recon.pipeline.Pipeline.execute", fake_execute):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, DashboardScreen)
+
+                app.screen.query_one("#btn-run", Button).press()
+                await pilot.pause()
+                assert isinstance(app.screen, RunPlannerScreen)
+
+                # btn-op-6 is FULL_PIPELINE (7th option, zero-indexed)
+                app.screen.query_one("#btn-op-6", Button).press()
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+                assert app.current_mode == "run"
+                assert isinstance(app.screen, RunScreen)
+
+                # Give the worker a chance to run fake_execute
+                for _ in range(10):
+                    if execute_calls:
+                        break
+                    await pilot.pause()
+
+                assert execute_calls, "Pipeline.execute was never called"
+                assert app.screen.current_phase in (
+                    "research",
+                    "research complete",
+                    "done",
+                )
+
+
+class TestPlannerUpdateSpecificFlow:
+    async def test_update_specific_pushes_selector_then_pipeline(
+        self, tmp_workspace: Path, monkeypatch
+    ) -> None:
+        from unittest.mock import patch
+
+        from recon.tui.screens.selector import CompetitorSelectorScreen
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha Corp")
+        ws.create_profile("Beta Inc")
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        execute_calls: list[tuple[str, list[str] | None]] = []
+
+        async def fake_execute(self, run_id: str) -> None:
+            execute_calls.append((run_id, list(self.config.targets) if self.config.targets else None))
+            if self.progress_callback is not None:
+                await self.progress_callback("research", "start")
+                await self.progress_callback("research", "complete")
+
+        app = ReconApp(workspace_path=tmp_workspace)
+        with patch("recon.pipeline.Pipeline.execute", fake_execute):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, DashboardScreen)
+
+                app.screen.query_one("#btn-run", Button).press()
+                await pilot.pause()
+                assert isinstance(app.screen, RunPlannerScreen)
+
+                # btn-op-1 is UPDATE_SPECIFIC (2nd option, index 1)
+                app.screen.query_one("#btn-op-1", Button).press()
+                await pilot.pause()
+                await pilot.pause()
+
+                assert isinstance(app.screen, CompetitorSelectorScreen)
+
+                # Clear all, then pick only Beta Inc
+                app.screen.query_one("#btn-clear-all", Button).press()
+                await pilot.pause()
+                app.screen.query_one("#selector-1", Button).press()
+                await pilot.pause()
+                app.screen.query_one("#btn-done", Button).press()
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+                assert app.current_mode == "run"
+
+                for _ in range(10):
+                    if execute_calls:
+                        break
+                    await pilot.pause()
+
+                assert execute_calls, "Pipeline.execute was never called"
+                run_id, targets = execute_calls[0]
+                assert targets == ["Beta Inc"]
+
+
 class TestDashboardBrowserFlow:
     async def test_browse_and_return(self, tmp_workspace: Path) -> None:
         ws = Workspace.open(tmp_workspace)

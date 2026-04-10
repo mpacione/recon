@@ -6,6 +6,49 @@
 
 ---
 
+## Update 2026-04-10: run path is now wired
+
+The major gap described in this audit has been closed. The original
+conclusion -- "the TUI never calls the pipeline engine" -- no longer
+holds. Here's what changed:
+
+- `src/recon/tui/pipeline_runner.py` is new. It owns the planner
+  `Operation` → `PipelineConfig` mapping, the `PipelineFn` factory, and
+  the set of operations that require a selector push before starting.
+- `DashboardScreen.handle_planner_result` now builds a `PipelineFn` via
+  `build_pipeline_fn(workspace_path=..., operation=..., targets=...)`
+  and queues it on the app under `_pending_pipeline_fn`.
+- `RunScreen.on_mount` consumes the queued pipeline_fn and starts the
+  worker. This handshake was needed because `switch_mode("run")` does
+  not guarantee the RunScreen is mounted by the time the handler returns.
+- `Pipeline.progress_callback` is a new optional async hook called
+  before and after each stage. The TUI runner uses it to update
+  `RunScreen.current_phase` / `RunScreen.progress` reactively and
+  append to the activity log.
+- `PipelineConfig.targets` is a new optional competitor name filter
+  threaded through `ResearchOrchestrator.research_all(targets=...)`
+  and `EnrichmentOrchestrator.enrich_all(targets=...)`.
+- `CompetitorSelectorScreen` is reachable for the first time:
+  `handle_planner_result` pushes it when the chosen operation is in
+  `OPERATIONS_REQUIRING_SELECTION` (currently `UPDATE_SPECIFIC`), and
+  the resolved names are plumbed into `PipelineConfig.targets`.
+
+**What still doesn't work:** `DIFF_SPECIFIC`, `DIFF_ALL`, and
+`RERUN_FAILED` planner options notify the user they are not yet
+implemented. This is intentional — the pipeline engine has no
+diff/rerun logic to call.
+
+All of this is covered by:
+- `tests/test_tui_pipeline_runner.py` (8 tests)
+- `tests/test_tui_integration.py::TestPlannerStartsPipelineWithRunScreen`
+- `tests/test_tui_integration.py::TestPlannerUpdateSpecificFlow`
+- `tests/test_pipeline.py::TestPipeline::test_progress_callback_fires_for_each_stage`
+- `tests/test_pipeline.py::TestPipeline::test_targets_are_forwarded_to_research_stage`
+
+The original audit content below is preserved for historical reference.
+
+---
+
 ## TL;DR
 
 | Flow | Status |

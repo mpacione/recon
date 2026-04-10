@@ -136,6 +136,74 @@ class TestPipeline:
         run = await store.get_run(run_id)
         assert run["status"] == "completed"
 
+    async def test_targets_are_forwarded_to_research_stage(self, tmp_workspace: Path) -> None:
+        from recon.state import StateStore
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        ws.create_profile("Beta")
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        llm = _mock_llm()
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=llm,
+            config=PipelineConfig(
+                verification_enabled=False,
+                start_from=PipelineStage.RESEARCH,
+                stop_after=PipelineStage.RESEARCH,
+                targets=["Beta"],
+            ),
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        alpha = ws.read_profile("alpha")
+        beta = ws.read_profile("beta")
+        assert alpha["research_status"] == "scaffold"
+        assert beta["research_status"] == "researched"
+
+    async def test_progress_callback_fires_for_each_stage(self, tmp_workspace: Path) -> None:
+        from recon.state import StateStore
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        events: list[tuple[str, str]] = []
+
+        async def on_progress(stage: str, phase: str) -> None:
+            events.append((stage, phase))
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=_mock_llm(),
+            config=PipelineConfig(
+                verification_enabled=False,
+                start_from=PipelineStage.RESEARCH,
+                stop_after=PipelineStage.ENRICH,
+            ),
+            progress_callback=on_progress,
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        stages_started = [stage for stage, phase in events if phase == "start"]
+        stages_completed = [stage for stage, phase in events if phase == "complete"]
+        assert "research" in stages_started
+        assert "enrich" in stages_started
+        assert "research" in stages_completed
+        assert "enrich" in stages_completed
+
     async def test_tracks_run_cost(self, tmp_workspace: Path) -> None:
         from recon.state import StateStore
         from recon.workspace import Workspace

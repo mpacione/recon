@@ -88,6 +88,61 @@ class TestResearchCommand:
         assert result.exit_code == 0
         assert "complete" in result.output.lower()
 
+    def test_target_argument_passes_single_competitor(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws_dir = tmp_path / "ws"
+        _setup_workspace(ws_dir)
+        ws = Workspace.open(ws_dir)
+        ws.create_profile("Beta")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+        monkeypatch.chdir(ws_dir)
+
+        mock_orchestrator = AsyncMock()
+        mock_orchestrator.research_all = AsyncMock(return_value=[])
+
+        with patch("recon.research.ResearchOrchestrator", return_value=mock_orchestrator):
+            runner = CliRunner()
+            result = runner.invoke(main, ["research", "Beta"], catch_exceptions=False)
+
+        assert result.exit_code == 0
+        assert "Beta" in result.output
+        mock_orchestrator.research_all.assert_awaited_once()
+        call_kwargs = mock_orchestrator.research_all.await_args.kwargs
+        assert call_kwargs["targets"] == ["Beta"]
+
+    def test_unknown_target_shows_error_and_does_not_call_orchestrator(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws_dir = tmp_path / "ws"
+        _setup_workspace(ws_dir)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+        monkeypatch.chdir(ws_dir)
+
+        mock_orchestrator = AsyncMock()
+
+        with patch("recon.research.ResearchOrchestrator", return_value=mock_orchestrator):
+            runner = CliRunner()
+            result = runner.invoke(main, ["research", "Nonexistent"], catch_exceptions=False)
+
+        assert result.exit_code == 0
+        assert "Unknown competitor" in result.output
+        mock_orchestrator.research_all.assert_not_awaited()
+
+    def test_no_target_and_no_all_shows_usage_hint(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws_dir = tmp_path / "ws"
+        _setup_workspace(ws_dir)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+        monkeypatch.chdir(ws_dir)
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["research"], catch_exceptions=False)
+
+        assert result.exit_code == 0
+        assert "--all" in result.output
+
 
 class TestEnrichCommand:
     def test_without_api_key_shows_error(
@@ -126,6 +181,29 @@ class TestEnrichCommand:
 
         assert result.exit_code == 0
         assert "complete" in result.output.lower()
+
+    def test_target_argument_passes_single_competitor(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws_dir = tmp_path / "ws"
+        _setup_workspace(ws_dir)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+        monkeypatch.chdir(ws_dir)
+
+        mock_orchestrator = AsyncMock()
+        mock_orchestrator.enrich_all = AsyncMock(return_value=[])
+
+        with patch("recon.enrichment.EnrichmentOrchestrator", return_value=mock_orchestrator):
+            runner = CliRunner()
+            result = runner.invoke(
+                main, ["enrich", "Alpha", "--pass", "cleanup"],
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0
+        mock_orchestrator.enrich_all.assert_awaited_once()
+        call_kwargs = mock_orchestrator.enrich_all.await_args.kwargs
+        assert call_kwargs["targets"] == ["Alpha"]
 
 
 class TestSynthesizeCommand:

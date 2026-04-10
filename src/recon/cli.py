@@ -253,15 +253,43 @@ def status():
 @click.option("--dry-run", is_flag=True, help="Show what would be researched")
 @click.option("--headless", is_flag=True, help="JSON output, no TUI")
 def research(target, all_targets, workers, dry_run, headless):
-    """Run LLM-powered research on competitors."""
+    """Run LLM-powered research on competitors.
+
+    Pass a competitor name to research just that one, or --all to research
+    every profile in the workspace.
+    """
     from recon.research import ResearchOrchestrator, ResearchPlan
     from recon.workspace import Workspace
 
     ws = Workspace.open(Path("."))
 
+    if not target and not all_targets:
+        click.echo("Specify a competitor name or pass --all to research every profile.")
+        return
+
+    if target and all_targets:
+        click.echo("Cannot combine a target argument with --all.")
+        return
+
+    profiles = ws.list_profiles()
+    all_names = [p["name"] for p in profiles]
+
+    if target:
+        resolved = next(
+            (name for name in all_names if name.lower() == target.lower()),
+            None,
+        )
+        if resolved is None:
+            available = ", ".join(all_names) or "(none)"
+            click.echo(f"Unknown competitor: {target}. Available: {available}")
+            return
+        selected_names: list[str] | None = [resolved]
+    else:
+        selected_names = None  # None -> research everyone
+
     if dry_run:
-        profiles = ws.list_profiles()
-        plan = ResearchPlan.from_schema(schema=ws.schema, competitors=[p["name"] for p in profiles])
+        plan_targets = selected_names if selected_names is not None else all_names
+        plan = ResearchPlan.from_schema(schema=ws.schema, competitors=plan_targets)
         click.echo(f"Plan: {plan.total_tasks} tasks across {len(plan.batches)} sections")
         for batch in plan.batches:
             click.echo(f"  {batch.section_key}: {len(batch.competitors)} competitors")
@@ -278,8 +306,9 @@ def research(target, all_targets, workers, dry_run, headless):
         max_workers=workers,
     )
 
-    click.echo("Starting research...")
-    results = _run_async(orchestrator.research_all())
+    label = f"'{selected_names[0]}'" if selected_names else "all profiles"
+    click.echo(f"Starting research for {label}...")
+    results = _run_async(orchestrator.research_all(targets=selected_names))
 
     total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
     total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)
@@ -294,15 +323,46 @@ def research(target, all_targets, workers, dry_run, headless):
 @click.option("--workers", default=10, help="Parallel workers")
 @click.option("--dry-run", is_flag=True, help="Show what would be enriched")
 def enrich(target, all_targets, pass_name, workers, dry_run):
-    """Progressive enrichment passes."""
+    """Progressive enrichment passes.
+
+    Pass a competitor name to enrich just that one, or --all to enrich
+    every eligible profile in the workspace.
+    """
     from recon.enrichment import EnrichmentOrchestrator, EnrichmentPass
     from recon.workspace import Workspace
 
     ws = Workspace.open(Path("."))
 
+    if not target and not all_targets:
+        click.echo("Specify a competitor name or pass --all to enrich every eligible profile.")
+        return
+
+    if target and all_targets:
+        click.echo("Cannot combine a target argument with --all.")
+        return
+
+    profiles = ws.list_profiles()
+    all_names = [p["name"] for p in profiles]
+
+    if target:
+        resolved = next(
+            (name for name in all_names if name.lower() == target.lower()),
+            None,
+        )
+        if resolved is None:
+            available = ", ".join(all_names) or "(none)"
+            click.echo(f"Unknown competitor: {target}. Available: {available}")
+            return
+        selected_names: list[str] | None = [resolved]
+    else:
+        selected_names = None
+
     if dry_run:
-        profiles = ws.list_profiles()
-        eligible = [p for p in profiles if p.get("research_status") not in ("scaffold", None)]
+        eligible = [
+            p for p in profiles
+            if p.get("research_status") not in ("scaffold", None)
+            and (selected_names is None or p["name"] in selected_names)
+        ]
         click.echo(f"Enrich ({pass_name}): {len(eligible)} eligible profiles")
         return
 
@@ -319,8 +379,9 @@ def enrich(target, all_targets, pass_name, workers, dry_run):
         max_workers=workers,
     )
 
-    click.echo(f"Starting enrichment ({pass_name})...")
-    results = _run_async(orchestrator.enrich_all())
+    label = f"'{selected_names[0]}'" if selected_names else "all profiles"
+    click.echo(f"Starting enrichment ({pass_name}) for {label}...")
+    results = _run_async(orchestrator.enrich_all(targets=selected_names))
 
     total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
     total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)
@@ -689,7 +750,6 @@ def run(from_stage, deep, dry_run):
         click.echo(f"ANTHROPIC_API_KEY not set. {error}")
         return
 
-    from recon.index import IndexManager
     from recon.pipeline import Pipeline, PipelineConfig, PipelineStage
     from recon.state import StateStore
     from recon.workspace import Workspace
@@ -697,7 +757,6 @@ def run(from_stage, deep, dry_run):
     ws = Workspace.open(Path("."))
     state = StateStore(db_path=ws.root / ".recon" / "state.db")
     _run_async(state.initialize())
-    index_manager = IndexManager(persist_dir=str(ws.root / ".vectordb"))
 
     stage_map = {
         "research": PipelineStage.RESEARCH,
@@ -709,13 +768,13 @@ def run(from_stage, deep, dry_run):
     config = PipelineConfig(
         deep_synthesis=deep,
         start_from=stage_map.get(from_stage, PipelineStage.RESEARCH),
+        verification_enabled=False,
     )
 
     pipeline = Pipeline(
         workspace=ws,
         state_store=state,
         llm_client=client,
-        index_manager=index_manager,
         config=config,
     )
 

@@ -203,6 +203,71 @@ class TestResearchOrchestrator:
         call_kwargs = llm.complete.call_args.kwargs
         assert call_kwargs.get("tools") is None
 
+    async def test_research_all_filters_to_targets(self, tmp_workspace: Path) -> None:
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        ws.create_profile("Beta")
+        ws.create_profile("Gamma")
+
+        llm = _mock_llm_client()
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+        )
+
+        await orchestrator.research_all(targets=["Beta"])
+
+        # Only 1 competitor * 1 section (minimal schema) = 1 call
+        assert llm.complete.call_count == 1
+
+        # Beta has research content, Alpha and Gamma do not
+        beta = ws.read_profile("beta")
+        alpha = ws.read_profile("alpha")
+        gamma = ws.read_profile("gamma")
+        assert beta["research_status"] == "researched"
+        assert alpha["research_status"] == "scaffold"
+        assert gamma["research_status"] == "scaffold"
+
+    async def test_research_all_targets_case_insensitive(self, tmp_workspace: Path) -> None:
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        ws.create_profile("Beta")
+
+        llm = _mock_llm_client()
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+        )
+
+        await orchestrator.research_all(targets=["alpha"])
+
+        alpha = ws.read_profile("alpha")
+        assert alpha["research_status"] == "researched"
+
+    async def test_research_all_unknown_target_raises(self, tmp_workspace: Path) -> None:
+        import pytest
+
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        llm = _mock_llm_client()
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+        )
+
+        with pytest.raises(ValueError, match="Unknown"):
+            await orchestrator.research_all(targets=["Nonexistent"])
+
     async def test_batches_by_section(self, tmp_workspace: Path) -> None:
         schema_dict = _make_schema()
         schema_dict["sections"].append({

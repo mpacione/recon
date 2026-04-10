@@ -30,3 +30,8 @@ snapshot_report.html
 
 # scratch workspaces for manual/e2e testing
 scratch/
+
+# local test/runtime artifacts
+.coverage
+logs_llm/
+vectors.db

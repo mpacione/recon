@@ -1,0 +1,216 @@
+"""Tests for the TUI pipeline runner glue.
+
+The runner bridges a RunPlannerScreen Operation to a pipeline_fn that
+RunScreen.start_pipeline() can consume. It owns the Pipeline lifecycle:
+opening workspace/state store, creating the LLMClient, configuring the
+PipelineConfig based on the operation, and streaming progress updates
+back into the RunScreen's reactive attributes.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path  # noqa: TCH003 -- used at runtime
+from unittest.mock import patch
+
+import yaml
+from textual.app import App, ComposeResult
+
+from recon.tui.pipeline_runner import (
+    SUPPORTED_OPERATIONS,
+    build_pipeline_fn,
+    pipeline_config_for_operation,
+)
+from recon.tui.screens.planner import Operation
+from recon.tui.screens.run import RunScreen
+
+MINIMAL_SCHEMA = {
+    "domain": "Developer Tools",
+    "identity": {
+        "company_name": "Acme Corp",
+        "products": ["Acme IDE"],
+        "decision_context": [],
+    },
+    "rating_scales": {},
+    "sections": [
+        {
+            "key": "overview",
+            "title": "Overview",
+            "description": "High-level summary.",
+            "allowed_formats": ["prose"],
+            "preferred_format": "prose",
+        },
+    ],
+}
+
+
+def _setup_workspace(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "competitors").mkdir(exist_ok=True)
+    (path / ".recon").mkdir(exist_ok=True)
+    (path / ".recon" / "logs").mkdir(exist_ok=True)
+    (path / "recon.yaml").write_text(yaml.dump(MINIMAL_SCHEMA))
+    return path
+
+
+class _RunTestApp(App):
+    CSS = "Screen { background: #000000; }"
+
+    def compose(self) -> ComposeResult:
+        yield RunScreen()
+
+
+class TestPipelineConfigForOperation:
+    def test_full_pipeline_runs_all_stages(self) -> None:
+        from recon.pipeline import PipelineStage
+
+        config = pipeline_config_for_operation(Operation.FULL_PIPELINE)
+        assert config.start_from == PipelineStage.RESEARCH
+        assert config.stop_after == PipelineStage.DELIVER
+
+    def test_update_all_runs_research_stage(self) -> None:
+        from recon.pipeline import PipelineStage
+
+        config = pipeline_config_for_operation(Operation.UPDATE_ALL)
+        assert config.start_from == PipelineStage.RESEARCH
+        assert config.stop_after == PipelineStage.RESEARCH
+
+    def test_unsupported_operation_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(NotImplementedError):
+            pipeline_config_for_operation(Operation.RERUN_FAILED)
+
+    def test_supported_operations_listed(self) -> None:
+        assert Operation.FULL_PIPELINE in SUPPORTED_OPERATIONS
+        assert Operation.UPDATE_ALL in SUPPORTED_OPERATIONS
+
+
+class TestBuildPipelineFn:
+    async def test_pipeline_fn_updates_phase_and_progress(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        ws_dir = _setup_workspace(tmp_path / "ws")
+        from recon.workspace import Workspace
+
+        Workspace.open(ws_dir).create_profile("Alpha")
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        # Stub Pipeline.execute so we don't actually hit the mock LLM chain
+        async def fake_execute(self, run_id: str) -> None:
+            assert self.progress_callback is not None
+            await self.progress_callback("research", "start")
+            await self.progress_callback("research", "complete")
+
+        with patch("recon.pipeline.Pipeline.execute", fake_execute):
+            pipeline_fn = build_pipeline_fn(
+                workspace_path=ws_dir,
+                operation=Operation.FULL_PIPELINE,
+            )
+
+            app = _RunTestApp()
+            async with app.run_test(size=(120, 40)) as pilot:
+                screen = app.query_one(RunScreen)
+                screen.start_pipeline(pipeline_fn)
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+            assert screen.current_phase in ("research", "complete", "done")
+            assert screen.progress >= 0.0
+
+    async def test_pipeline_fn_without_api_key_notifies_and_exits(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        ws_dir = _setup_workspace(tmp_path / "ws")
+        from recon.workspace import Workspace
+
+        Workspace.open(ws_dir).create_profile("Alpha")
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        pipeline_fn = build_pipeline_fn(
+            workspace_path=ws_dir,
+            operation=Operation.FULL_PIPELINE,
+        )
+
+        notifications: list[str] = []
+
+        async def fake_notify(self, message: str, **kwargs) -> None:
+            notifications.append(message)
+
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(RunScreen)
+            with patch.object(type(app), "notify", lambda self, msg, **kw: notifications.append(msg)):
+                screen.start_pipeline(pipeline_fn)
+                await pilot.pause()
+                await pilot.pause()
+
+            assert any("API key" in m for m in notifications)
+            assert screen.current_phase in ("error", "idle")
+
+    async def test_pipeline_fn_unsupported_operation_notifies(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        ws_dir = _setup_workspace(tmp_path / "ws")
+        from recon.workspace import Workspace
+
+        Workspace.open(ws_dir).create_profile("Alpha")
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        pipeline_fn = build_pipeline_fn(
+            workspace_path=ws_dir,
+            operation=Operation.RERUN_FAILED,
+        )
+
+        notifications: list[str] = []
+
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(RunScreen)
+            with patch.object(
+                type(app),
+                "notify",
+                lambda self, msg, **kw: notifications.append(msg),
+            ):
+                screen.start_pipeline(pipeline_fn)
+                await pilot.pause()
+                await pilot.pause()
+
+            assert any("not implemented" in m.lower() or "not yet" in m.lower() for m in notifications)
+
+    async def test_pipeline_fn_calls_pipeline_execute_with_progress(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        ws_dir = _setup_workspace(tmp_path / "ws")
+        from recon.workspace import Workspace
+
+        Workspace.open(ws_dir).create_profile("Alpha")
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        captured_callbacks: list = []
+
+        async def fake_execute(self, run_id: str) -> None:
+            captured_callbacks.append(self.progress_callback)
+            if self.progress_callback is not None:
+                await self.progress_callback("research", "start")
+                await self.progress_callback("research", "complete")
+
+        with patch("recon.pipeline.Pipeline.execute", fake_execute):
+            pipeline_fn = build_pipeline_fn(
+                workspace_path=ws_dir,
+                operation=Operation.UPDATE_ALL,
+            )
+
+            app = _RunTestApp()
+            async with app.run_test(size=(120, 40)) as pilot:
+                screen = app.query_one(RunScreen)
+                screen.start_pipeline(pipeline_fn)
+                await pilot.pause()
+                await pilot.pause()
+
+        assert len(captured_callbacks) == 1
+        assert captured_callbacks[0] is not None

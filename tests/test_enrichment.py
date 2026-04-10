@@ -119,6 +119,58 @@ class TestEnrichmentOrchestrator:
         assert len(results) == 0
         assert llm.complete.call_count == 0
 
+    async def test_enrich_all_filters_to_targets(self, tmp_workspace: Path) -> None:
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        for name in ["Alpha", "Beta", "Gamma"]:
+            path = ws.create_profile(name)
+            import frontmatter as fm
+
+            post = fm.load(str(path))
+            post.content = "## Overview\nContent.\n"
+            path.write_text(fm.dumps(post))
+
+        llm = _mock_llm("Enriched.")
+
+        orchestrator = EnrichmentOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            enrichment_pass=EnrichmentPass.SENTIMENT,
+            max_workers=1,
+        )
+
+        results = await orchestrator.enrich_all(targets=["Beta"])
+
+        assert len(results) == 1
+        assert results[0]["competitor"] == "Beta"
+        assert llm.complete.call_count == 1
+
+    async def test_enrich_all_unknown_target_raises(self, tmp_workspace: Path) -> None:
+        import pytest
+
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        path = ws.create_profile("Alpha")
+        import frontmatter as fm
+
+        post = fm.load(str(path))
+        post.content = "## Overview\nContent.\n"
+        path.write_text(fm.dumps(post))
+
+        llm = _mock_llm()
+
+        orchestrator = EnrichmentOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            enrichment_pass=EnrichmentPass.CLEANUP,
+            max_workers=1,
+        )
+
+        with pytest.raises(ValueError, match="Unknown"):
+            await orchestrator.enrich_all(targets=["Nonexistent"])
+
     async def test_cleanup_prompt_mentions_format(self, tmp_workspace: Path) -> None:
         from recon.workspace import Workspace
 

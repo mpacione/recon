@@ -66,6 +66,15 @@ class RunScreen(Screen):
         self._activity: list[str] = []
         self._pipeline_fn: PipelineFn | None = None
 
+    def on_mount(self) -> None:
+        # Consume any pending pipeline queued on the app before this
+        # screen existed (happens when mode is switched from another
+        # screen that wants to start a pipeline here).
+        pending = getattr(self.app, "_pending_pipeline_fn", None)
+        if pending is not None:
+            self.app._pending_pipeline_fn = None
+            self.start_pipeline(pending)
+
     def compose(self) -> ComposeResult:
         yield Static("[bold #e0a044]RUN MONITOR[/]", id="run-title")
         yield Static("")

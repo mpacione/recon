@@ -7,6 +7,8 @@ from any stage and stopping after any stage.
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -18,6 +20,8 @@ from recon.llm import LLMClient  # noqa: TCH001
 from recon.research import ResearchOrchestrator
 from recon.state import RunStatus, StateStore  # noqa: TCH001
 from recon.workspace import Workspace  # noqa: TCH001
+
+ProgressCallback = Callable[[str, str], Awaitable[None]]
 
 
 class PipelineStage(StrEnum):
@@ -40,6 +44,7 @@ class PipelineConfig:
     verification_enabled: bool = True
     start_from: PipelineStage = PipelineStage.RESEARCH
     stop_after: PipelineStage = PipelineStage.DELIVER
+    targets: list[str] | None = None
 
 
 @dataclass
@@ -50,6 +55,14 @@ class Pipeline:
     state_store: StateStore
     llm_client: LLMClient
     config: PipelineConfig = field(default_factory=PipelineConfig)
+    progress_callback: ProgressCallback | None = None
+
+    async def _emit(self, stage: str, phase: str) -> None:
+        if self.progress_callback is None:
+            return
+        # Never let a broken progress callback take down the pipeline
+        with contextlib.suppress(Exception):
+            await self.progress_callback(stage, phase)
 
     async def plan(self) -> str:
         """Create a run plan and return the run_id."""
@@ -100,7 +113,9 @@ class Pipeline:
 
         try:
             for stage in _STAGE_ORDER[start_idx : stop_idx + 1]:
+                await self._emit(stage.value, "start")
                 await self._execute_stage(run_id, stage, cost_tracker)
+                await self._emit(stage.value, "complete")
 
             await self.state_store.update_run_status(run_id, RunStatus.COMPLETED)
         except Exception:
@@ -134,7 +149,7 @@ class Pipeline:
             max_workers=self.config.max_research_workers,
         )
 
-        results = await orchestrator.research_all()
+        results = await orchestrator.research_all(targets=self.config.targets)
 
         total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
         total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)
@@ -161,7 +176,7 @@ class Pipeline:
                 enrichment_pass=enrichment_pass,
                 max_workers=self.config.max_enrich_workers,
             )
-            results = await orchestrator.enrich_all()
+            results = await orchestrator.enrich_all(targets=self.config.targets)
 
             total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
             total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)

@@ -8,25 +8,29 @@
 ░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓██████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░
 ```
 
-A CLI (and WIP TUI) for competitive intelligence research. Recon orchestrates LLM agents to discover competitors, research them section-by-section against a structured schema, and synthesize the results into thematic analyses and executive summaries -- all stored locally as Obsidian-compatible markdown.
+A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agents to discover competitors, research them section-by-section against a structured schema, and synthesize the results into thematic analyses and executive summaries -- all stored locally as Obsidian-compatible markdown.
 
-> **Status: v0.1 (alpha).** The CLI is fully functional end-to-end against the live Anthropic API. The TUI is a usable but incomplete facade -- wizard, discovery, and workspace browsing work; the Run button is not wired to the pipeline engine. See [`design/wiring-audit.md`](design/wiring-audit.md) for the detailed audit. **Use the CLI for real work until the TUI is finished.**
+> **Status: v0.1 (alpha).** Both the CLI and the TUI can now run the full pipeline end-to-end against the live Anthropic API. See [`design/wiring-audit.md`](design/wiring-audit.md) for the wiring audit and [`CHANGELOG.md`](CHANGELOG.md) for what's fixed since the initial alpha.
 
 ## Status
 
 | Component | State | Notes |
 |---|---|---|
-| Engine layer (pipeline, research, verification, enrichment, index, themes, synthesis, deliver, discovery, tag) | **Stable** | 395+ unit tests, 25 integration tests, lint clean |
+| Engine layer (pipeline, research, verification, enrichment, index, themes, synthesis, deliver, discovery, tag) | **Stable** | 400+ unit tests, 25 integration tests, lint clean |
 | `recon init` / `add` / `status` | **Stable** | Headless init produces full 8-section default schema |
 | `recon discover` | **Stable** | Uses `web_search_20250305` tool for live competitor discovery |
-| `recon research` | **Stable** | Uses web search per section, updates `research_status` frontmatter |
+| `recon research [target | --all]` | **Stable** | Target argument now honored; single-profile filtering case-insensitive |
+| `recon enrich [target | --all]` | **Stable** | Target argument honored; unknown names error clearly |
 | `recon index` / `retrieve` | **Stable** | Local fastembed + ChromaDB, incremental via SHA-256 hashes |
 | `recon tag` | **Stable** | K-means clustering with LLM-generated strategic theme labels |
 | `recon synthesize` / `distill` / `summarize` | **Stable** | Single-pass + deep 4-pass synthesis, distillation, meta-synthesis |
-| `recon run` (full pipeline) | **Stable** | Pipeline orchestrator wires all stages with state tracking |
+| `recon run` (full pipeline) | **Stable** | Construction bug fixed; Pipeline orchestrator wires all stages with state tracking |
 | TUI: welcome / wizard / dashboard / discovery / browser | **Working** | Screens render, navigate, accept input, write profiles |
-| TUI: run screen / pipeline execution / theme gate | **WIP** | RunScreen displays but the Run button is not wired to the engine. Use `recon run` on the CLI instead. |
+| TUI: run button → planner → pipeline execution | **Working** | Planner-to-pipeline wiring landed; `FULL_PIPELINE`, `UPDATE_ALL`, `UPDATE_SPECIFIC` operations call the real engine via `tui/pipeline_runner.py` |
+| TUI: competitor selector (update specific) | **Working** | Pushed from planner when the chosen op needs targets |
+| TUI: diff update / rerun failed operations | **WIP** | Planner options exist but the engine logic is not yet implemented; selecting these notifies the user |
 | Real-API E2E tests | **Available** | Opt-in via `ANTHROPIC_API_KEY`, tests in `tests/test_e2e_real.py` |
+| Fake-LLM CLI E2E tests | **Stable** | `tests/test_cli_e2e_fake_llm.py` covers `research`, `enrich`, and `run` via `CliRunner` |
 
 ## Dependencies and setup
 
