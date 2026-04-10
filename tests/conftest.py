@@ -1,10 +1,31 @@
 """Shared test fixtures for recon."""
 
+import contextlib
 import copy
 from pathlib import Path
 
 import pytest
 import yaml
+
+
+@pytest.fixture(autouse=True)
+def _clear_chromadb_system_cache():
+    """Drop ChromaDB's process-wide system-instance cache after each test.
+
+    ChromaDB caches a SharedSystemClient per persist_dir for the
+    process lifetime. When tests use ``PersistentClient`` against a
+    pytest tmp_path that gets removed after the test, the cached
+    Rust segment readers can hold stale file handles open and a
+    later test then crashes with "Failed to pull logs from the log
+    store" or SQLITE_CANTOPEN. Clearing the cache between tests
+    forces a fresh client on the next access and releases the
+    underlying handles.
+    """
+    yield
+    with contextlib.suppress(Exception):
+        from chromadb.api.client import SharedSystemClient
+
+        SharedSystemClient.clear_system_cache()
 
 MINIMAL_SCHEMA_DICT = {
     "domain": "Developer Tools",

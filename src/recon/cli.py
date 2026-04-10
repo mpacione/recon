@@ -645,17 +645,20 @@ def index(incremental, workspace_dir):
 
     ws = Workspace.open(Path(workspace_dir))
     manager = IndexManager(persist_dir=str(ws.root / ".vectordb"))
-    state = StateStore(db_path=ws.root / ".recon" / "state.db")
-    _run_async(state.initialize())
+    try:
+        state = StateStore(db_path=ws.root / ".recon" / "state.db")
+        _run_async(state.initialize())
 
-    if not incremental:
-        manager.clear()
+        if not incremental:
+            manager.clear()
 
-    indexer = IncrementalIndexer(workspace=ws, index_manager=manager, state_store=state)
-    result = _run_async(indexer.index(force=not incremental))
+        indexer = IncrementalIndexer(workspace=ws, index_manager=manager, state_store=state)
+        result = _run_async(indexer.index(force=not incremental))
 
-    click.echo(f"Indexed {result.indexed} files ({result.total_chunks} chunks), skipped {result.skipped} unchanged")
-    click.echo(f"Collection size: {manager.collection_count()}")
+        click.echo(f"Indexed {result.indexed} files ({result.total_chunks} chunks), skipped {result.skipped} unchanged")
+        click.echo(f"Collection size: {manager.collection_count()}")
+    finally:
+        manager.close()
 
 
 @main.command()

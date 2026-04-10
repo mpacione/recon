@@ -184,3 +184,20 @@ class IndexManager:
         self._collection = self._client.get_or_create_collection(
             name=_COLLECTION_NAME,
         )
+
+    def close(self) -> None:
+        """Release ChromaDB system resources held by this manager.
+
+        Drops the collection / client references and clears
+        ChromaDB's process-wide system-instance cache so the
+        underlying Rust segment readers release their file handles.
+        Safe to call multiple times.
+        """
+        try:
+            from chromadb.api.client import SharedSystemClient
+
+            SharedSystemClient.clear_system_cache()
+        except Exception:  # noqa: BLE001 -- never let cleanup raise
+            pass
+        self._collection = None  # type: ignore[assignment]
+        self._client = None  # type: ignore[assignment]
