@@ -40,7 +40,7 @@ def _try_create_client(model: str = "claude-sonnet-4-20250514"):
 @click.pass_context
 def main(ctx, log_level, log_file):
     """recon -- Competitive intelligence CLI."""
-    from recon.logging import configure_logging
+    from recon.logging import configure_logging, get_logger
 
     log_file_path = (
         Path.home() / ".recon" / "logs" / "recon.log"
@@ -49,6 +49,12 @@ def main(ctx, log_level, log_file):
     )
 
     configure_logging(level=log_level, log_file=log_file_path)
+    _log = get_logger("cli")
+    _log.info(
+        "recon CLI invoked subcommand=%s log_level=%s",
+        ctx.invoked_subcommand,
+        log_level,
+    )
     ctx.ensure_object(dict)
     ctx.obj["log_file"] = log_file_path
 
