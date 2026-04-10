@@ -67,33 +67,13 @@ def _run_headless_init(root: Path, domain: str | None, company: str | None, prod
 
 
 def _run_tui_wizard(root: Path) -> None:
-    """Launch the Textual TUI wizard for workspace creation."""
-    import yaml
-
-    from recon.tui.wizard import WizardApp
-    from recon.workspace import Workspace
-
-    app = WizardApp(output_dir=root)
-    app.run()
-
-    if app.result_schema is None:
-        click.echo("Wizard cancelled.")
-        return
-
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "recon.yaml").write_text(yaml.dump(app.result_schema, default_flow_style=False, sort_keys=False))
-
-    if app.api_key:
-        env_path = root / ".env"
-        env_path.write_text(f"ANTHROPIC_API_KEY={app.api_key}\n")
-
-    ws = Workspace.init(root=root)
-    click.echo(f"Workspace initialized at {ws.root}")
-
+    """Launch ReconApp starting on the WizardScreen. The user never
+    leaves the app -- wizard completes, workspace is created, dashboard
+    loads, all in one continuous flow."""
     from recon.tui.app import ReconApp
 
-    dashboard = ReconApp(workspace_path=root)
-    dashboard.run()
+    app = ReconApp(initial_wizard_dir=root)
+    app.run()
 
 
 def _run_headless_wizard(root: Path) -> None:

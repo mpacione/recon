@@ -126,6 +126,51 @@ class TestDashboardBrowserFlow:
             assert isinstance(app.screen, DashboardScreen)
 
 
+class TestNewProjectFullFlow:
+    async def test_welcome_new_project_wizard_to_dashboard(self, tmp_path: Path) -> None:
+        from textual.widgets import Input
+
+        from recon.tui.screens.wizard import WizardScreen
+
+        app = ReconApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, WelcomeScreen)
+
+            new_path = tmp_path / "my-fresh-project"
+            app.screen.post_message(
+                WelcomeScreen.NewProjectRequested(str(new_path))
+            )
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, WizardScreen)
+            assert app.is_running
+
+            app.screen.query_one("#input-company", Input).value = "Acme Corp"
+            app.screen.query_one("#input-products", Input).value = "Acme CI"
+            app.screen.query_one("#input-domain", Input).value = "CI/CD Tools"
+            app.screen.query_one("#btn-continue", Button).press()
+            await pilot.pause()
+
+            app.screen.query_one("#btn-continue", Button).press()
+            await pilot.pause()
+
+            app.screen.query_one("#btn-continue", Button).press()
+            await pilot.pause()
+
+            app.screen.query_one("#input-api-key", Input).value = "sk-ant-test"
+            app.screen.query_one("#btn-confirm", Button).press()
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.pause()
+
+            assert app.is_running
+            assert isinstance(app.screen, DashboardScreen)
+            assert app.workspace_path == new_path
+            assert (new_path / "recon.yaml").exists()
+            assert (new_path / ".env").exists()
+
+
 class TestRunScreenPipelineGate:
     async def test_pipeline_gate_end_to_end(self) -> None:
         from recon.themes import DiscoveredTheme

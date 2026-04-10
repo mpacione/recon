@@ -32,9 +32,14 @@ class ReconApp(App):
         Binding("?", "help", "Help"),
     ]
 
-    def __init__(self, workspace_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        workspace_path: Path | None = None,
+        initial_wizard_dir: Path | None = None,
+    ) -> None:
         super().__init__()
         self._workspace_path = workspace_path
+        self._initial_wizard_dir = initial_wizard_dir
 
     @property
     def workspace_path(self) -> Path | None:
@@ -85,6 +90,14 @@ class ReconApp(App):
         self.add_mode("run", RunScreen)
         self.switch_mode("dashboard")
 
+        if self._initial_wizard_dir is not None:
+            from recon.tui.screens.wizard import WizardScreen
+
+            self.push_screen(
+                WizardScreen(output_dir=self._initial_wizard_dir),
+                self._handle_wizard_result,
+            )
+
     def on_welcome_screen_workspace_selected(self, event: WelcomeScreen.WorkspaceSelected) -> None:
         self._workspace_path = Path(event.path)
         self.switch_mode("run")
@@ -93,8 +106,49 @@ class ReconApp(App):
         self.switch_mode("dashboard")
 
     def on_welcome_screen_new_project_requested(self, event: WelcomeScreen.NewProjectRequested) -> None:
-        self._new_project_path = Path(event.path)
-        self.exit(result=("new_project", str(event.path)))
+        from recon.tui.screens.wizard import WizardScreen
+
+        output_dir = Path(event.path)
+        self.push_screen(
+            WizardScreen(output_dir=output_dir),
+            self._handle_wizard_result,
+        )
+
+    def _handle_wizard_result(self, result: object | None) -> None:
+        from recon.tui.screens.wizard import WizardResult
+
+        if not isinstance(result, WizardResult) or result.schema is None:
+            return
+
+        self._create_workspace_from_wizard(result)
+
+    def _create_workspace_from_wizard(self, result: object) -> None:
+        import yaml
+
+        from recon.tui.screens.wizard import WizardResult
+        from recon.workspace import Workspace
+
+        if not isinstance(result, WizardResult) or result.schema is None:
+            return
+
+        try:
+            result.output_dir.mkdir(parents=True, exist_ok=True)
+            (result.output_dir / "recon.yaml").write_text(
+                yaml.dump(result.schema, default_flow_style=False, sort_keys=False)
+            )
+            if result.api_key:
+                env_path = result.output_dir / ".env"
+                env_path.write_text(f"ANTHROPIC_API_KEY={result.api_key}\n")
+            Workspace.init(root=result.output_dir)
+        except Exception as exc:
+            self.notify(f"Failed to create workspace: {exc}", severity="error")
+            return
+
+        self._workspace_path = result.output_dir
+        self.switch_mode("run")
+        self.remove_mode("dashboard")
+        self.add_mode("dashboard", self._make_dashboard_screen)
+        self.switch_mode("dashboard")
 
     def action_help(self) -> None:
         self.notify("Q=Quit  ?=Help", title="Keybinds")
