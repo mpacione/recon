@@ -85,5 +85,16 @@ class ReconApp(App):
         self.add_mode("run", RunScreen)
         self.switch_mode("dashboard")
 
+    def on_welcome_screen_workspace_selected(self, event: WelcomeScreen.WorkspaceSelected) -> None:
+        self._workspace_path = Path(event.path)
+        self.switch_mode("run")
+        self.remove_mode("dashboard")
+        self.add_mode("dashboard", self._make_dashboard_screen)
+        self.switch_mode("dashboard")
+
+    def on_welcome_screen_new_project_requested(self, event: WelcomeScreen.NewProjectRequested) -> None:
+        self._new_project_path = Path(event.path)
+        self.exit(result=("new_project", str(event.path)))
+
     def action_help(self) -> None:
         self.notify("Q=Quit  ?=Help", title="Keybinds")

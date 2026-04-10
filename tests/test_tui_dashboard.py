@@ -58,3 +58,24 @@ class TestDashboardData:
         names = [r["name"] for r in data.competitor_rows]
         assert "Alpha Corp" in names
         assert "Beta Inc" in names
+
+    def test_section_statuses_from_schema(self, tmp_workspace: Path) -> None:
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        data = build_dashboard_data(ws)
+
+        assert data.total_sections > 0
+        assert len(data.section_statuses) == data.total_sections
+        for ss in data.section_statuses:
+            assert ss.total == 1
+
+    def test_enriched_defaults(self, tmp_workspace: Path) -> None:
+        ws = Workspace.open(tmp_workspace)
+
+        data = build_dashboard_data(ws)
+
+        assert data.theme_count == 0
+        assert data.index_chunks == 0
+        assert data.total_cost == 0.0
+        assert data.run_count == 0

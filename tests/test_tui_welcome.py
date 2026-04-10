@@ -156,6 +156,52 @@ class TestWelcomeScreenWiring:
             path_input = app.query_one("#open-path-input", Input)
             assert path_input is not None
 
+    async def test_new_button_shows_path_input(self, tmp_path: Path) -> None:
+        from textual.app import App, ComposeResult
+        from textual.widgets import Input
+
+        json_path = tmp_path / "recent.json"
+
+        class TestApp(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield WelcomeScreen(recent_projects_path=json_path)
+
+        app = TestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            app.query_one("#btn-new", Button).press()
+            await pilot.pause()
+            path_input = app.query_one("#new-path-input", Input)
+            assert path_input is not None
+
+    async def test_new_path_submit_posts_message(self, tmp_path: Path) -> None:
+        from textual.app import App, ComposeResult
+        from textual.widgets import Input
+
+        json_path = tmp_path / "recent.json"
+        new_requests: list[str] = []
+
+        class TestApp(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield WelcomeScreen(recent_projects_path=json_path)
+
+            def on_welcome_screen_new_project_requested(self, event: WelcomeScreen.NewProjectRequested) -> None:
+                new_requests.append(event.path)
+
+        app = TestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            app.query_one("#btn-new", Button).press()
+            await pilot.pause()
+            path_input = app.query_one("#new-path-input", Input)
+            path_input.value = str(tmp_path / "my-project")
+            path_input.post_message(Input.Submitted(path_input, str(tmp_path / "my-project")))
+            await pilot.pause()
+            assert len(new_requests) == 1
+            assert "my-project" in new_requests[0]
+
     async def test_open_path_submit_posts_message(self, tmp_workspace: Path) -> None:
         from textual.app import App, ComposeResult
         from textual.widgets import Input

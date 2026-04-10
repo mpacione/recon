@@ -25,6 +25,12 @@ class CompetitorBrowserScreen(Screen):
         height: 1fr;
         margin: 1 0;
     }
+    #browser-detail {
+        height: auto;
+        margin: 1 0;
+        padding: 1 2;
+        border: solid #3a3a3a;
+    }
     """
 
     BINDINGS = [
@@ -49,6 +55,10 @@ class CompetitorBrowserScreen(Screen):
         else:
             table = DataTable(id="browser-table")
             yield table
+            yield Static(
+                "[#a89984]Select a competitor to view details[/]",
+                id="browser-detail",
+            )
 
         yield Static("")
         yield Static(

@@ -11,6 +11,7 @@ import contextlib
 import os
 from pathlib import Path  # noqa: TCH003 -- used at runtime
 
+from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
 from textual.containers import Horizontal
@@ -110,6 +111,39 @@ class DashboardScreen(Screen):
                 id="status-breakdown",
             )
 
+        if self._data.section_statuses:
+            yield Static("")
+            yield Static(
+                f"[bold #e0a044]SECTIONS[/]  {self._data.total_sections} defined",
+                id="section-stats",
+            )
+            for ss in self._data.section_statuses:
+                dots = "." * max(1, 20 - len(ss.title))
+                progress = "complete" if ss.completed == ss.total else f"{ss.completed}/{ss.total}"
+                yield Static(f"  {ss.title} {dots} {progress}")
+
+        if self._data.theme_count > 0:
+            yield Static("")
+            yield Static(
+                f"[bold #e0a044]THEMES[/]  {self._data.theme_count} discovered, "
+                f"{self._data.themes_selected} selected",
+            )
+
+        if self._data.total_cost > 0:
+            yield Static("")
+            yield Static(
+                f"[bold #e0a044]COST[/]  ${self._data.total_cost:.2f} "
+                f"across {self._data.run_count} runs",
+            )
+
+    def refresh_data(self, data: DashboardData) -> None:
+        self._data = data
+        self._do_recompose()
+
+    @work
+    async def _do_recompose(self) -> None:
+        await self.recompose()
+
     def action_start_discovery(self) -> None:
         if self._data.total_competitors == 0:
             self._push_discovery()
@@ -160,8 +194,14 @@ class DashboardScreen(Screen):
             RunPlannerScreen(
                 competitor_count=self._data.total_competitors,
                 section_count=section_count,
-            )
+            ),
+            self.handle_planner_result,
         )
+
+    def handle_planner_result(self, operation: object | None) -> None:
+        if operation is None:
+            return
+        self.app.notify(f"Starting: {operation}", title="Pipeline")
 
     def _api_key_status(self) -> str:
         env_path = self._workspace_path / ".env"

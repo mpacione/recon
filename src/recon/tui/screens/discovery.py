@@ -12,6 +12,7 @@ from typing import Any
 
 from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
+from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
@@ -23,6 +24,12 @@ SearchFn = Callable[[DiscoveryState | None], Coroutine[Any, Any, list[DiscoveryC
 
 class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
     """Interactive competitor discovery with accumulating roster."""
+
+    BINDINGS = [
+        Binding("up", "cursor_up", "Up", show=False),
+        Binding("down", "cursor_down", "Down", show=False),
+        Binding("space", "toggle_current", "Toggle", show=False),
+    ]
 
     DEFAULT_CSS = """
     DiscoveryScreen {
@@ -63,13 +70,34 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         self._state = state
         self._domain = domain
         self._search_fn: SearchFn | None = None
+        self._cursor_index: int = 0
 
     @property
     def state(self) -> DiscoveryState:
         return self._state
 
+    @property
+    def cursor_index(self) -> int:
+        return self._cursor_index
+
     def set_search_fn(self, fn: SearchFn) -> None:
         self._search_fn = fn
+
+    def action_cursor_up(self) -> None:
+        count = len(self._state.all_candidates)
+        if count > 0:
+            self._cursor_index = (self._cursor_index - 1) % count
+
+    def action_cursor_down(self) -> None:
+        count = len(self._state.all_candidates)
+        if count > 0:
+            self._cursor_index = (self._cursor_index + 1) % count
+
+    def action_toggle_current(self) -> None:
+        candidates = self._state.all_candidates
+        if candidates and 0 <= self._cursor_index < len(candidates):
+            self._state.toggle(self._cursor_index)
+            self._schedule_recompose()
 
     def compose(self) -> ComposeResult:
         with Vertical(id="discovery-container"):

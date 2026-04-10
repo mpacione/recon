@@ -139,6 +139,30 @@ class TestDashboardButtonWiring:
             await pilot.pause()
             assert isinstance(app.screen, DiscoveryScreen)
 
+    async def test_refresh_updates_data(self, tmp_path: Path) -> None:
+        data = _make_dashboard_data(total_competitors=5, status_counts={"scaffold": 5})
+        app = _DashboardTestApp(data, tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(DashboardScreen)
+            new_data = _make_dashboard_data(
+                total_competitors=10,
+                status_counts={"scaffold": 5, "researched": 5},
+            )
+            screen.refresh_data(new_data)
+            await pilot.pause()
+            stats = app.query_one("#competitor-stats", Static)
+            assert "10" in str(stats.content)
+
+    async def test_run_planner_dismiss_triggers_mode_switch(self, tmp_path: Path) -> None:
+        from recon.tui.screens.planner import Operation
+
+        data = _make_dashboard_data(total_competitors=10, status_counts={"scaffold": 10})
+        app = _DashboardTestApp(data, tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(DashboardScreen)
+            screen.handle_planner_result(Operation.FULL_PIPELINE)
+            await pilot.pause()
+
     async def test_discovery_dismiss_creates_profiles(self, tmp_workspace: Path) -> None:
         from recon.discovery import CompetitorTier, DiscoveryCandidate
         from recon.workspace import Workspace

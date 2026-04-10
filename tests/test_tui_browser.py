@@ -78,3 +78,10 @@ class TestCompetitorBrowserScreen:
             await pilot.pause()
             empty = app.screen.query_one("#browser-empty", Static)
             assert "No competitors" in str(empty.content)
+
+    async def test_has_detail_panel(self) -> None:
+        app = _BrowserTestApp(data=_make_data(5))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            detail = app.screen.query_one("#browser-detail", Static)
+            assert detail is not None

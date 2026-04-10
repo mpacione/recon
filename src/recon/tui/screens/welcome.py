@@ -83,6 +83,11 @@ class WelcomeScreen(Screen):
             super().__init__()
             self.path = path
 
+    class NewProjectRequested(Message):
+        def __init__(self, path: str) -> None:
+            super().__init__()
+            self.path = path
+
     DEFAULT_CSS = """
     WelcomeScreen {
         align: center middle;
@@ -143,8 +148,24 @@ class WelcomeScreen(Screen):
             )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-open":
+        if event.button.id == "btn-new":
+            self._show_new_input()
+        elif event.button.id == "btn-open":
             self._show_open_input()
+
+    def _show_new_input(self) -> None:
+        container = self.query_one("#welcome-container", Vertical)
+        existing = self.query("#new-path-input")
+        if existing:
+            return
+        default_path = str(Path.home() / "recon" / "new-project")
+        path_input = Input(
+            value=default_path,
+            placeholder="Directory for new project",
+            id="new-path-input",
+        )
+        container.mount(path_input)
+        path_input.focus()
 
     def _show_open_input(self) -> None:
         container = self.query_one("#welcome-container", Vertical)
@@ -159,8 +180,10 @@ class WelcomeScreen(Screen):
         path_input.focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id != "open-path-input":
-            return
         path_str = event.value.strip()
-        if path_str:
+        if not path_str:
+            return
+        if event.input.id == "open-path-input":
             self.post_message(self.WorkspaceSelected(path_str))
+        elif event.input.id == "new-path-input":
+            self.post_message(self.NewProjectRequested(path_str))

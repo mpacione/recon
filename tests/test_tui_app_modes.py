@@ -52,3 +52,17 @@ class TestReconAppModes:
     async def test_workspace_path_accessible(self, tmp_workspace: Path) -> None:
         app = ReconApp(workspace_path=tmp_workspace)
         assert app.workspace_path == tmp_workspace
+
+    async def test_workspace_selected_sets_path_and_switches(self, tmp_workspace: Path) -> None:
+        from recon.tui.screens.welcome import WelcomeScreen
+
+        app = ReconApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, WelcomeScreen)
+            app.screen.post_message(
+                WelcomeScreen.WorkspaceSelected(str(tmp_workspace))
+            )
+            await pilot.pause()
+            await pilot.pause()
+            assert app.workspace_path == tmp_workspace
