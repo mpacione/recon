@@ -313,6 +313,102 @@ class TestVerifyCliE2E:
         assert beta.get("verification") is not None
 
 
+class TestDiffCliE2E:
+    def test_diff_all_refreshes_only_stale_sections(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import datetime as dt
+
+        ws_dir = tmp_path / "ws"
+        ws = _setup_workspace(ws_dir, ["Alpha", "Beta"])
+        # Alpha is fresh (1 day ago), Beta is stale (60 days ago)
+        fresh = (dt.datetime.now(dt.UTC) - dt.timedelta(days=1)).isoformat()
+        stale = (dt.datetime.now(dt.UTC) - dt.timedelta(days=60)).isoformat()
+        for slug, researched_at in [("alpha", fresh), ("beta", stale)]:
+            path = ws.competitors_dir / f"{slug}.md"
+            post = frontmatter.load(str(path))
+            post.content = "## Overview\n\nPrior content.\n"
+            post["research_status"] = "researched"
+            post["section_status"] = {
+                "overview": {"status": "researched", "researched_at": researched_at},
+            }
+            path.write_text(frontmatter.dumps(post))
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.chdir(ws_dir)
+
+        fake = _fake_llm_client(text="## Overview\n\nRefreshed content.\n")
+        with patch("recon.client_factory.create_llm_client", return_value=fake):
+            runner = CliRunner()
+            result = runner.invoke(
+                main, ["diff", "--all", "--max-age-days", "30"], catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Diff complete" in result.output
+        # Only Beta should have been re-researched (1 call, not 2)
+        assert fake.complete.call_count == 1
+
+    def test_diff_dry_run_does_not_call_llm(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws_dir = tmp_path / "ws"
+        _setup_workspace(ws_dir, ["Alpha"])
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.chdir(ws_dir)
+
+        fake = _fake_llm_client()
+        with patch("recon.client_factory.create_llm_client", return_value=fake):
+            runner = CliRunner()
+            result = runner.invoke(
+                main, ["diff", "--all", "--dry-run"], catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0
+        assert "Diff plan" in result.output
+        assert fake.complete.call_count == 0
+
+
+class TestRerunCliE2E:
+    def test_rerun_all_refreshes_only_failed_sections(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import datetime as dt
+
+        ws_dir = tmp_path / "ws"
+        ws = _setup_workspace(ws_dir, ["Alpha", "Beta"])
+        now = dt.datetime.now(dt.UTC).isoformat()
+        for slug, section_status in [
+            ("alpha", {"overview": {"status": "researched", "researched_at": now}}),
+            ("beta", {"overview": {"status": "failed"}}),
+        ]:
+            path = ws.competitors_dir / f"{slug}.md"
+            post = frontmatter.load(str(path))
+            post.content = "## Overview\n\nWhatever.\n"
+            post["research_status"] = "researched"
+            post["section_status"] = section_status
+            path.write_text(frontmatter.dumps(post))
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.chdir(ws_dir)
+
+        fake = _fake_llm_client(text="## Overview\n\nRetried content.\n")
+        with patch("recon.client_factory.create_llm_client", return_value=fake):
+            runner = CliRunner()
+            result = runner.invoke(
+                main, ["rerun", "--all"], catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Rerun complete" in result.output
+        # Only Beta should have been re-researched
+        assert fake.complete.call_count == 1
+
+        ws = Workspace.open(ws_dir)
+        beta = ws.read_profile("beta")
+        assert beta["section_status"]["overview"]["status"] == "researched"
+
+
 class TestRunCliE2E:
     def test_run_command_executes_pipeline_without_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

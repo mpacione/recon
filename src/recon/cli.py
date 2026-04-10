@@ -316,6 +316,134 @@ def research(target, all_targets, workers, dry_run, headless):
     click.echo(f"Tokens: {total_input} input, {total_output} output")
 
 
+def _resolve_target(ws, target: str | None, all_targets: bool) -> tuple[list[str] | None, str | None]:
+    """Shared target-resolution helper. Returns (names, error_message)."""
+    if not target and not all_targets:
+        return None, "Specify a competitor name or pass --all."
+    if target and all_targets:
+        return None, "Cannot combine a target argument with --all."
+
+    profiles = ws.list_profiles()
+    all_names = [p["name"] for p in profiles]
+    if target:
+        resolved = next(
+            (name for name in all_names if name.lower() == target.lower()),
+            None,
+        )
+        if resolved is None:
+            available = ", ".join(all_names) or "(none)"
+            return None, f"Unknown competitor: {target}. Available: {available}"
+        return [resolved], None
+    return None, None  # None = research everyone
+
+
+@main.command()
+@click.argument("target", required=False)
+@click.option("--all", "all_targets", is_flag=True, help="Diff every profile")
+@click.option("--max-age-days", default=30, help="Staleness threshold in days")
+@click.option("--workers", default=5, help="Parallel workers")
+@click.option("--dry-run", is_flag=True, help="Show what would be re-researched")
+def diff(target, all_targets, max_age_days, workers, dry_run):
+    """Re-research sections older than --max-age-days.
+
+    Cheaper than a full research pass. Each profile tracks a
+    per-section ``researched_at`` timestamp in its frontmatter; this
+    command picks up sections whose timestamp is older than the
+    staleness threshold.
+    """
+    from recon.research import ResearchOrchestrator
+    from recon.workspace import Workspace
+
+    ws = Workspace.open(Path("."))
+
+    selected_names, error = _resolve_target(ws, target, all_targets)
+    if error:
+        click.echo(error)
+        return
+
+    if dry_run:
+        click.echo(
+            f"Diff plan: stale sections older than {max_age_days} days "
+            f"across {len(selected_names) if selected_names else len(ws.list_profiles())} profile(s).",
+        )
+        return
+
+    client, error = _try_create_client()
+    if error:
+        click.echo(f"ANTHROPIC_API_KEY not set. {error}")
+        return
+
+    orchestrator = ResearchOrchestrator(
+        workspace=ws,
+        llm_client=client,
+        max_workers=workers,
+    )
+
+    label = f"'{selected_names[0]}'" if selected_names else "all profiles"
+    click.echo(f"Diffing stale sections for {label} (age > {max_age_days}d)...")
+    results = _run_async(
+        orchestrator.research_all(
+            targets=selected_names,
+            stale_only=True,
+            max_age_days=max_age_days,
+        ),
+    )
+
+    click.echo(f"Diff complete: {len(results)} stale sections refreshed")
+
+
+@main.command()
+@click.argument("target", required=False)
+@click.option("--all", "all_targets", is_flag=True, help="Rerun across every profile")
+@click.option("--workers", default=5, help="Parallel workers")
+@click.option("--dry-run", is_flag=True, help="Show what would be re-run")
+def rerun(target, all_targets, workers, dry_run):
+    """Re-research sections marked failed or never successfully researched.
+
+    Scans profile frontmatter for sections whose ``section_status`` is
+    ``failed`` (or missing) and retries only those. Use after a run
+    where some sections errored out.
+    """
+    from recon.research import ResearchOrchestrator
+    from recon.workspace import Workspace
+
+    ws = Workspace.open(Path("."))
+
+    selected_names, error = _resolve_target(ws, target, all_targets)
+    if error:
+        click.echo(error)
+        return
+
+    if dry_run:
+        click.echo(
+            f"Rerun plan: failed/missing sections across "
+            f"{len(selected_names) if selected_names else len(ws.list_profiles())} profile(s).",
+        )
+        return
+
+    client, error = _try_create_client()
+    if error:
+        click.echo(f"ANTHROPIC_API_KEY not set. {error}")
+        return
+
+    orchestrator = ResearchOrchestrator(
+        workspace=ws,
+        llm_client=client,
+        max_workers=workers,
+    )
+
+    label = f"'{selected_names[0]}'" if selected_names else "all profiles"
+    click.echo(f"Rerunning failed sections for {label}...")
+    results = _run_async(
+        orchestrator.research_all(
+            targets=selected_names,
+            failed_only=True,
+        ),
+    )
+
+    click.echo(f"Rerun complete: {len(results)} sections refreshed")
+
+
 @main.command()
 @click.argument("target", required=False)
 @click.option("--all", "all_targets", is_flag=True, help="Enrich all eligible profiles")

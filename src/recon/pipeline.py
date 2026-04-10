@@ -128,6 +128,9 @@ class PipelineConfig:
     stop_after: PipelineStage = PipelineStage.DELIVER
     targets: list[str] | None = None
     theme_count: int = 5
+    stale_only: bool = False
+    max_age_days: int = 30
+    failed_only: bool = False
 
 
 @dataclass
@@ -267,7 +270,12 @@ class Pipeline:
             max_workers=self.config.max_research_workers,
         )
 
-        results = await orchestrator.research_all(targets=self.config.targets)
+        results = await orchestrator.research_all(
+            targets=self.config.targets,
+            stale_only=self.config.stale_only,
+            max_age_days=self.config.max_age_days,
+            failed_only=self.config.failed_only,
+        )
 
         total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
         total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)

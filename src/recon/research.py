@@ -3,11 +3,20 @@
 Orchestrates section-by-section research across all competitors.
 Batches by section (all competitors for overview, then all for pricing, etc.)
 for consistency, format enforcement, and clean resume points.
+
+Supports three scoping modes via ``research_all``:
+- default: research every (profile, section) pair
+- ``stale_only``: skip sections whose ``researched_at`` timestamp is
+  within ``max_age_days``
+- ``failed_only``: only research sections whose ``section_status`` is
+  ``failed`` or missing (never successfully researched)
 """
 
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import dataclass
+from typing import Any
 
 import frontmatter
 
@@ -77,12 +86,25 @@ class ResearchOrchestrator:
             raise ValueError(msg)
         return self.workspace.schema
 
-    async def research_all(self, targets: list[str] | None = None) -> list[dict]:
+    async def research_all(
+        self,
+        targets: list[str] | None = None,
+        *,
+        stale_only: bool = False,
+        max_age_days: int = 30,
+        failed_only: bool = False,
+    ) -> list[dict]:
         """Research sections for competitors in the workspace.
 
-        If ``targets`` is provided, only those competitors are researched
-        (matched case-insensitively against profile names). Unknown targets
-        raise ``ValueError``.
+        ``targets`` filters to specific competitors (case-insensitive;
+        unknown names raise ``ValueError``).
+
+        ``stale_only=True`` skips any section whose ``section_status``
+        ``researched_at`` is newer than ``max_age_days`` days ago.
+
+        ``failed_only=True`` restricts work to sections whose
+        ``section_status`` is ``failed``, or sections with no recorded
+        status (never successfully researched).
         """
         profiles = self.workspace.list_profiles()
         all_names = [p["name"] for p in profiles]
@@ -110,14 +132,27 @@ class ResearchOrchestrator:
         all_results: list[dict] = []
 
         for batch in plan.batches:
-            tasks = [
-                ResearchTask(
+            tasks: list[ResearchTask] = []
+            for name in batch.competitors:
+                slug = self.workspace._slug_for_name(name, profiles)
+                if not self._should_research_section(
+                    slug=slug,
                     section_key=batch.section_key,
-                    competitor_name=name,
-                    competitor_slug=self.workspace._slug_for_name(name, profiles),
+                    stale_only=stale_only,
+                    max_age_days=max_age_days,
+                    failed_only=failed_only,
+                ):
+                    continue
+                tasks.append(
+                    ResearchTask(
+                        section_key=batch.section_key,
+                        competitor_name=name,
+                        competitor_slug=slug,
+                    ),
                 )
-                for name in batch.competitors
-            ]
+
+            if not tasks:
+                continue
 
             pool = WorkerPool(max_workers=self.max_workers)
             outcomes = await pool.run(
@@ -130,6 +165,50 @@ class ResearchOrchestrator:
                     all_results.append(outcome.value)
 
         return all_results
+
+    def _should_research_section(
+        self,
+        *,
+        slug: str,
+        section_key: str,
+        stale_only: bool,
+        max_age_days: int,
+        failed_only: bool,
+    ) -> bool:
+        """Decide whether this (profile, section) pair should be researched."""
+        if not stale_only and not failed_only:
+            return True
+
+        full = self.workspace.read_profile(slug)
+        if full is None:
+            return True
+
+        section_status = full.get("section_status") or {}
+        if not isinstance(section_status, dict):
+            section_status = {}
+        entry = section_status.get(section_key) or {}
+        if not isinstance(entry, dict):
+            entry = {}
+
+        status = entry.get("status", "")
+
+        if failed_only:
+            # Rerun only if never successfully researched
+            return status != "researched"
+
+        # stale_only: include if there is no timestamp, or it is older
+        # than max_age_days
+        researched_at = entry.get("researched_at")
+        if not researched_at:
+            return True
+        try:
+            timestamp = dt.datetime.fromisoformat(researched_at)
+        except ValueError:
+            return True
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=dt.UTC)
+        age = dt.datetime.now(dt.UTC) - timestamp
+        return age > dt.timedelta(days=max_age_days)
 
     async def _research_one(self, system_prompt: str, task: ResearchTask) -> dict:
         """Research a single section for a single competitor."""
@@ -149,26 +228,35 @@ class ResearchOrchestrator:
         )
 
         try:
-            response = await self.llm_client.complete(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                tools=tools,
-                max_tokens=8192,
-            )
-        except Exception as exc:
-            msg = str(exc).lower()
-            if tools and ("web_search" in msg or "tool" in msg or "not enabled" in msg):
-                _log.warning(
-                    "research web_search tool unavailable, retrying without: %s",
-                    exc,
-                )
+            try:
                 response = await self.llm_client.complete(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
-                    max_tokens=4096,
+                    tools=tools,
+                    max_tokens=8192,
                 )
-            else:
-                raise
+            except Exception as exc:
+                msg = str(exc).lower()
+                if tools and ("web_search" in msg or "tool" in msg or "not enabled" in msg):
+                    _log.warning(
+                        "research web_search tool unavailable, retrying without: %s",
+                        exc,
+                    )
+                    response = await self.llm_client.complete(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        max_tokens=4096,
+                    )
+                else:
+                    raise
+        except Exception:
+            _log.exception(
+                "research failed section=%s competitor=%s",
+                task.section_key,
+                task.competitor_name,
+            )
+            self._mark_section_failed(task.competitor_slug, task.section_key)
+            raise
 
         _log.info(
             "research got response section=%s competitor=%s in=%d out=%d len=%d",
@@ -188,7 +276,7 @@ class ResearchOrchestrator:
         }
 
     def _append_to_profile(self, slug: str, section_key: str, content: str) -> None:
-        """Append research content to a competitor's profile and mark it researched."""
+        """Append research content to a profile and update section_status."""
         path = self.workspace.competitors_dir / f"{slug}.md"
         if not path.exists():
             return
@@ -197,4 +285,34 @@ class ResearchOrchestrator:
         existing = post.content or ""
         post.content = f"{existing}\n{content}\n" if existing.strip() else f"{content}\n"
         post["research_status"] = "researched"
+
+        section_status = self._coerce_section_status(post.metadata.get("section_status"))
+        section_status[section_key] = {
+            "status": "researched",
+            "researched_at": dt.datetime.now(dt.UTC).isoformat(),
+        }
+        post["section_status"] = section_status
+
         path.write_text(frontmatter.dumps(post))
+
+    def _mark_section_failed(self, slug: str, section_key: str) -> None:
+        """Flag ``section_key`` as failed in the profile's section_status map."""
+        path = self.workspace.competitors_dir / f"{slug}.md"
+        if not path.exists():
+            return
+
+        post = frontmatter.load(str(path))
+        section_status = self._coerce_section_status(post.metadata.get("section_status"))
+        existing = section_status.get(section_key) or {}
+        if not isinstance(existing, dict):
+            existing = {}
+        existing = {**existing, "status": "failed"}
+        section_status[section_key] = existing
+        post["section_status"] = section_status
+        path.write_text(frontmatter.dumps(post))
+
+    def _coerce_section_status(self, value: Any) -> dict[str, dict[str, Any]]:
+        """Normalize a frontmatter section_status value into a dict."""
+        if isinstance(value, dict):
+            return {k: v for k, v in value.items()}
+        return {}

@@ -19,7 +19,9 @@ A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agen
 | Engine layer (pipeline, research, verification, enrichment, index, themes, synthesis, deliver, discovery, tag) | **Stable** | 400+ unit tests, 25 integration tests, lint clean |
 | `recon init` / `add` / `status` | **Stable** | Headless init produces full 8-section default schema |
 | `recon discover` | **Stable** | Uses `web_search_20250305` tool for live competitor discovery |
-| `recon research [target | --all]` | **Stable** | Target argument now honored; single-profile filtering case-insensitive |
+| `recon research [target | --all]` | **Stable** | Target argument honored; tracks per-section `researched_at` timestamps in frontmatter |
+| `recon diff [target | --all] --max-age-days N` | **Stable** | Re-research only sections older than the staleness window |
+| `recon rerun [target | --all]` | **Stable** | Retry only sections marked `failed` or never researched |
 | `recon enrich [target | --all]` | **Stable** | Target argument honored; unknown names error clearly |
 | `recon verify [target | --all] [--tier ...]` | **Stable** | Per-section verification honoring schema tiers; writes summary to profile frontmatter |
 | `recon index` / `retrieve` | **Stable** | Local fastembed + ChromaDB, incremental via SHA-256 hashes |
@@ -27,9 +29,10 @@ A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agen
 | `recon synthesize` / `distill` / `summarize` | **Stable** | Single-pass + deep 4-pass synthesis, distillation, meta-synthesis |
 | `recon run` (full pipeline) | **Stable** | End-to-end: research → verify → enrich → index → themes → synthesize → deliver. Writes `themes/<slug>.md`, `themes/distilled/<slug>.md`, and `executive_summary.md`. |
 | TUI: welcome / wizard / dashboard / discovery / browser | **Working** | Screens render, navigate, accept input, write profiles |
-| TUI: run button → planner → pipeline execution | **Working** | Planner-to-pipeline wiring landed; `FULL_PIPELINE`, `UPDATE_ALL`, `UPDATE_SPECIFIC` operations call the real engine via `tui/pipeline_runner.py` |
-| TUI: competitor selector (update specific) | **Working** | Pushed from planner when the chosen op needs targets |
-| TUI: diff update / rerun failed operations | **WIP** | Planner options exist but the engine logic is not yet implemented; selecting these notifies the user |
+| TUI: run button → planner → pipeline execution | **Working** | Planner-to-pipeline wiring landed; all six research-facing planner operations call the real engine via `tui/pipeline_runner.py` |
+| TUI: competitor selector (update specific / diff specific) | **Working** | Pushed from planner when the chosen op needs targets |
+| TUI: diff update / rerun failed operations | **Working** | `DIFF_ALL` / `DIFF_SPECIFIC` re-research sections older than the staleness window; `RERUN_FAILED` retries sections marked `failed` in frontmatter |
+| TUI: add new (discover + research) | **WIP** | The `ADD_NEW` planner option still notifies "not implemented" — it needs a discovery round handoff before the pipeline runs |
 | Real-API E2E tests | **Available** | Opt-in via `ANTHROPIC_API_KEY`, tests in `tests/test_e2e_real.py` |
 | Fake-LLM CLI E2E tests | **Stable** | `tests/test_cli_e2e_fake_llm.py` covers `research`, `enrich`, and `run` via `CliRunner` |
 

@@ -7,7 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added -- Diff and rerun operations (engine follow-ups)
+
+- **Per-section `section_status` frontmatter.** Each profile now
+  tracks `section_status: {<section_key>: {status, researched_at}}`
+  in its frontmatter. `status` is `researched` or `failed`;
+  `researched_at` is an ISO-8601 UTC timestamp set when the section
+  is successfully appended. This is the durable record of which
+  sections worked, which didn't, and when.
+- **`ResearchOrchestrator.research_all(stale_only=, max_age_days=, failed_only=)`**.
+  Three new scoping flags:
+  - `stale_only=True` only researches sections older than
+    `max_age_days` (default 30) per their `researched_at` stamp,
+    including sections that have no stamp at all (never researched).
+  - `failed_only=True` only researches sections whose
+    `section_status.status` is not `researched` (so failed attempts
+    and never-touched sections).
+  - Flags can be combined with the existing `targets=` filter.
+- **Research marks sections failed on exception.** When the LLM call
+  raises (including after the web-search fallback), the orchestrator
+  now writes `section_status[section_key] = {status: failed}` and
+  re-raises. `rerun` / `failed_only` can pick it up next time.
+- **`PipelineConfig.stale_only` / `max_age_days` / `failed_only`**
+  threaded through `Pipeline._stage_research`.
+- **TUI planner operations wired**: `DIFF_ALL`, `DIFF_SPECIFIC`, and
+  `RERUN_FAILED` now build real `PipelineFn`s via
+  `tui/pipeline_runner.py`. `DIFF_SPECIFIC` pushes the competitor
+  selector first (same flow as `UPDATE_SPECIFIC`). `ADD_NEW` is the
+  only operation still marked not-implemented — it needs a discovery
+  round before research, which the planner doesn't hand off yet.
+- **`recon diff [target | --all] [--max-age-days N]`** -- new CLI
+  command that re-researches stale sections only. Supports
+  `--dry-run` for a plan preview.
+- **`recon rerun [target | --all]`** -- new CLI command that
+  re-researches failed or missing sections only. Supports `--dry-run`.
+- **Shared `_resolve_target(ws, target, all_targets)` helper** in
+  `cli.py` so `research`, `enrich`, `diff`, and `rerun` all use the
+  same case-insensitive target-matching and usage-hint path.
+- **6 new orchestrator tests** covering section_status writes,
+  stale_only behaviour (skip fresh, research old), failed_only
+  behaviour (target failed, skip researched), and failure marking.
+- **3 new CLI e2e tests** (`diff --all` with mixed ages, `diff
+  --dry-run`, `rerun --all` with failed sections) that would catch
+  regressions in either the flags or the CLI → orchestrator wiring.
+- **4 new `tui/pipeline_runner` tests** asserting DIFF_ALL /
+  DIFF_SPECIFIC / RERUN_FAILED are supported and map to the right
+  `stale_only` / `failed_only` config flags.
+
+## [0.2.0] -- 2026-04-10
 
 ## [0.2.0] -- 2026-04-10
 

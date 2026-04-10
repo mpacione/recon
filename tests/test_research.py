@@ -268,6 +268,179 @@ class TestResearchOrchestrator:
         with pytest.raises(ValueError, match="Unknown"):
             await orchestrator.research_all(targets=["Nonexistent"])
 
+    async def test_research_marks_section_status_with_timestamp(
+        self, tmp_workspace: Path
+    ) -> None:
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        llm = _mock_llm_client()
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+        )
+        await orchestrator.research_all()
+
+        alpha = ws.read_profile("alpha")
+        section_status = alpha.get("section_status")
+        assert isinstance(section_status, dict)
+        assert "overview" in section_status
+        assert section_status["overview"]["status"] == "researched"
+        assert "researched_at" in section_status["overview"]
+
+    async def test_research_all_stale_only_skips_fresh_sections(
+        self, tmp_workspace: Path
+    ) -> None:
+        import datetime as dt
+
+        import frontmatter as fm
+
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        # Pre-mark the overview section as researched 1 day ago (fresh)
+        path = ws.competitors_dir / "alpha.md"
+        post = fm.load(str(path))
+        post.content = "## Overview\n\nExisting recent content.\n"
+        one_day_ago = (dt.datetime.now(dt.UTC) - dt.timedelta(days=1)).isoformat()
+        post["section_status"] = {
+            "overview": {"status": "researched", "researched_at": one_day_ago},
+        }
+        post["research_status"] = "researched"
+        path.write_text(fm.dumps(post))
+
+        llm = _mock_llm_client()
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+        )
+
+        await orchestrator.research_all(stale_only=True, max_age_days=30)
+
+        assert llm.complete.call_count == 0, "fresh sections should be skipped"
+
+    async def test_research_all_stale_only_researches_old_sections(
+        self, tmp_workspace: Path
+    ) -> None:
+        import datetime as dt
+
+        import frontmatter as fm
+
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        path = ws.competitors_dir / "alpha.md"
+        post = fm.load(str(path))
+        post.content = "## Overview\n\nOld content.\n"
+        sixty_days_ago = (dt.datetime.now(dt.UTC) - dt.timedelta(days=60)).isoformat()
+        post["section_status"] = {
+            "overview": {"status": "researched", "researched_at": sixty_days_ago},
+        }
+        post["research_status"] = "researched"
+        path.write_text(fm.dumps(post))
+
+        llm = _mock_llm_client()
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+        )
+        await orchestrator.research_all(stale_only=True, max_age_days=30)
+
+        assert llm.complete.call_count == 1
+
+    async def test_research_all_failed_only_targets_missing_sections(
+        self, tmp_workspace: Path
+    ) -> None:
+        import frontmatter as fm
+
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        # Mark section_status.overview as failed
+        path = ws.competitors_dir / "alpha.md"
+        post = fm.load(str(path))
+        post.content = "## Overview\n\nPartial content.\n"
+        post["section_status"] = {
+            "overview": {"status": "failed"},
+        }
+        post["research_status"] = "researched"
+        path.write_text(fm.dumps(post))
+
+        llm = _mock_llm_client()
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+        )
+        await orchestrator.research_all(failed_only=True)
+
+        assert llm.complete.call_count == 1
+
+    async def test_research_all_failed_only_skips_researched_sections(
+        self, tmp_workspace: Path
+    ) -> None:
+        import datetime as dt
+
+        import frontmatter as fm
+
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        path = ws.competitors_dir / "alpha.md"
+        post = fm.load(str(path))
+        post.content = "## Overview\n\nComplete content.\n"
+        now = dt.datetime.now(dt.UTC).isoformat()
+        post["section_status"] = {
+            "overview": {"status": "researched", "researched_at": now},
+        }
+        post["research_status"] = "researched"
+        path.write_text(fm.dumps(post))
+
+        llm = _mock_llm_client()
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+        )
+        await orchestrator.research_all(failed_only=True)
+
+        assert llm.complete.call_count == 0
+
+    async def test_research_marks_section_failed_on_exception(
+        self, tmp_workspace: Path
+    ) -> None:
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        llm = _mock_llm_client()
+        llm.complete = AsyncMock(side_effect=RuntimeError("LLM down"))
+
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+        )
+        await orchestrator.research_all()
+
+        alpha = ws.read_profile("alpha")
+        section_status = alpha.get("section_status") or {}
+        assert section_status.get("overview", {}).get("status") == "failed"
+
     async def test_batches_by_section(self, tmp_workspace: Path) -> None:
         schema_dict = _make_schema()
         schema_dict["sections"].append({

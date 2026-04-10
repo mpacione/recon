@@ -77,12 +77,32 @@ class TestPipelineConfigForOperation:
     def test_unsupported_operation_raises(self) -> None:
         import pytest
 
+        # ADD_NEW is the only operation that doesn't yet map to a
+        # PipelineConfig (it needs a discovery round + selection flow
+        # before any pipeline stage runs).
         with pytest.raises(NotImplementedError):
-            pipeline_config_for_operation(Operation.RERUN_FAILED)
+            pipeline_config_for_operation(Operation.ADD_NEW)
 
     def test_supported_operations_listed(self) -> None:
         assert Operation.FULL_PIPELINE in SUPPORTED_OPERATIONS
         assert Operation.UPDATE_ALL in SUPPORTED_OPERATIONS
+        assert Operation.DIFF_ALL in SUPPORTED_OPERATIONS
+        assert Operation.DIFF_SPECIFIC in SUPPORTED_OPERATIONS
+        assert Operation.RERUN_FAILED in SUPPORTED_OPERATIONS
+
+    def test_diff_all_sets_stale_only(self) -> None:
+        config = pipeline_config_for_operation(Operation.DIFF_ALL)
+        assert config.stale_only is True
+        assert config.failed_only is False
+
+    def test_diff_specific_sets_stale_only(self) -> None:
+        config = pipeline_config_for_operation(Operation.DIFF_SPECIFIC)
+        assert config.stale_only is True
+
+    def test_rerun_failed_sets_failed_only(self) -> None:
+        config = pipeline_config_for_operation(Operation.RERUN_FAILED)
+        assert config.failed_only is True
+        assert config.stale_only is False
 
 
 class TestBuildPipelineFn:
@@ -162,7 +182,7 @@ class TestBuildPipelineFn:
 
         pipeline_fn = build_pipeline_fn(
             workspace_path=ws_dir,
-            operation=Operation.RERUN_FAILED,
+            operation=Operation.ADD_NEW,
         )
 
         notifications: list[str] = []

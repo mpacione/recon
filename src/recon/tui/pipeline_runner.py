@@ -4,9 +4,15 @@ Bridges a RunPlannerScreen :class:`Operation` to a pipeline_fn that
 :meth:`RunScreen.start_pipeline` can consume. This is where the TUI
 finally talks to the real engine pipeline.
 
-Currently supported operations: FULL_PIPELINE and UPDATE_ALL. Others
-notify the user they are not yet implemented so the TUI remains honest
-about which paths are actually wired.
+Supported operations:
+- ``FULL_PIPELINE`` -- research → deliver
+- ``UPDATE_ALL`` -- research every section
+- ``UPDATE_SPECIFIC`` -- research only selected competitors (requires
+  a :class:`CompetitorSelectorScreen` push first)
+- ``DIFF_ALL`` -- re-research sections older than the staleness window
+- ``DIFF_SPECIFIC`` -- same, scoped to selected competitors
+- ``RERUN_FAILED`` -- only re-research sections marked ``failed`` or
+  never successfully researched
 """
 
 from __future__ import annotations
@@ -33,10 +39,14 @@ SUPPORTED_OPERATIONS: set[Operation] = {
     Operation.FULL_PIPELINE,
     Operation.UPDATE_ALL,
     Operation.UPDATE_SPECIFIC,
+    Operation.DIFF_ALL,
+    Operation.DIFF_SPECIFIC,
+    Operation.RERUN_FAILED,
 }
 
 OPERATIONS_REQUIRING_SELECTION: set[Operation] = {
     Operation.UPDATE_SPECIFIC,
+    Operation.DIFF_SPECIFIC,
 }
 
 
@@ -68,6 +78,20 @@ def pipeline_config_for_operation(operation: Operation) -> PipelineConfig:
             start_from=PipelineStage.RESEARCH,
             stop_after=PipelineStage.RESEARCH,
             verification_enabled=False,
+        )
+    if operation in (Operation.DIFF_ALL, Operation.DIFF_SPECIFIC):
+        return PipelineConfig(
+            start_from=PipelineStage.RESEARCH,
+            stop_after=PipelineStage.RESEARCH,
+            verification_enabled=False,
+            stale_only=True,
+        )
+    if operation == Operation.RERUN_FAILED:
+        return PipelineConfig(
+            start_from=PipelineStage.RESEARCH,
+            stop_after=PipelineStage.RESEARCH,
+            verification_enabled=False,
+            failed_only=True,
         )
     msg = f"Operation not yet implemented: {operation.value}"
     raise NotImplementedError(msg)
