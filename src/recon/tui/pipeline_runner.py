@@ -41,10 +41,11 @@ OPERATIONS_REQUIRING_SELECTION: set[Operation] = {
 
 
 _STAGE_PROGRESS: dict[str, float] = {
-    "research": 0.2,
-    "verify": 0.35,
-    "enrich": 0.55,
-    "index": 0.7,
+    "research": 0.15,
+    "verify": 0.3,
+    "enrich": 0.45,
+    "index": 0.55,
+    "themes": 0.65,
     "synthesize": 0.85,
     "deliver": 0.95,
 }
@@ -159,12 +160,40 @@ def build_pipeline_fn(
                     if progress > screen.progress:
                         screen.progress = progress
 
+            async def curate_themes(themes: list) -> list:
+                """Push ThemeCurationScreen as a gate and return the user's choices."""
+                from recon.themes import DiscoveredTheme
+                from recon.tui.models.curation import ThemeCurationModel
+                from recon.tui.screens.curation import ThemeCurationScreen
+
+                if not themes:
+                    return []
+                try:
+                    model = ThemeCurationModel.from_themes(themes)
+                    curated = await screen.app.push_screen_wait(
+                        ThemeCurationScreen(model=model),
+                    )
+                except Exception:  # noqa: BLE001 -- fall back to auto-accept on any error
+                    _log.exception("theme curation gate failed; keeping all themes")
+                    return themes
+                if not isinstance(curated, list):
+                    return themes
+                # Re-attach full DiscoveredTheme objects when the curation
+                # screen returned labels or partial objects
+                if curated and isinstance(curated[0], DiscoveredTheme):
+                    return curated
+                kept_labels = {
+                    c.label if hasattr(c, "label") else str(c) for c in curated
+                }
+                return [t for t in themes if t.label in kept_labels]
+
             pipeline = Pipeline(
                 workspace=ws,
                 state_store=store,
                 llm_client=client,
                 config=config,
                 progress_callback=on_progress,
+                theme_curation_callback=curate_themes,
             )
 
             screen.current_phase = "planning"

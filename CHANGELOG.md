@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- Pipeline completeness (Option P)
+
+- **New `THEMES` pipeline stage.** `Pipeline` now discovers themes
+  between `INDEX` and `SYNTHESIZE`, applies an optional curation
+  callback, and tags competitors via the existing `Tagger`. This is
+  the stage that used to be missing entirely — `recon run` never
+  reached theme discovery before this change.
+- **`SYNTHESIZE` stage actually synthesizes.** It retrieves chunks
+  per theme from the live ChromaDB index, runs `SynthesisEngine`
+  (single-pass by default, deep 4-pass if `config.deep_synthesis=True`),
+  writes one file per theme under `themes/<slug>.md`, and records the
+  token cost per call.
+- **`DELIVER` stage distills and summarizes.** Runs `Distiller` per
+  theme (writing `themes/distilled/<slug>.md`), then `MetaSynthesizer`
+  across the distilled corpus, writing `executive_summary.md` to the
+  workspace root.
+- **`VERIFY` stage wired to `VerificationEngine`.** When
+  `verification_enabled=True`, iterates researched profiles, extracts
+  source URLs via regex, and runs the configured verification tier
+  (`standard` / `verified` / `deep`). Outcomes are captured on
+  `Pipeline.verification_results`. No-op when disabled or when no
+  profiles have sources.
+- **`Pipeline.theme_curation_callback`** -- optional
+  `async (list[DiscoveredTheme]) -> list[DiscoveredTheme]` hook that
+  fires between theme discovery and tagging. The TUI runner passes
+  one that uses `push_screen_wait(ThemeCurationScreen)` so the user
+  gets an interactive gate before expensive synthesis runs. Headless
+  CLI runs leave this unset and auto-accept.
+- **`PipelineConfig.theme_count`** and **`verification_tier`** knobs.
+- **`recon.themes.build_workspace_chunks(workspace)`** -- shared
+  helper extracted from the CLI's `_build_discovery_chunks`. Used by
+  both `recon tag` and `Pipeline._stage_themes` so the two code paths
+  cluster the same chunks the same way.
+- **`tests/test_cli_e2e_fake_llm.py::test_run_command_full_pipeline_writes_synthesis_and_summary`**
+  -- regression test that invokes `recon run --from index` with a
+  fake LLM and asserts `themes/<theme>.md`, `themes/distilled/*.md`,
+  and `executive_summary.md` all exist on disk.
+- **8 new pipeline tests** covering themes discovery, curation
+  filtering, synthesize file writes, deliver summary writes, verify
+  wired/no-op modes, and progress callback stage coverage.
+
+### Changed
+
+- `recon run` now prints a manifest of what the pipeline produced:
+  discovered themes, number of syntheses written, and the executive
+  summary path.
+- `recon tag` imports `build_workspace_chunks` from `recon.themes`
+  instead of maintaining its own private `_build_discovery_chunks`.
+
 ### Fixed
 
 - **`recon research <target>` now honors its positional argument.** The

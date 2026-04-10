@@ -202,3 +202,51 @@ class TestRunCliE2E:
         ws = Workspace.open(ws_dir)
         alpha = ws.read_profile("alpha")
         assert alpha["research_status"] == "researched"
+
+    def test_run_command_full_pipeline_writes_synthesis_and_summary(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The full pipeline should actually produce themes + synthesis + executive summary.
+
+        This is the regression test for the "recon run does nothing past
+        enrich" bug fixed in Option P.
+        """
+        ws_dir = tmp_path / "ws"
+        ws = _setup_workspace(ws_dir, ["Alpha", "Beta"])
+        # Pre-fill with researched content so we don't hit the web_search tool
+        for slug, name in [("alpha", "Alpha"), ("beta", "Beta")]:
+            path = ws.competitors_dir / f"{slug}.md"
+            post = frontmatter.load(str(path))
+            post.content = f"## Overview\n\n{name} does interesting things in AI tooling.\n"
+            post["research_status"] = "researched"
+            path.write_text(frontmatter.dumps(post))
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.chdir(ws_dir)
+
+        fake = _fake_llm_client(text="Synthesis / distillation output.")
+        with patch("recon.client_factory.create_llm_client", return_value=fake):
+            runner = CliRunner()
+            # Start from INDEX so we don't re-run research/enrich (saves calls)
+            result = runner.invoke(
+                main, ["run", "--from", "index"], catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+
+        themes_dir = ws_dir / "themes"
+        assert themes_dir.exists(), "themes/ should exist after run"
+        theme_files = [p for p in themes_dir.glob("*.md") if p.is_file()]
+        assert theme_files, "at least one theme synthesis file should be written"
+
+        distilled_dir = themes_dir / "distilled"
+        assert distilled_dir.exists(), "themes/distilled/ should exist after run"
+        assert list(distilled_dir.glob("*.md")), "at least one distilled file"
+
+        summary = ws_dir / "executive_summary.md"
+        assert summary.exists(), "executive_summary.md should exist after run"
+        assert summary.read_text().strip(), "summary should not be empty"
+
+        # Output should advertise what the pipeline produced
+        assert "theme" in result.output.lower()
+        assert "executive_summary.md" in result.output

@@ -24,7 +24,7 @@ A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agen
 | `recon index` / `retrieve` | **Stable** | Local fastembed + ChromaDB, incremental via SHA-256 hashes |
 | `recon tag` | **Stable** | K-means clustering with LLM-generated strategic theme labels |
 | `recon synthesize` / `distill` / `summarize` | **Stable** | Single-pass + deep 4-pass synthesis, distillation, meta-synthesis |
-| `recon run` (full pipeline) | **Stable** | Construction bug fixed; Pipeline orchestrator wires all stages with state tracking |
+| `recon run` (full pipeline) | **Stable** | End-to-end: research → verify → enrich → index → themes → synthesize → deliver. Writes `themes/<slug>.md`, `themes/distilled/<slug>.md`, and `executive_summary.md`. |
 | TUI: welcome / wizard / dashboard / discovery / browser | **Working** | Screens render, navigate, accept input, write profiles |
 | TUI: run button → planner → pipeline execution | **Working** | Planner-to-pipeline wiring landed; `FULL_PIPELINE`, `UPDATE_ALL`, `UPDATE_SPECIFIC` operations call the real engine via `tui/pipeline_runner.py` |
 | TUI: competitor selector (update specific) | **Working** | Pushed from planner when the chosen op needs targets |

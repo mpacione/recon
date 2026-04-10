@@ -56,11 +56,12 @@ class TestPipelineStages:
         assert stages.index(PipelineStage.RESEARCH) < stages.index(PipelineStage.VERIFY)
         assert stages.index(PipelineStage.VERIFY) < stages.index(PipelineStage.ENRICH)
         assert stages.index(PipelineStage.ENRICH) < stages.index(PipelineStage.INDEX)
-        assert stages.index(PipelineStage.INDEX) < stages.index(PipelineStage.SYNTHESIZE)
+        assert stages.index(PipelineStage.INDEX) < stages.index(PipelineStage.THEMES)
+        assert stages.index(PipelineStage.THEMES) < stages.index(PipelineStage.SYNTHESIZE)
         assert stages.index(PipelineStage.SYNTHESIZE) < stages.index(PipelineStage.DELIVER)
 
     def test_all_stages_present(self) -> None:
-        expected = {"research", "verify", "enrich", "index", "synthesize", "deliver"}
+        expected = {"research", "verify", "enrich", "index", "themes", "synthesize", "deliver"}
         actual = {s.value for s in PipelineStage}
         assert expected == actual
 
@@ -229,3 +230,275 @@ class TestPipeline:
 
         total = await store.get_run_total_cost(run_id)
         assert total >= 0
+
+
+def _fill_profile(ws: object, slug: str, content: str) -> None:
+    """Write `content` into an existing profile and mark it researched."""
+    import frontmatter as fm
+
+    path = ws.competitors_dir / f"{slug}.md"
+    post = fm.load(str(path))
+    post.content = content
+    post["research_status"] = "researched"
+    path.write_text(fm.dumps(post))
+
+
+class TestPipelineThemesStage:
+    async def test_themes_stage_discovers_and_tags(self, tmp_workspace: Path) -> None:
+        from recon.state import StateStore
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        ws.create_profile("Beta")
+        ws.create_profile("Gamma")
+        _fill_profile(ws, "alpha", "## Overview\n\nAlpha has AI code generation features.\n")
+        _fill_profile(ws, "beta", "## Overview\n\nBeta focuses on enterprise compliance.\n")
+        _fill_profile(ws, "gamma", "## Overview\n\nGamma offers developer onboarding tools.\n")
+
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        llm = _mock_llm()
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=llm,
+            config=PipelineConfig(
+                verification_enabled=False,
+                start_from=PipelineStage.INDEX,
+                stop_after=PipelineStage.THEMES,
+                theme_count=2,
+            ),
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        themes = pipeline.discovered_themes
+        assert len(themes) >= 1
+        # At least one profile should have gotten a theme tag in frontmatter
+        any_tagged = any(
+            ws.read_profile(slug).get("themes")
+            for slug in ["alpha", "beta", "gamma"]
+        )
+        assert any_tagged
+
+    async def test_theme_curation_callback_can_filter(self, tmp_workspace: Path) -> None:
+        from recon.state import StateStore
+        from recon.themes import DiscoveredTheme
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        ws.create_profile("Beta")
+        _fill_profile(ws, "alpha", "## Overview\n\nAlpha content.\n")
+        _fill_profile(ws, "beta", "## Overview\n\nBeta content.\n")
+
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        seen_themes: list[list[DiscoveredTheme]] = []
+
+        async def curate(themes: list[DiscoveredTheme]) -> list[DiscoveredTheme]:
+            seen_themes.append(list(themes))
+            return themes[:1]  # keep only the first theme
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=_mock_llm(),
+            config=PipelineConfig(
+                verification_enabled=False,
+                start_from=PipelineStage.INDEX,
+                stop_after=PipelineStage.THEMES,
+                theme_count=2,
+            ),
+            theme_curation_callback=curate,
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        assert len(seen_themes) == 1, "curation callback should fire exactly once"
+        assert len(pipeline.discovered_themes) <= 1
+
+
+class TestPipelineSynthesizeStage:
+    async def test_synthesize_stage_writes_theme_files(self, tmp_workspace: Path) -> None:
+        from recon.state import StateStore
+        from recon.themes import DiscoveredTheme
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        _fill_profile(ws, "alpha", "## Overview\n\nAlpha content.\n")
+
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        llm = _mock_llm()
+
+        # Seed discovered themes by keeping the curation callback stable
+        injected = [
+            DiscoveredTheme(
+                label="Test Theme",
+                evidence_chunks=[{"text": "Alpha content.", "metadata": {"name": "Alpha"}}],
+                evidence_strength="strong",
+                suggested_queries=["alpha content"],
+                cluster_center=[0.1],
+            ),
+        ]
+
+        async def curate(_):
+            return injected
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=llm,
+            config=PipelineConfig(
+                verification_enabled=False,
+                start_from=PipelineStage.INDEX,
+                stop_after=PipelineStage.SYNTHESIZE,
+                theme_count=1,
+            ),
+            theme_curation_callback=curate,
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        themes_dir = ws.root / "themes"
+        assert themes_dir.exists()
+        theme_files = list(themes_dir.glob("*.md"))
+        assert len(theme_files) >= 1, "synthesize should write at least one theme file"
+        assert len(pipeline.syntheses) >= 1
+
+
+class TestPipelineDeliverStage:
+    async def test_deliver_stage_writes_executive_summary(self, tmp_workspace: Path) -> None:
+        from recon.state import StateStore
+        from recon.themes import DiscoveredTheme
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        _fill_profile(ws, "alpha", "## Overview\n\nAlpha content.\n")
+
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        llm = _mock_llm()
+
+        injected = [
+            DiscoveredTheme(
+                label="Test Theme",
+                evidence_chunks=[{"text": "Alpha content.", "metadata": {"name": "Alpha"}}],
+                evidence_strength="strong",
+                suggested_queries=["alpha content"],
+                cluster_center=[0.1],
+            ),
+        ]
+
+        async def curate(_):
+            return injected
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=llm,
+            config=PipelineConfig(
+                verification_enabled=False,
+                start_from=PipelineStage.INDEX,
+                stop_after=PipelineStage.DELIVER,
+                theme_count=1,
+            ),
+            theme_curation_callback=curate,
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        executive_summary = ws.root / "executive_summary.md"
+        assert executive_summary.exists(), "deliver stage should write executive_summary.md"
+        distilled_dir = ws.root / "themes" / "distilled"
+        assert distilled_dir.exists()
+        assert list(distilled_dir.glob("*.md")), "deliver stage should write distilled theme files"
+
+
+class TestPipelineVerifyStage:
+    async def test_verify_stage_runs_when_enabled_and_content_present(
+        self, tmp_workspace: Path
+    ) -> None:
+        from recon.state import StateStore
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        _fill_profile(
+            ws,
+            "alpha",
+            "## Overview\n\nAlpha content.\n\n## Sources\n- [Docs](https://example.com) -- 2026-01-01\n",
+        )
+
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        verify_llm = AsyncMock()
+        verify_llm.complete = AsyncMock(
+            return_value=LLMResponse(
+                text='{"sources": [{"url": "https://example.com", "status": "confirmed", "notes": "ok"}], "corroboration": "verified"}',
+                input_tokens=100,
+                output_tokens=50,
+                model="claude-sonnet-4-5",
+                stop_reason="end_turn",
+            ),
+        )
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=verify_llm,
+            config=PipelineConfig(
+                verification_enabled=True,
+                start_from=PipelineStage.VERIFY,
+                stop_after=PipelineStage.VERIFY,
+            ),
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        assert verify_llm.complete.called, "verification engine should be called"
+        assert len(pipeline.verification_results) >= 1
+
+    async def test_verify_stage_noop_when_disabled(self, tmp_workspace: Path) -> None:
+        from recon.state import StateStore
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        _fill_profile(ws, "alpha", "## Overview\n\nAlpha content.\n")
+
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        llm = _mock_llm()
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=llm,
+            config=PipelineConfig(
+                verification_enabled=False,
+                start_from=PipelineStage.VERIFY,
+                stop_after=PipelineStage.VERIFY,
+            ),
+        )
+
+        run_id = await pipeline.plan()
+        await pipeline.execute(run_id)
+
+        assert not llm.complete.called
+        assert pipeline.verification_results == []

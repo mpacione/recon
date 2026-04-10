@@ -1,27 +1,45 @@
 """Full pipeline orchestrator for recon.
 
-Manages end-to-end runs through all stages: research -> verify -> enrich ->
-index -> synthesize -> deliver. Tracks state in SQLite, supports starting
-from any stage and stopping after any stage.
+Manages end-to-end runs through all stages:
+research -> verify -> enrich -> index -> themes -> synthesize -> deliver.
+Tracks state in SQLite, supports starting from any stage and stopping
+after any stage, and exposes hooks for progress updates and theme
+curation gates.
 """
 
 from __future__ import annotations
 
 import contextlib
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
 from recon.cost import CostTracker, ModelPricing
+from recon.deliver import Distiller, MetaSynthesizer
 from recon.enrichment import EnrichmentOrchestrator, EnrichmentPass
 from recon.index import IndexManager, chunk_markdown
 from recon.llm import LLMClient  # noqa: TCH001
+from recon.logging import get_logger
 from recon.research import ResearchOrchestrator
 from recon.state import RunStatus, StateStore  # noqa: TCH001
+from recon.synthesis import SynthesisEngine, SynthesisMode, SynthesisResult
+from recon.tag import Tagger
+from recon.themes import DiscoveredTheme, ThemeDiscovery, build_workspace_chunks
+from recon.verification import (
+    VerificationEngine,
+    VerificationOutcome,
+    VerificationRequest,
+)
 from recon.workspace import Workspace  # noqa: TCH001
 
+_log = get_logger(__name__)
+
 ProgressCallback = Callable[[str, str], Awaitable[None]]
+ThemeCurationCallback = Callable[
+    [list[DiscoveredTheme]], Awaitable[list[DiscoveredTheme]]
+]
 
 
 class PipelineStage(StrEnum):
@@ -29,11 +47,21 @@ class PipelineStage(StrEnum):
     VERIFY = "verify"
     ENRICH = "enrich"
     INDEX = "index"
+    THEMES = "themes"
     SYNTHESIZE = "synthesize"
     DELIVER = "deliver"
 
 
 _STAGE_ORDER = list(PipelineStage)
+
+_SOURCE_URL_RE = re.compile(r"\((https?://[^)\s]+)\)")
+_DEFAULT_MODEL = "claude-sonnet-4-20250514"
+
+
+def _theme_slug(label: str) -> str:
+    """File-safe slug for theme label."""
+    cleaned = re.sub(r"[^\w\s-]", "", label).strip().lower()
+    return re.sub(r"[-\s]+", "_", cleaned) or "unnamed_theme"
 
 
 @dataclass
@@ -42,9 +70,11 @@ class PipelineConfig:
     max_enrich_workers: int = 10
     deep_synthesis: bool = False
     verification_enabled: bool = True
+    verification_tier: str = "verified"
     start_from: PipelineStage = PipelineStage.RESEARCH
     stop_after: PipelineStage = PipelineStage.DELIVER
     targets: list[str] | None = None
+    theme_count: int = 5
 
 
 @dataclass
@@ -56,11 +86,16 @@ class Pipeline:
     llm_client: LLMClient
     config: PipelineConfig = field(default_factory=PipelineConfig)
     progress_callback: ProgressCallback | None = None
+    theme_curation_callback: ThemeCurationCallback | None = None
+
+    # Populated during execute()
+    discovered_themes: list[DiscoveredTheme] = field(default_factory=list)
+    syntheses: list[SynthesisResult] = field(default_factory=list)
+    verification_results: list[VerificationOutcome] = field(default_factory=list)
 
     async def _emit(self, stage: str, phase: str) -> None:
         if self.progress_callback is None:
             return
-        # Never let a broken progress callback take down the pipeline
         with contextlib.suppress(Exception):
             await self.progress_callback(stage, phase)
 
@@ -102,7 +137,7 @@ class Pipeline:
 
         cost_tracker = CostTracker(
             model_pricing=ModelPricing(
-                model_id="claude-sonnet-4-20250514",
+                model_id=_DEFAULT_MODEL,
                 input_price_per_million=3.0,
                 output_price_per_million=15.0,
             ),
@@ -138,8 +173,38 @@ class Pipeline:
             await self._stage_enrich(run_id, cost_tracker)
         elif stage == PipelineStage.INDEX:
             await self._stage_index(run_id)
-        elif stage == PipelineStage.SYNTHESIZE or stage == PipelineStage.DELIVER:
-            pass
+        elif stage == PipelineStage.THEMES:
+            await self._stage_themes(run_id, cost_tracker)
+        elif stage == PipelineStage.SYNTHESIZE:
+            await self._stage_synthesize(run_id, cost_tracker)
+        elif stage == PipelineStage.DELIVER:
+            await self._stage_deliver(run_id, cost_tracker)
+
+    # ------------------------------------------------------------------
+    # Cost helpers
+    # ------------------------------------------------------------------
+
+    async def _record_tokens(
+        self,
+        run_id: str,
+        cost_tracker: CostTracker,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> None:
+        if input_tokens <= 0 and output_tokens <= 0:
+            return
+        cost = cost_tracker.record_call(input_tokens, output_tokens)
+        await self.state_store.record_cost(
+            run_id=run_id,
+            model=_DEFAULT_MODEL,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost,
+        )
+
+    # ------------------------------------------------------------------
+    # Stage implementations
+    # ------------------------------------------------------------------
 
     async def _stage_research(self, run_id: str, cost_tracker: CostTracker) -> None:
         """Execute the research stage."""
@@ -153,19 +218,53 @@ class Pipeline:
 
         total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
         total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)
-
-        if total_input > 0 or total_output > 0:
-            cost = cost_tracker.record_call(total_input, total_output)
-            await self.state_store.record_cost(
-                run_id=run_id,
-                model="claude-sonnet-4-20250514",
-                input_tokens=total_input,
-                output_tokens=total_output,
-                cost_usd=cost,
-            )
+        await self._record_tokens(run_id, cost_tracker, total_input, total_output)
 
     async def _stage_verify(self, run_id: str, cost_tracker: CostTracker) -> None:
-        """Execute the verification stage."""
+        """Execute the verification stage.
+
+        Iterates profiles that have been researched, extracts source URLs
+        from each one's content, and runs the verification engine at the
+        configured tier. Outcomes are stored on ``self.verification_results``
+        for inspection; the profile content is not mutated.
+        """
+        profiles = self.workspace.list_profiles()
+        if self.config.targets is not None:
+            lowered = {t.lower() for t in self.config.targets}
+            profiles = [p for p in profiles if p["name"].lower() in lowered]
+
+        engine = VerificationEngine(llm_client=self.llm_client)
+        schema = self.workspace.schema
+        section_key = schema.sections[0].key if schema and schema.sections else "overview"
+
+        outcomes: list[VerificationOutcome] = []
+        for profile_meta in profiles:
+            full = self.workspace.read_profile(profile_meta["_slug"])
+            if not full or not full.get("_content", "").strip():
+                continue
+            if profile_meta.get("research_status") == "scaffold":
+                continue
+
+            content = full["_content"]
+            sources = _SOURCE_URL_RE.findall(content)
+            if not sources:
+                continue
+
+            request = VerificationRequest(
+                content=content,
+                sources=sources,
+                section_key=section_key,
+                competitor_name=profile_meta.get("name", profile_meta["_slug"]),
+                tier=self.config.verification_tier,
+            )
+            try:
+                outcome = await engine.verify(request)
+            except Exception:
+                _log.exception("verification failed for %s", profile_meta.get("name"))
+                continue
+            outcomes.append(outcome)
+
+        self.verification_results = outcomes
 
     async def _stage_enrich(self, run_id: str, cost_tracker: CostTracker) -> None:
         """Execute all enrichment passes."""
@@ -180,20 +279,11 @@ class Pipeline:
 
             total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
             total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)
-
-            if total_input > 0 or total_output > 0:
-                cost = cost_tracker.record_call(total_input, total_output)
-                await self.state_store.record_cost(
-                    run_id=run_id,
-                    model="claude-sonnet-4-20250514",
-                    input_tokens=total_input,
-                    output_tokens=total_output,
-                    cost_usd=cost,
-                )
+            await self._record_tokens(run_id, cost_tracker, total_input, total_output)
 
     async def _stage_index(self, run_id: str) -> None:
         """Execute the indexing stage."""
-        manager = IndexManager(persist_dir=str(self.workspace.root / ".vectordb"))
+        manager = self._open_index_manager()
 
         profiles = self.workspace.list_profiles()
         for profile_meta in profiles:
@@ -204,6 +294,153 @@ class Pipeline:
             chunks = chunk_markdown(
                 content=full["_content"],
                 source_path=str(profile_meta["_path"]),
-                frontmatter_meta={k: v for k, v in profile_meta.items() if not k.startswith("_")},
+                frontmatter_meta={
+                    k: v for k, v in profile_meta.items() if not k.startswith("_")
+                },
             )
             manager.add_chunks(chunks)
+
+    async def _stage_themes(self, run_id: str, cost_tracker: CostTracker) -> None:
+        """Discover themes, optionally curate them, and tag profiles."""
+        chunks = build_workspace_chunks(self.workspace)
+        if not chunks:
+            _log.info("themes stage: no content chunks; skipping")
+            self.discovered_themes = []
+            return
+
+        discovery = ThemeDiscovery()  # mechanical labels inside pipeline; avoid nested event loop
+        themes = discovery.discover(chunks, n_themes=self.config.theme_count)
+
+        if self.theme_curation_callback is not None:
+            try:
+                curated = await self.theme_curation_callback(list(themes))
+                if isinstance(curated, list):
+                    themes = curated
+            except Exception:
+                _log.exception("theme_curation_callback failed; keeping discovered themes")
+
+        self.discovered_themes = list(themes)
+
+        if not self.discovered_themes:
+            return
+
+        manager = self._open_index_manager()
+        if manager.collection_count() == 0:
+            _log.info("themes stage: index is empty; skipping tag application")
+            return
+
+        tagger = Tagger(index=manager, workspace=self.workspace)
+        assignments = tagger.tag(themes=self.discovered_themes)
+        if assignments:
+            tagger.apply(assignments)
+
+    async def _stage_synthesize(
+        self, run_id: str, cost_tracker: CostTracker
+    ) -> None:
+        """Run synthesis for each discovered theme and write theme files."""
+        if not self.discovered_themes:
+            _log.info("synthesize stage: no themes discovered; skipping")
+            self.syntheses = []
+            return
+
+        themes_dir = self.workspace.root / "themes"
+        themes_dir.mkdir(parents=True, exist_ok=True)
+
+        engine = SynthesisEngine(llm_client=self.llm_client)
+        mode = (
+            SynthesisMode.DEEP if self.config.deep_synthesis else SynthesisMode.SINGLE
+        )
+
+        manager = self._open_index_manager()
+        syntheses: list[SynthesisResult] = []
+
+        for theme in self.discovered_themes:
+            chunks = self._retrieve_for_theme(manager, theme)
+            try:
+                result = await engine.synthesize(
+                    theme=theme.label, chunks=chunks, mode=mode,
+                )
+            except Exception:
+                _log.exception("synthesis failed for theme %s", theme.label)
+                continue
+
+            syntheses.append(result)
+
+            output_path = themes_dir / f"{_theme_slug(theme.label)}.md"
+            output_path.write_text(result.content)
+
+            await self._record_tokens(
+                run_id,
+                cost_tracker,
+                result.total_input_tokens,
+                result.total_output_tokens,
+            )
+
+        self.syntheses = syntheses
+
+    async def _stage_deliver(self, run_id: str, cost_tracker: CostTracker) -> None:
+        """Distill each synthesis and run a cross-theme meta-synthesis."""
+        if not self.syntheses:
+            _log.info("deliver stage: no syntheses to distill; skipping")
+            return
+
+        distilled_dir = self.workspace.root / "themes" / "distilled"
+        distilled_dir.mkdir(parents=True, exist_ok=True)
+
+        distiller = Distiller(llm_client=self.llm_client)
+        distilled_payloads: list[dict[str, Any]] = []
+
+        for synthesis in self.syntheses:
+            try:
+                distilled = await distiller.distill(synthesis)
+            except Exception:
+                _log.exception("distill failed for theme %s", synthesis.theme)
+                continue
+
+            path = distilled_dir / f"{_theme_slug(synthesis.theme)}.md"
+            path.write_text(distilled.content)
+            distilled_payloads.append(
+                {"theme": distilled.theme, "content": distilled.content}
+            )
+            await self._record_tokens(
+                run_id, cost_tracker, distilled.input_tokens, distilled.output_tokens,
+            )
+
+        if not distilled_payloads:
+            return
+
+        meta = MetaSynthesizer(llm_client=self.llm_client)
+        try:
+            summary = await meta.synthesize(distilled_payloads)
+        except Exception:
+            _log.exception("meta-synthesis failed")
+            return
+
+        summary_path = self.workspace.root / "executive_summary.md"
+        summary_path.write_text(summary.content)
+        await self._record_tokens(
+            run_id, cost_tracker, summary.input_tokens, summary.output_tokens,
+        )
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _open_index_manager(self) -> IndexManager:
+        return IndexManager(persist_dir=str(self.workspace.root / ".vectordb"))
+
+    def _retrieve_for_theme(
+        self,
+        manager: IndexManager,
+        theme: DiscoveredTheme,
+    ) -> list[dict[str, Any]]:
+        """Retrieve chunks for a theme's synthesis prompt."""
+        if manager.collection_count() == 0:
+            return [
+                {"text": c.get("text", ""), "metadata": c.get("metadata", {})}
+                for c in theme.evidence_chunks
+            ]
+        query = theme.label
+        if theme.suggested_queries:
+            query = theme.suggested_queries[0]
+        return manager.retrieve(query, n_results=10)

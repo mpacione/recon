@@ -181,6 +181,40 @@ class TestBuildPipelineFn:
 
             assert any("not implemented" in m.lower() or "not yet" in m.lower() for m in notifications)
 
+    async def test_pipeline_fn_wires_theme_curation_callback(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        ws_dir = _setup_workspace(tmp_path / "ws")
+        from recon.workspace import Workspace
+
+        Workspace.open(ws_dir).create_profile("Alpha")
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        captured_callback: list = []
+
+        async def fake_execute(self, run_id: str) -> None:
+            captured_callback.append(self.theme_curation_callback)
+
+        with patch("recon.pipeline.Pipeline.execute", fake_execute):
+            pipeline_fn = build_pipeline_fn(
+                workspace_path=ws_dir,
+                operation=Operation.FULL_PIPELINE,
+            )
+
+            app = _RunTestApp()
+            async with app.run_test(size=(120, 40)) as pilot:
+                screen = app.query_one(RunScreen)
+                screen.start_pipeline(pipeline_fn)
+                await pilot.pause()
+                await pilot.pause()
+
+        assert len(captured_callback) == 1
+        assert captured_callback[0] is not None, (
+            "TUI pipeline_fn must pass a theme_curation_callback so the "
+            "curation gate fires during the THEMES stage"
+        )
+
     async def test_pipeline_fn_calls_pipeline_execute_with_progress(
         self, tmp_path: Path, monkeypatch
     ) -> None:

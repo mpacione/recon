@@ -17,12 +17,15 @@ import asyncio
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from recon.llm import LLMClient  # noqa: TCH001
 from recon.logging import get_logger
+
+if TYPE_CHECKING:
+    from recon.workspace import Workspace
 
 _log = get_logger(__name__)
 
@@ -126,6 +129,44 @@ def _clean_label(raw: str, fallback: str) -> str:
     if not line or len(line) > 80:
         return fallback
     return line
+
+
+def build_workspace_chunks(workspace: Workspace) -> list[dict[str, Any]]:
+    """Build chunks with deterministic pseudo-embeddings for theme discovery.
+
+    The embeddings are not semantically meaningful -- they are a
+    hash-seeded RNG vector per chunk. Good enough to give K-means a
+    stable grouping that matches the CLI's ``recon tag`` behaviour, and
+    shared so that the pipeline and the CLI use the exact same code
+    path.
+    """
+    from recon.index import chunk_markdown
+
+    profiles = workspace.list_profiles()
+
+    all_chunks: list[dict[str, Any]] = []
+    for profile_meta in profiles:
+        full = workspace.read_profile(profile_meta["_slug"])
+        if not full or not full.get("_content", "").strip():
+            continue
+
+        chunks = chunk_markdown(
+            content=full["_content"],
+            source_path=str(profile_meta["_path"]),
+            frontmatter_meta={
+                k: v for k, v in profile_meta.items() if not k.startswith("_")
+            },
+        )
+        for chunk in chunks:
+            rng = np.random.default_rng(hash(chunk.text) % (2**31))
+            embedding = rng.random(64).tolist()
+            all_chunks.append({
+                "text": chunk.text,
+                "embedding": embedding,
+                "metadata": chunk.metadata,
+            })
+
+    return all_chunks
 
 
 class ThemeDiscovery:

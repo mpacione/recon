@@ -596,8 +596,9 @@ def tag(dry_run, threshold, top_n, n_themes, workspace_dir):
         click.echo("No indexed chunks found. Run 'recon index' first.")
         return
 
-    profiles = ws.list_profiles()
-    all_chunks_with_embeddings = _build_discovery_chunks(ws, profiles)
+    from recon.themes import build_workspace_chunks
+
+    all_chunks_with_embeddings = build_workspace_chunks(ws)
 
     if not all_chunks_with_embeddings:
         click.echo("No chunks with embeddings for theme discovery.")
@@ -627,35 +628,6 @@ def tag(dry_run, threshold, top_n, n_themes, workspace_dir):
     tagger.apply(assignments)
     tagged_count = len({a.competitor_slug for a in assignments})
     click.echo(f"\nTagged {tagged_count} profiles.")
-
-
-def _build_discovery_chunks(ws, profiles: list[dict]) -> list[dict]:
-    """Build chunks with deterministic embeddings for theme discovery."""
-    import numpy as np
-
-    from recon.index import chunk_markdown
-
-    all_chunks: list[dict] = []
-    for profile_meta in profiles:
-        full = ws.read_profile(profile_meta["_slug"])
-        if not full or not full.get("_content", "").strip():
-            continue
-
-        chunks = chunk_markdown(
-            content=full["_content"],
-            source_path=str(profile_meta["_path"]),
-            frontmatter_meta={k: v for k, v in profile_meta.items() if not k.startswith("_")},
-        )
-        for chunk in chunks:
-            rng = np.random.default_rng(hash(chunk.text) % (2**31))
-            embedding = rng.random(64).tolist()
-            all_chunks.append({
-                "text": chunk.text,
-                "embedding": embedding,
-                "metadata": chunk.metadata,
-            })
-
-    return all_chunks
 
 
 @main.command()
@@ -782,6 +754,18 @@ def run(from_stage, deep, dry_run):
     run_id = _run_async(pipeline.plan())
     _run_async(pipeline.execute(run_id))
     click.echo(f"Pipeline complete. Run ID: {run_id}")
+
+    if pipeline.discovered_themes:
+        click.echo(f"Discovered {len(pipeline.discovered_themes)} themes:")
+        for t in pipeline.discovered_themes:
+            click.echo(f"  - {t.label} ({t.evidence_strength})")
+
+    if pipeline.syntheses:
+        click.echo(f"Wrote {len(pipeline.syntheses)} theme syntheses to themes/")
+
+    summary_path = ws.root / "executive_summary.md"
+    if summary_path.exists():
+        click.echo(f"Executive summary: {summary_path}")
 
 
 @main.command()
