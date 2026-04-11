@@ -98,7 +98,12 @@ class ThemeCurationScreen(ModalScreen[list[DiscoveredTheme]]):
 
     def _theme_label(self, index: int) -> str:
         entry = self._model.entries[index]
-        checkbox = "[x]" if entry.enabled else "[ ]"
+        # Open bracket in Rich markup must be escaped, otherwise the
+        # parser eats `[x]` as an unknown tag and the marker silently
+        # disappears.
+        checkbox = (
+            "[#e0a044]\\[x][/]" if entry.enabled else "[#3a3a3a]\\[ ][/]"
+        )
         return (
             f"{checkbox}  {index + 1}. {entry.label}  "
             f"({entry.chunk_count} chunks, {entry.evidence_strength})"

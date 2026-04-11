@@ -94,8 +94,8 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
     }
     .operation-row {
         width: 100%;
-        height: 1;
-        margin: 0;
+        height: 3;
+        margin: 0 0 0 0;
         padding: 0 1;
         border: none;
         background: transparent;

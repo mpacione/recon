@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed -- TUI audit Phase I (end-to-end walkthrough fixes)
+
+Drove the recon TUI through every screen via the
+``/tmp/recon-audit/capture.py`` script (updated for the new keybind
+flow), inspected each capture, and fixed the bugs that the audit
+exposed. Most of these were either pre-existing regressions or
+silent rendering bugs that the snapshot tests had been "passing"
+with broken baselines.
+
+#### Critical bugs fixed
+
+1. **Planner buttons rendered with no labels** (pre-existing
+   regression). The 7 operation rows were declared with
+   ``height: 1`` in CSS, but Textual ``Button`` widgets occupy 3
+   lines (top border + content + bottom border) — the 1-line cap
+   clipped the content row entirely, leaving only the borders. The
+   user saw 7 empty boxes and the keybind hint "press 1-7" with no
+   indication of what each number did. The snapshot baseline had
+   been "passing" because it captured the same broken render.
+   **Fix:** ``height: 3`` on ``.operation-row``. Now each option
+   shows ``[1]  Add new competitors  — discover then research the
+   new ones`` etc. on its own row.
+2. **Selector ``[x]`` checkbox markers silently disappeared.** Rich
+   markup parses ``[x]`` as an unknown tag and drops it. The
+   selected items in ``CompetitorSelectorScreen`` showed only the
+   competitor name with no marker, making selection state
+   invisible. **Fix:** escape the open bracket as ``\\[x][/]``
+   (Rich only requires escaping the open bracket; the close
+   bracket is fine on its own).
+3. **Theme curation ``[x]`` markers had the same Rich-markup bug.**
+   Same fix in ``ThemeCurationScreen._theme_label``.
+4. **Chrome header bar didn't update from engine bus events.**
+   Phase C had wired ``RunStarted`` / ``CostRecorded`` /
+   ``RunCompleted`` events to mutate ``workspace_context``, but
+   the chrome refresh used ``call_from_thread`` exclusively — and
+   ``call_from_thread`` raises ``RuntimeError`` when called from
+   the message-loop thread. The exception was caught in a bare
+   ``except`` and silently dropped. The audit caught this when the
+   header still showed ``$0.00 · 0 runs · idle`` after publishing
+   3 ``CostRecorded`` events totaling $1.09. **Fix:** new
+   ``ReconApp._schedule_chrome_refresh`` helper that calls
+   ``screen.refresh_chrome()`` inline first and only falls back to
+   ``call_from_thread`` if the inline path raises (worker-thread
+   case). The header now updates live as engine events fire.
+
+#### Audit findings deferred (not blocking)
+
+- Welcome banner ASCII art truncates at the right edge of the
+  70-char container in some terminals.
+- Wizard modals have no chrome (no header, no Esc hint) — by
+  design (Phase B opt-out), but worth a small "press Esc to
+  cancel" hint.
+- Discovery screen says "Click Search More..." which is mouse-first
+  language even though the screen is keyboard-navigable.
+- Selector and curation modals scale poorly when there are many
+  items because each Button takes 3 lines. Fix would be Static-row
+  rendering with custom click/key handling.
+- The TUI body has two sources of truth for the active run: the
+  reactive attrs on ``RunScreen`` (set by the pipeline runner) and
+  the ``workspace_context`` mutated by the bus subscriber. They're
+  consistent today but rely on the pipeline runner doing both.
+
+#### Tests
+- 691 still passing. Lint clean. 11 snapshots regenerated to
+  capture the fixed planner labels and selector/curation
+  checkboxes.
+- The audit script ``/tmp/recon-audit/capture.py`` was migrated
+  off the removed action-bar buttons (Phase E) onto direct
+  ``screen.action_xxx()`` calls and bus event publishes.
+
 ### Added -- TUI audit Phase H (real-terminal smoke test)
 
 PTY-based smoke tests that spawn the actual ``recon tui`` binary,

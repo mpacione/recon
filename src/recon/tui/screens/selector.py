@@ -95,9 +95,13 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
                 yield Button("Cancel", id="btn-cancel")
 
     def _item_label(self, index: int) -> str:
+        # Open bracket in Rich markup must be escaped with a backslash
+        # (the close bracket renders fine on its own); otherwise the
+        # parser eats `[x]` as an unknown tag and the marker silently
+        # disappears.
         if self._selected_flags[index]:
-            return f"[#e0a044][x][/]  {self._competitors[index]}"
-        return f"[#3a3a3a][ ][/]  [#a89984]{self._competitors[index]}[/]"
+            return f"[#e0a044]\\[x][/]  {self._competitors[index]}"
+        return f"[#3a3a3a]\\[ ][/]  [#a89984]{self._competitors[index]}[/]"
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""

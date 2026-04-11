@@ -75,7 +75,6 @@ class ReconApp(App):
             RunStageStarted,
             RunStarted,
         )
-        from recon.tui.shell import ReconScreen
 
         ctx = self.workspace_context
         changed = False
@@ -114,11 +113,30 @@ class ReconApp(App):
             changed = True
 
         if changed:
-            try:
-                if isinstance(self.screen, ReconScreen):
-                    self.call_from_thread(self.screen.refresh_chrome)
-            except Exception:
-                pass
+            self._schedule_chrome_refresh()
+
+    def _schedule_chrome_refresh(self) -> None:
+        """Push a chrome refresh onto the message loop.
+
+        Engine events arrive from any thread. ``call_from_thread`` is
+        the safe path when we're off-thread, but it raises
+        ``RuntimeError`` if invoked from the message loop's own thread.
+        Try the inline path first; only fall back to ``call_from_thread``
+        when the inline path raises (worker-thread case).
+        """
+        from recon.tui.shell import ReconScreen
+
+        try:
+            screen = self.screen
+        except Exception:
+            return
+        if not isinstance(screen, ReconScreen):
+            return
+        try:
+            screen.refresh_chrome()
+        except Exception:
+            with contextlib.suppress(Exception):
+                self.call_from_thread(screen.refresh_chrome)
 
     def refresh_workspace_context(self) -> None:
         """Rebuild ``self.workspace_context`` from the current workspace.
