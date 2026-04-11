@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import time
 from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -45,7 +46,7 @@ from recon.events import (
     get_bus,
 )
 from recon.logging import get_memory_handler
-from recon.tui.widgets import humanize_path
+from recon.tui.widgets import format_progress_bar, humanize_path
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -408,6 +409,118 @@ class ActivityFeed(Static):
 
 
 # ----------------------------------------------------------------------
+# RunStatusBar -- thin 1-line status bar (hidden when idle)
+# ----------------------------------------------------------------------
+
+
+class RunStatusBar(Static):
+    """Single-line status strip surfacing the active run.
+
+    Hidden when ``run_state == idle``; visible the moment a
+    ``RunStarted`` event lands; hidden again on ``RunCompleted``,
+    ``RunFailed``, or ``RunCancelled``.
+
+    Renders ``stage  [progress bar]  elapsed  $cost`` where the cost
+    is cumulative across all ``CostRecorded`` events seen since the
+    most recent ``RunStarted``. Subscribes to the EventBus on mount,
+    unsubscribes on unmount, ticks once a second so the elapsed time
+    counter advances even when no events fire.
+    """
+
+    DEFAULT_CSS = """
+    RunStatusBar {
+        dock: bottom;
+        height: 1;
+        background: #1d1d1d;
+        color: #efe5c0;
+        padding: 0 1;
+    }
+    RunStatusBar.idle {
+        display: none;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__("", markup=True)
+        self._stage: str = ""
+        self._cost: float = 0.0
+        self._started_at: float | None = None
+        self._active: bool = False
+        self._subscriber = self._on_event
+
+    def on_mount(self) -> None:
+        self.add_class("idle")
+        get_bus().subscribe(self._subscriber)
+        self.set_interval(1.0, self._tick, name="run-status-bar-tick")
+        self._render_status()
+
+    def on_unmount(self) -> None:
+        with contextlib.suppress(Exception):
+            get_bus().unsubscribe(self._subscriber)
+
+    # -- subscriber ---------------------------------------------------
+
+    def _on_event(self, event: Event) -> None:
+        try:
+            self.app.call_from_thread(self._handle, event)
+        except Exception:
+            self._handle(event)
+
+    def _handle(self, event: Event) -> None:
+        if isinstance(event, RunStarted):
+            self._stage = ""
+            self._cost = 0.0
+            self._started_at = time.monotonic()
+            self._active = True
+            self._show()
+        elif isinstance(event, RunStageStarted):
+            self._stage = event.stage
+            self._render_status()
+        elif isinstance(event, RunStageCompleted):
+            self._stage = f"{event.stage} ✓"
+            self._render_status()
+        elif isinstance(event, CostRecorded):
+            self._cost += event.cost_usd
+            self._render_status()
+        elif isinstance(event, (RunCompleted, RunFailed, RunCancelled)):
+            self._active = False
+            self._hide()
+
+    def _show(self) -> None:
+        self.remove_class("idle")
+        self._render_status()
+
+    def _hide(self) -> None:
+        self.add_class("idle")
+
+    def _tick(self) -> None:
+        if self._active:
+            self._render_status()
+
+    def _elapsed_str(self) -> str:
+        if self._started_at is None:
+            return "0:00"
+        seconds = int(time.monotonic() - self._started_at)
+        minutes, secs = divmod(seconds, 60)
+        if minutes >= 60:
+            hours, minutes = divmod(minutes, 60)
+            return f"{hours}:{minutes:02d}:{secs:02d}"
+        return f"{minutes}:{secs:02d}"
+
+    def _render_status(self) -> None:
+        stage_label = self._stage or "starting"
+        bar = format_progress_bar(0.0, width=20, state="running")
+        elapsed = self._elapsed_str()
+        cost_str = f"${self._cost:.2f}"
+        self.update(
+            f"[#e0a044]●[/] [#efe5c0]{stage_label}[/]  "
+            f"{bar}  "
+            f"[#a89984]{elapsed}[/]  "
+            f"[#e0a044]{cost_str}[/]",
+        )
+
+
+# ----------------------------------------------------------------------
 # Base screen
 # ----------------------------------------------------------------------
 
@@ -431,6 +544,7 @@ class ReconScreen(Screen):
 
     show_log_pane: bool = True
     show_activity_feed: bool = True
+    show_run_status_bar: bool = True
     show_keybind_hint: bool = True
 
     DEFAULT_CSS = """
@@ -454,15 +568,20 @@ class ReconScreen(Screen):
         with Vertical(id="recon-body"):
             yield from self.compose_body()
 
-        # ActivityFeed (typed engine events) docks above LogPane (raw
-        # log lines). Both are bottom-docked so the screen body
-        # shrinks to make room. Keybind hints sit at the very bottom.
+        # Bottom-docked widgets render in reverse-yield order, so the
+        # final visual stack from top to bottom of the screen footer is:
+        #   RunStatusBar  (1 line, hidden when idle)
+        #   ActivityFeed  (8 lines, typed events)
+        #   LogPane       (8 lines, raw log lines)
+        #   KeybindHint   (1 line, key bindings)
+        if getattr(self, "show_keybind_hint", True):
+            yield KeybindHint(self.keybind_hints)
         if getattr(self, "show_log_pane", True):
             yield LogPane()
         if getattr(self, "show_activity_feed", True):
             yield ActivityFeed()
-        if getattr(self, "show_keybind_hint", True):
-            yield KeybindHint(self.keybind_hints)
+        if getattr(self, "show_run_status_bar", True):
+            yield RunStatusBar()
 
     def compose_body(self) -> ComposeResult:
         """Override in subclasses to render the screen's actual content."""

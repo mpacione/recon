@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- TUI audit Phase G (RunStatusBar widget)
+
+A thin one-line status strip in the persistent chrome that surfaces
+the active run's stage, progress bar, elapsed time, and running cost.
+Hidden when the workspace is idle, fades in the moment a `RunStarted`
+event lands, fades back out on `RunCompleted` / `RunFailed` /
+`RunCancelled`.
+
+- **`recon/tui/shell.py::RunStatusBar`** -- new bottom-docked
+  Static widget. 1 line tall, dark background. Renders
+  `● stage  [progress bar]  M:SS  $X.XX` where:
+  - `stage` is the most recent `RunStageStarted` (or
+    `stage ✓` after `RunStageCompleted`)
+  - the progress bar is the existing `format_progress_bar` helper
+    in running state
+  - elapsed time ticks once a second via `set_interval(1.0, _tick)`
+    so the counter advances even when no events fire
+  - cost is the cumulative sum of `CostRecorded.cost_usd` since the
+    most recent `RunStarted` (resets to 0 on a fresh run)
+- **Visibility model** -- the widget always exists in the DOM but
+  carries an ``idle`` CSS class while inactive. The class sets
+  ``display: none`` so the bar collapses to zero height. On
+  ``RunStarted`` the class is removed (via ``remove_class``) and
+  the bar appears; on terminal events the class is added back. This
+  is more reliable than mutating ``self.styles.display`` at runtime,
+  which races with Textual's render pipeline.
+- **`ReconScreen` chrome composition** -- RunStatusBar now docks
+  at the very bottom of the screen footer. Final visual stack from
+  top to bottom: ReconHeaderBar, body, RunStatusBar (1 line, hidden
+  when idle), ActivityFeed (8 lines), LogPane (8 lines), KeybindHint
+  (1 line). New ``show_run_status_bar`` class flag mirrors the
+  existing ``show_log_pane`` and ``show_activity_feed`` flags.
+
+#### Tests
+- **`tests/test_tui_run_status_bar.py`** -- 12 new tests covering:
+  - hidden when idle / visible after `RunStarted` / hidden again
+    after each terminal event (Completed / Failed / Cancelled)
+  - stage label updates from `RunStageStarted`
+  - cumulative cost from multiple `CostRecorded` events
+  - elapsed time string format (`M:SS`)
+  - progress bar renders inside the status string
+  - cost resets to $0.00 on a fresh run
+  - subscription lifecycle (unsubscribed on unmount)
+  - chrome integration (RunStatusBar + LogPane both present in a
+    test ReconScreen subclass)
+- 677 → 689 passing.
+
+Gotcha captured for posterity
+- Static subclasses must NOT define a method named ``_render`` -
+  it's the Textual rendering hook on every Widget. The previous
+  Phase B commit message warned about it; I tripped over it again
+  while writing RunStatusBar (renamed to ``_render_status``). Add
+  this to the "Textual gotchas" list alongside ``_context``,
+  ``_render``, and the LogPane subscription deadlock.
+
 ### Added -- TUI audit Phase F (ActivityFeed widget)
 
 A second pane in the persistent chrome that renders typed engine
