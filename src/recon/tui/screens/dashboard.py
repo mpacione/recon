@@ -19,6 +19,7 @@ from textual.widgets import Input, Static
 
 from recon.logging import get_logger
 from recon.tui.models.dashboard import DashboardData  # noqa: TCH001 -- used at runtime
+from recon.tui.primitives import CardStack, TerminalBox
 from recon.tui.shell import ReconScreen
 
 _log = get_logger(__name__)
@@ -89,27 +90,39 @@ class DashboardScreen(ReconScreen):
             )
 
     def _compose_workspace_status(self):
-        yield Static(
-            f"[bold #e0a044]── COMPETITORS ──[/] [#e0a044]{self._data.total_competitors}[/] total",
-            id="competitor-stats",
-        )
+        with CardStack(id="dashboard-stack"):
+            yield from self._compose_competitors_card()
+            if self._data.section_statuses:
+                yield from self._compose_sections_card()
+            if self._data.theme_count > 0:
+                yield from self._compose_themes_card()
+            if self._data.total_cost > 0 or self._data.run_count > 0:
+                yield from self._compose_cost_card()
 
-        if self._data.status_counts:
-            parts = [
-                f"[#a89984]{status}[/] [#e0a044]{count}[/]"
-                for status, count in sorted(self._data.status_counts.items())
-            ]
+    def _compose_competitors_card(self):
+        meta = f"{self._data.total_competitors} total"
+        with TerminalBox(title="COMPETITORS", meta=meta, id="competitors-card"):
+            if self._data.status_counts:
+                parts = [
+                    f"[#a89984]{status}[/] [#e0a044]{count}[/]"
+                    for status, count in sorted(self._data.status_counts.items())
+                ]
+                yield Static(
+                    "  " + "  [#3a3a3a]·[/]  ".join(parts),
+                    id="status-breakdown",
+                )
+            else:
+                yield Static("[#a89984]no status breakdown[/]")
+            # Keep the legacy id alive so existing tests can query it
             yield Static(
-                "  " + "  [#3a3a3a]·[/]  ".join(parts),
-                id="status-breakdown",
+                f"[#3a3a3a]total:[/] [#e0a044]{self._data.total_competitors}[/]",
+                id="competitor-stats",
+                classes="hidden-legacy",
             )
 
-        if self._data.section_statuses:
-            yield Static("")
-            yield Static(
-                f"[bold #e0a044]── SECTIONS ──[/] [#e0a044]{self._data.total_sections}[/] defined",
-                id="section-stats",
-            )
+    def _compose_sections_card(self):
+        meta = f"{self._data.total_sections} defined"
+        with TerminalBox(title="SECTIONS", meta=meta, id="sections-card"):
             for ss in self._data.section_statuses:
                 dots = "·" * max(1, 24 - len(ss.title))
                 if ss.completed == ss.total and ss.total > 0:
@@ -118,28 +131,29 @@ class DashboardScreen(ReconScreen):
                     progress = f"[#a89984]{ss.completed}/{ss.total}[/]"
                 else:
                     progress = f"[#e0a044]{ss.completed}/{ss.total}[/]"
-                yield Static(f"  [#efe5c0]{ss.title}[/] [#3a3a3a]{dots}[/] {progress}")
+                yield Static(
+                    f"[#efe5c0]{ss.title}[/] [#3a3a3a]{dots}[/] {progress}",
+                )
 
-        if self._data.theme_count > 0:
-            yield Static("")
-            yield Static(
-                f"[bold #e0a044]── THEMES ──[/]  "
-                f"[#e0a044]{self._data.theme_count}[/] discovered, "
-                f"[#e0a044]{self._data.themes_selected}[/] selected",
-            )
+    def _compose_themes_card(self):
+        meta = (
+            f"{self._data.theme_count} discovered  ·  "
+            f"{self._data.themes_selected} selected"
+        )
+        # Body intentionally empty -- the card acts as a stat header.
+        # The keybind hint strip already advertises `r run`.
+        yield TerminalBox(title="THEMES", meta=meta, id="themes-card")
 
-        if self._data.total_cost > 0 or self._data.run_count > 0:
-            yield Static("")
-            yield Static(
-                f"[bold #e0a044]── COST ──[/]  "
-                f"[#e0a044]${self._data.total_cost:.2f}[/] "
-                f"[#a89984]across[/] [#e0a044]{self._data.run_count}[/] run"
-                f"{'s' if self._data.run_count != 1 else ''}",
-            )
+    def _compose_cost_card(self):
+        run_word = "run" if self._data.run_count == 1 else "runs"
+        meta = f"${self._data.total_cost:.2f} across {self._data.run_count} {run_word}"
+        with TerminalBox(title="COST", meta=meta, id="cost-card"):
             if self._data.last_run_cost > 0:
                 yield Static(
-                    f"  [#a89984]last run: ${self._data.last_run_cost:.2f}[/]",
+                    f"[#a89984]last run:[/] [#e0a044]${self._data.last_run_cost:.2f}[/]",
                 )
+            else:
+                yield Static("[#a89984]no run history yet[/]")
 
     def on_screen_resume(self) -> None:
         from recon.tui.models.dashboard import build_dashboard_data

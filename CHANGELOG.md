@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- TUI audit Phase J (TerminalBox + CardStack primitives)
+
+Closes the remaining visual gap with cyberspace.online by giving
+screens a first-class container primitive for body content.
+Previously every screen hand-rolled its card borders inline via
+`[bold #e0a044]── HEADING ──[/]` Statics plus wrapped Vertical
+containers with manually-repeated CSS. Now screens compose a
+``CardStack`` of ``TerminalBox`` children and the primitive owns
+the border / padding / title / meta treatment.
+
+- **`recon/tui/primitives.py`** -- new module:
+  - ``TerminalBox`` -- bordered card container extending
+    ``Vertical``. Ships with the recon border style baked in
+    (``border: round #3a3a3a``, ``padding: 0 1``, zero margin so
+    stacks are tight). Accepts optional ``title=`` and ``meta=``
+    parameters that render a compact ``── HEADING ──  dim meta``
+    row at the top of the card. Title and meta share a single
+    row so a 4-card stack still fits in a 40-row terminal.
+  - ``CardStack`` -- thin ``Vertical`` wrapper that gives a stack
+    of TerminalBox children consistent vertical rhythm. Nothing
+    fancy (``height: auto``, ``width: 100%``) but the name makes
+    screen compose methods self-documenting.
+- **Dashboard adopted the primitive.** The populated dashboard now
+  renders as a ``CardStack`` of four ``TerminalBox`` cards:
+  COMPETITORS (with status breakdown body), SECTIONS (with per-
+  section dot-leader progress), THEMES (header-only stat card), and
+  COST (with last-run sub-line). The result visually matches the
+  cyberspace.online emulation's card feed pattern -- rounded
+  borders, ``── HEADING ──`` dividers on the left of each card
+  header, dim meta lines on the right, dense body content inside.
+- **Gotcha captured.** ``Widget.compose()`` yields land AFTER
+  positional ``*children`` passed via ``with Container(): yield X``.
+  The first draft of TerminalBox yielded the title from ``compose()``
+  and ended up rendering the title at the BOTTOM of each card.
+  Fix: build the header Static in ``__init__`` and prepend it to
+  the positional children tuple before calling ``super().__init__``.
+  ``compose()`` returns an empty tuple. Phase B already has the
+  ``_render`` and ``_context`` reserved-name traps documented;
+  add the positional-vs-compose ordering to the same list.
+
+#### Tests
+- **`tests/test_tui_primitives.py`** -- 8 new tests covering:
+  - ``TerminalBox`` subclasses ``Vertical``
+  - renders its positional children
+  - has border styling by default (no per-screen CSS needed)
+  - ``title=`` renders a ``── HEADING ──`` divider
+  - ``meta=`` renders a dim subtitle line
+  - no title/meta renders without the header widget
+  - ``CardStack`` stacks three TerminalBox children in order
+- 691 → 699 passing.
+
 ### Fixed -- TUI audit Phase I (end-to-end walkthrough fixes)
 
 Drove the recon TUI through every screen via the
