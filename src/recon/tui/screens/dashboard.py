@@ -322,6 +322,7 @@ class DashboardScreen(ReconScreen):
     def handle_discovery_result(self, candidates: list | None) -> None:
         if not candidates:
             return
+        from recon.tui.models.dashboard import build_dashboard_data
         from recon.workspace import Workspace
 
         try:
@@ -329,8 +330,13 @@ class DashboardScreen(ReconScreen):
             for candidate in candidates:
                 with contextlib.suppress(FileExistsError):
                     ws.create_profile(candidate.name)
+            # Refresh our local view so the next action_run sees the
+            # new competitor count instead of bailing with "Nothing to
+            # run". The modal dismissal lifecycle doesn't always fire
+            # on_screen_resume reliably.
+            self.refresh_data(build_dashboard_data(ws))
         except Exception:
-            pass
+            _log.exception("handle_discovery_result failed")
 
     def _push_planner(self) -> None:
         from recon.tui.screens.planner import RunPlannerScreen
@@ -353,6 +359,10 @@ class DashboardScreen(ReconScreen):
         )
 
     def handle_planner_result(self, operation: object | None) -> None:
+        _log.info(
+            "DashboardScreen.handle_planner_result operation=%r",
+            operation,
+        )
         if operation is None:
             return
 
@@ -362,6 +372,10 @@ class DashboardScreen(ReconScreen):
         from recon.tui.screens.planner import Operation
 
         if not isinstance(operation, Operation):
+            _log.warning(
+                "handle_planner_result: operation not an Operation instance: %s",
+                type(operation).__name__,
+            )
             return
 
         if operation == Operation.ADD_NEW:
@@ -447,6 +461,10 @@ class DashboardScreen(ReconScreen):
     def _start_pipeline_for_operation(
         self, operation: object, targets: list[str] | None
     ) -> None:
+        _log.info(
+            "_start_pipeline_for_operation operation=%r targets=%s",
+            operation, targets,
+        )
         from recon.tui.pipeline_runner import build_pipeline_fn
         from recon.tui.screens.planner import Operation
 
@@ -462,6 +480,7 @@ class DashboardScreen(ReconScreen):
         # Queue the pipeline_fn on the app so RunScreen.on_mount can
         # pick it up once Textual has actually mounted the run mode.
         self.app._pending_pipeline_fn = pipeline_fn
+        _log.info("queued pipeline_fn, switching to run mode")
         self.app.switch_mode("run")
 
     def _push_selector_then_start(self, operation: object) -> None:

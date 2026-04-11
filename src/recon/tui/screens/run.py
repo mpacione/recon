@@ -75,9 +75,15 @@ class RunScreen(ReconScreen):
         # screen existed (happens when mode is switched from another
         # screen that wants to start a pipeline here).
         pending = getattr(self.app, "_pending_pipeline_fn", None)
+        _log.info(
+            "RunScreen.on_mount has_pending_pipeline_fn=%s",
+            pending is not None,
+        )
         if pending is not None:
             self.app._pending_pipeline_fn = None
             self.start_pipeline(pending)
+
+
 
     def compose_body(self) -> ComposeResult:
         yield Static("[bold #e0a044]── RUN MONITOR ──[/]", id="run-title")
@@ -167,14 +173,21 @@ class RunScreen(ReconScreen):
             self.query_one("#run-cost", Static).update(self._format_cost())
 
     def start_pipeline(self, pipeline_fn: PipelineFn) -> None:
+        _log.info("RunScreen.start_pipeline called")
         self._pipeline_fn = pipeline_fn
         self._execute_pipeline()
 
     @work(exclusive=True)
     async def _execute_pipeline(self) -> None:
+        _log.info("RunScreen._execute_pipeline worker entered")
         if self._pipeline_fn is None:
+            _log.warning("RunScreen._execute_pipeline: _pipeline_fn is None")
             return
-        await self._pipeline_fn(self)
+        try:
+            await self._pipeline_fn(self)
+        except Exception:
+            _log.exception("RunScreen._execute_pipeline: pipeline_fn raised")
+            raise
 
     def add_activity(self, message: str) -> None:
         self._activity.append(message)

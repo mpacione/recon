@@ -20,6 +20,7 @@ from textual.widgets import Button, Input, Static
 
 from recon.discovery import DiscoveryCandidate, DiscoveryState  # noqa: TCH001
 from recon.logging import get_logger
+from recon.tui.primitives import TerminalBox
 
 _log = get_logger(__name__)
 
@@ -34,6 +35,11 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         Binding("down", "cursor_down", "Down", show=False),
         Binding("space", "toggle_current", "Toggle", show=False),
         Binding("escape", "cancel", "Back", show=False),
+        Binding("a", "accept_all", "Accept all", show=False),
+        Binding("x", "reject_all", "Reject all", show=False),
+        Binding("s", "search_more", "Search more", show=False),
+        Binding("n", "add_manually", "Add manually", show=False),
+        Binding("d", "done", "Done", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -45,35 +51,60 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         height: auto;
         max-height: 90%;
         padding: 1 2;
-        border: solid #3a3a3a;
-        background: #0d0d0d;
+        border: round #3a3a3a;
+        background: #000000;
         overflow-y: auto;
     }
-    .candidate-row {
+    #discovery-candidates {
         height: auto;
+        margin: 1 0 0 0;
+    }
+    .discovery-card {
         margin: 0 0 1 0;
     }
-    .candidate-toggle {
-        width: 10;
-        margin: 0 1 0 0;
+    .discovery-card.accepted {
+        border: round #e0a044;
     }
-    .candidate-detail {
-        width: 1fr;
-        height: auto;
+    .discovery-card.rejected {
+        border: round #3a3a3a;
+        color: #a89984;
     }
-    .action-bar {
+    /* Action-bar buttons styled to match the cyberspace.online
+       thin-bordered minimal aesthetic. Textual Buttons need at
+       least 3 rows to show their label (top chrome + content row +
+       bottom chrome), so we use height 3 but set `border: none`
+       and `background: transparent` so the chrome rows render as
+       empty space. The result is a flat text button with no box. */
+    .discovery-actions {
         height: auto;
-        margin: 1 0;
+        margin: 1 0 0 0;
         layout: horizontal;
     }
-    .action-bar Button {
+    .discovery-actions Button {
+        height: 3;
+        min-width: 0;
         margin: 0 1 0 0;
+        padding: 0 1;
+        background: transparent;
+        color: #a89984;
+        border: none;
+    }
+    .discovery-actions Button:hover {
+        background: #1d1d1d;
+        color: #efe5c0;
+    }
+    .discovery-actions Button.-primary {
+        color: #e0a044;
+    }
+    .discovery-actions Button.-primary:hover {
+        background: #e0a044;
+        color: #000000;
     }
     #roster-summary {
         height: auto;
-        margin: 1 0;
+        margin: 1 0 0 0;
         padding: 1 2;
-        border: solid #3a3a3a;
+        border: round #3a3a3a;
     }
     """
 
@@ -143,23 +174,52 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         """
         self.dismiss(self._state.accepted_candidates)
 
+    def action_done(self) -> None:
+        """Finalize the current accepted roster and close."""
+        self.dismiss(self._state.accepted_candidates)
+
+    def action_accept_all(self) -> None:
+        self._state.accept_all()
+        self._refresh_display()
+
+    def action_reject_all(self) -> None:
+        self._state.reject_all()
+        self._refresh_display()
+
+    def action_search_more(self) -> None:
+        if self._search_fn is None:
+            self.app.notify(
+                "Search function not configured. API key may be missing.",
+                title="Cannot search",
+                severity="error",
+            )
+            return
+        self._do_search()
+
+    def action_add_manually(self) -> None:
+        self._show_manual_inputs()
+
     def compose(self) -> ComposeResult:
         with Vertical(id="discovery-container"):
             yield Static(
-                f"[bold #e0a044]── DISCOVERY ──[/] [#a89984]·[/] [#efe5c0]{self._domain}[/]",
+                f"[bold #e0a044]── DISCOVERY ──[/] [#a89984]·[/] "
+                f"[#efe5c0]{self._domain}[/]",
                 id="discovery-title",
             )
             yield self._build_summary()
-            yield Static("")
-            yield from self._build_candidate_list()
+            with Vertical(id="discovery-candidates"):
+                yield from self._build_candidate_list()
             yield from self._build_roster_summary()
-            yield Static("")
-            with Horizontal(classes="action-bar"):
-                yield Button("Done", id="btn-done", variant="primary")
-                yield Button("Search More", id="btn-search-more")
-                yield Button("Add Manually", id="btn-add-manual")
-                yield Button("Accept All", id="btn-accept-all")
-                yield Button("Reject All", id="btn-reject-all")
+            # Button labels go through Rich markup parsing, so any
+            # `[s]`/`[x]` pattern gets eaten as an unknown tag.
+            # Escape the open bracket with a backslash so the label
+            # renders as a literal key hint.
+            with Horizontal(classes="discovery-actions"):
+                yield Button("\\[↵] done", id="btn-done", variant="primary")
+                yield Button("\\[s] search more", id="btn-search-more")
+                yield Button("\\[n] add manually", id="btn-add-manual")
+                yield Button("\\[a] accept all", id="btn-accept-all")
+                yield Button("\\[x] reject all", id="btn-reject-all")
 
     def _build_summary(self) -> Static:
         accepted = len(self._state.accepted_candidates)
@@ -182,27 +242,60 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
                 )
             else:
                 yield Static(
-                    "[#a89984]No candidates yet. Click Search More to find competitors.[/]",
+                    "[#a89984]No candidates yet. Press "
+                    "[#e0a044]s[/] to search or "
+                    "[#e0a044]n[/] to add manually.[/]",
                     id="discovery-empty",
                 )
             return
 
         for i, candidate in enumerate(candidates):
-            tier_display = candidate.suggested_tier.value.capitalize()
-            with Horizontal(classes="candidate-row", id=f"candidate-{i}"):
-                yield Button(
-                    "[x]" if candidate.accepted else "[ ]",
-                    id=f"btn-toggle-{i}",
-                    classes="candidate-toggle",
-                )
-                yield Static(
-                    f"[bold #efe5c0]{candidate.name}[/]  "
-                    f"[#a89984]{candidate.url}[/]\n"
-                    f"{candidate.blurb}\n"
-                    f"[#a89984]Found via: {candidate.provenance}  |  "
-                    f"Tier: {tier_display}[/]",
-                    classes="candidate-detail",
-                )
+            yield self._build_candidate_card(i, candidate)
+
+    def _build_candidate_card(self, index: int, candidate: DiscoveryCandidate):
+        """Render a single candidate as a ``TerminalBox`` card.
+
+        Uses cyberspace.online's post-card pattern: a bordered card with
+        a header line showing the checkbox + name + URL + tier, a body
+        paragraph with the blurb, and a dim footer with provenance.
+        The card's border color reflects acceptance state (amber when
+        accepted, dim grey when rejected) so the user can see at a glance
+        which candidates are in the roster.
+
+        Escape the brackets in the Rich markup -- `[x]` and `[ ]` get
+        eaten by the parser otherwise.
+        """
+        tier_display = candidate.suggested_tier.value.capitalize()
+        checkbox = (
+            "[#e0a044]\\[x][/]" if candidate.accepted else "[#3a3a3a]\\[ ][/]"
+        )
+        name_color = "#efe5c0" if candidate.accepted else "#a89984"
+        classes = "discovery-card accepted" if candidate.accepted else "discovery-card rejected"
+
+        header = Static(
+            f"{checkbox}  "
+            f"[bold {name_color}]{candidate.name}[/]  "
+            f"[#a89984]·[/]  "
+            f"[#a89984]{candidate.url}[/]  "
+            f"[#a89984]·[/]  "
+            f"[#a89984]Tier: {tier_display}[/]",
+            classes="candidate-header",
+        )
+        body = Static(
+            f"[#efe5c0]{candidate.blurb}[/]",
+            classes="candidate-body",
+        )
+        footer = Static(
+            f"[#3a3a3a]found via:[/] [#a89984]{candidate.provenance}[/]",
+            classes="candidate-footer",
+        )
+        return TerminalBox(
+            header,
+            body,
+            footer,
+            id=f"candidate-{index}",
+            classes=classes,
+        )
 
     def _build_roster_summary(self):
         accepted = self._state.accepted_candidates

@@ -66,11 +66,17 @@ class TestDiscoveryScreen:
             assert "5" in str(summary.content)
 
     async def test_shows_candidates_list(self) -> None:
+        from recon.tui.primitives import TerminalBox
+
         app = _DiscoveryTestApp(state=_make_state(_make_candidates(3)))
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            items = app.screen.query(".candidate-row")
+            # Candidates now render as TerminalBox cards with the
+            # discovery-card class (Phase O redesign).
+            items = app.screen.query(".discovery-card")
             assert len(items) == 3
+            for item in items:
+                assert isinstance(item, TerminalBox)
 
     async def test_toggle_candidate(self) -> None:
         state = _make_state(_make_candidates(2))

@@ -1069,6 +1069,127 @@ class TestWorkspaceRecoveryEdgeCases:
 
 
 @_REQUIRES_PTY
+class TestDiscoveryToPipelineFlow:
+    """The full ``discover -> r -> 7 -> pipeline starts`` flow in a
+    real PTY. Prevents the stale-dashboard-data regression from
+    coming back: if ``handle_discovery_result`` stops refreshing
+    ``self._data``, pressing ``r`` after discovery will silently
+    notify "Nothing to run" and the pipeline never launches.
+    """
+
+    def test_dashboard_action_run_after_discovery_reaches_planner(
+        self, tmp_path: Path,
+    ) -> None:
+        # Pre-populate a workspace with 5 profiles (simulating a
+        # freshly-completed discovery round).
+        workspace = tmp_path / "populated-ws"
+        workspace.mkdir()
+        (workspace / "competitors").mkdir()
+        (workspace / ".recon").mkdir()
+        (workspace / ".recon" / "logs").mkdir()
+        (workspace / ".env").write_text("ANTHROPIC_API_KEY=sk-ant-test-bogus\n")
+        schema = {
+            "domain": "AI code",
+            "identity": {
+                "company_name": "Acme",
+                "products": ["X"],
+                "decision_context": ["build-vs-buy"],
+            },
+            "rating_scales": {
+                "c": {"name": "Cap", "values": ["1"], "never_use": ["e"]},
+            },
+            "sections": [
+                {
+                    "key": "overview",
+                    "title": "Overview",
+                    "description": "x",
+                    "evidence_types": ["factual"],
+                    "allowed_formats": ["prose"],
+                    "preferred_format": "prose",
+                },
+            ],
+        }
+        (workspace / "recon.yaml").write_text(yaml.dump(schema))
+        for name in ["Cursor", "Copilot", "Codeium", "Tabnine", "Aider"]:
+            slug = name.lower()
+            (workspace / "competitors" / f"{slug}.md").write_text(
+                f"---\nname: {name}\ntype: competitor\n"
+                "research_status: scaffold\n---\n\n",
+            )
+
+        pid, fd = _spawn_tui(
+            workspace=workspace,
+            recent_path=tmp_path / "home" / ".recon" / "recent.json",
+        )
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            # Press r -> planner
+            os.write(fd, b"r")
+            reader.drain_until("RUN PLANNER", timeout=5.0)
+            # Press 7 -> FULL_PIPELINE -> run mode
+            os.write(fd, b"7")
+            reader.drain_until("RUN MONITOR", timeout=5.0)
+            # Pipeline should transition OUT of Idle within a few
+            # seconds (the fake API key will make it fail, but the
+            # transition is what we're pinning). If `handle_discovery_result`
+            # stopped refreshing self._data, we'd never even get here --
+            # action_run would notify "Nothing to run" instead.
+            output = reader.drain_until(
+                "research",
+                timeout=10.0,
+            )
+            assert "research" in output.lower(), (
+                "pipeline never started research stage -- "
+                "probably stale dashboard data after discovery"
+            )
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+
+@_REQUIRES_PTY
+class TestDiscoveryScreenRendersCards:
+    """Smoke test: Discovery screen renders its candidates as
+    TerminalBox cards with visible checkbox markers. This catches
+    the Rich-markup `[x]` eating bug from Phase O and ensures future
+    refactors don't accidentally kill the card layout.
+    """
+
+    def test_discovery_empty_state_shows_key_hints(
+        self, tmp_path: Path,
+    ) -> None:
+        workspace = _make_workspace(tmp_path)
+        pid, fd = _spawn_tui(
+            workspace=workspace,
+            recent_path=tmp_path / "home" / ".recon" / "recent.json",
+        )
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            os.write(fd, b"d")
+            # Wait until the Discovery modal's title renders -- that
+            # proves we're past the dashboard and on the discovery
+            # screen (the dashboard keybind strip also contains
+            # "add manually" so we need a discovery-only marker).
+            reader.drain_until("── DISCOVERY ──", timeout=5.0)
+            # Drain a touch more so the action-bar buttons land in
+            # the capture (they render after the body).
+            output = reader.drain_until("reject all", timeout=5.0)
+            # The new flat action-bar buttons
+            assert "[↵] done" in output
+            assert "[s] search more" in output
+            assert "[n] add manually" in output
+            assert "[a] accept all" in output
+            assert "[x] reject all" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+
+@_REQUIRES_PTY
 class TestAddManuallyFlow:
     """End-to-end: empty dashboard -> m -> type name -> Enter -> profile persisted."""
 

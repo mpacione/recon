@@ -7,6 +7,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed -- TUI audit Phase O (Discovery redesign + stale dashboard data)
+
+User showed screenshots of a completed discovery round, then
+reported: **(1)** the `[x]` checkbox markers on discovery candidates
+were invisible, **(2)** the chunky action-bar buttons clashed with
+the cyberspace.online visual language, **(3)** "I tried to run the
+pipeline on the sources found and it appears to be stalled and not
+working -- have we tested that?"
+
+The honest answer on the pipeline stall was no -- I had PTY tests
+that press `r` and `7` on a pre-populated dashboard, but no test
+that runs discovery FIRST and then tries to launch the pipeline.
+Writing that test immediately exposed bug #3.
+
+#### Bug: stale dashboard data after discovery → pipeline never launches
+
+``DashboardScreen.handle_discovery_result`` creates profiles on disk
+but doesn't refresh ``self._data``. In Pilot unit tests this is
+visible; in real terminals the modal dismissal lifecycle usually
+fires ``on_screen_resume`` which refreshes the data, so the bug was
+masked most of the time. When the refresh didn't fire,
+``action_run`` would see ``total_competitors == 0`` and notify
+"Nothing to run" -- silently breaking the pipeline launch and
+leaving the user staring at an unchanged dashboard.
+
+**Fix:** ``handle_discovery_result`` now explicitly calls
+``self.refresh_data(build_dashboard_data(ws))`` after creating all
+the profiles. The local data snapshot is fresh the moment the
+discovery modal dismisses, regardless of what Textual's resume
+lifecycle does. Now also logs exceptions via ``_log.exception``
+instead of swallowing them silently, because the original
+``except Exception: pass`` was the other half of why the bug was
+invisible.
+
+#### Bug: Discovery `[x]` checkbox markers silently dropped
+
+Same root cause as the selector/curation bug from Phase I --
+``Button("[x]")`` passes the label through Rich markup, which
+parses ``[x]`` as an unknown tag and drops it. Every accepted
+candidate rendered with an empty checkbox button.
+
+**Fix:** Redesigned the candidate list as ``TerminalBox`` cards
+(Phase J primitive) with escaped bracket markers embedded in the
+card header:
+
+```
+╭─────────────────────────────────────────────╮
+│ [x]  Cursor  ·  https://cursor.com  ·  Tier: Established │
+│                                              │
+│ AI-powered code editor with deep codebase... │
+│                                              │
+│ found via: G2 category leader, 3x lists      │
+╰─────────────────────────────────────────────╯
+```
+
+Card border colors reflect acceptance state: amber border +
+amber `[x]` when accepted, dim-grey border + dim `[ ]` when
+rejected. At a glance you can see the accepted roster without
+squinting at checkbox columns.
+
+#### Bug: Action-bar buttons clashed with the retro visual language
+
+The 5 action buttons (Done / Search More / Add Manually / Accept
+All / Reject All) used Textual's default variant styling -- chunky
+3-line chrome with filled primary variant -- which looked like
+Bootstrap dropped into a retro terminal.
+
+**Fix:** Flattened the Discovery action bar to match the
+cyberspace.online footer pattern:
+- `border: none; background: transparent` on every button
+- Amber `-primary` variant instead of filled
+- Labels prefixed with escaped bracket keybinds:
+  `[↵] done`, `[s] search more`, `[n] add manually`,
+  `[a] accept all`, `[x] reject all`
+- Added keybind shortcuts `d` / `s` / `n` / `a` / `x` so users
+  don't need to click at all
+
+#### New PTY test coverage
+
+``TestDiscoveryToPipelineFlow::test_dashboard_action_run_after_discovery_reaches_planner``
+-- pre-populates 5 profiles on the filesystem (simulating a freshly
+completed discovery round), then spawns recon, presses `r`, presses
+`7`, and asserts the pipeline actually transitions through the
+research stage. This is the test that would have caught the stale-
+data bug on day 1. It runs in ~1.5 seconds.
+
+``TestDiscoveryScreenRendersCards::test_discovery_empty_state_shows_key_hints``
+-- spawns recon, presses `d`, asserts all 5 action-bar button
+labels are visible with their bracket key hints intact
+(`[↵] done`, `[s] search more`, etc). This catches the Rich
+markup regression.
+
+#### Diagnostic logging added on the pipeline-launch path
+
+``DashboardScreen.handle_planner_result``, ``_start_pipeline_for_operation``,
+``RunScreen.on_mount``, ``start_pipeline``, and ``_execute_pipeline``
+all now log at INFO level on entry. If a user ever reports a pipeline
+stall in the future, these 5 log lines tell us exactly where the
+flow broke:
+
+```
+handle_planner_result operation=FULL_PIPELINE
+_start_pipeline_for_operation operation=FULL_PIPELINE targets=None
+queued pipeline_fn, switching to run mode
+RunScreen.on_mount has_pending_pipeline_fn=True
+RunScreen.start_pipeline called
+RunScreen._execute_pipeline worker entered
+```
+
+720 → 722 passing (+2 new PTY tests; snapshot regen for Discovery).
+Lint clean.
+
 ### Added -- TUI audit Phase N (input focus + workspace recovery)
 
 Two more PTY tests to lock in behaviors that were working but
