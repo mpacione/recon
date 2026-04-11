@@ -156,15 +156,28 @@ class DashboardScreen(ReconScreen):
                 yield Static("[#a89984]no run history yet[/]")
 
     def on_screen_resume(self) -> None:
+        """Re-read workspace state every time the dashboard becomes
+        active. Catches changes from modals (discovery added profiles,
+        wizard rewrote the schema, etc) that didn't wait on refresh.
+        """
         from recon.tui.models.dashboard import build_dashboard_data
         from recon.workspace import Workspace
 
+        _log.info(
+            "DashboardScreen.on_screen_resume refreshing from %s",
+            self._workspace_path,
+        )
         try:
             ws = Workspace.open(self._workspace_path)
             new_data = build_dashboard_data(ws)
             self.refresh_data(new_data)
         except Exception:
-            pass
+            # Logging the exception used to be a bare `pass`, which
+            # meant a broken workspace (deleted, corrupt recon.yaml)
+            # would silently freeze the dashboard at stale data. Now
+            # we log the traceback so users and maintainers can see
+            # what failed.
+            _log.exception("DashboardScreen.on_screen_resume failed")
 
     def refresh_data(self, data: DashboardData) -> None:
         self._data = data
@@ -477,11 +490,11 @@ class DashboardScreen(ReconScreen):
             targets=targets,
         )
 
-        # Queue the pipeline_fn on the app so RunScreen.on_mount can
-        # pick it up once Textual has actually mounted the run mode.
-        self.app._pending_pipeline_fn = pipeline_fn
-        _log.info("queued pipeline_fn, switching to run mode")
-        self.app.switch_mode("run")
+        # Delegate the run-mode handshake to the single launcher entry
+        # point on the app. It owns the queue + mode switch + resume
+        # handshake so screens never have to touch
+        # ``app._pending_pipeline_fn`` directly.
+        self.app.launch_pipeline(pipeline_fn)
 
     def _push_selector_then_start(self, operation: object) -> None:
         from recon.tui.screens.planner import Operation

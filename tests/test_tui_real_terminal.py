@@ -1150,6 +1150,124 @@ class TestDiscoveryToPipelineFlow:
 
 
 @_REQUIRES_PTY
+class TestWelcomeToRunPipelineFlow:
+    """The exact user path that hit the cached-RunScreen bug:
+    welcome → open recent workspace → dashboard → r → 7 → pipeline
+    launches. This reproduces the Phase P bug where RunScreen's
+    on_mount fired once at workspace-selected time (because
+    ``on_welcome_screen_workspace_selected`` does a
+    ``switch_mode("run")`` → ``switch_mode("dashboard")`` dance that
+    instantiates the run mode early) and the one-shot ``on_mount``
+    consumed no pending pipeline because none was queued yet.
+
+    The fix moves pending-pipeline consumption to
+    ``on_screen_resume``, which fires on every ``switch_mode("run")``
+    activation. This test pins that behavior.
+    """
+
+    def test_pipeline_launches_after_welcome_flow(self, tmp_path: Path) -> None:
+        # Pre-build a real workspace
+        workspace = tmp_path / "target-workspace"
+        workspace.mkdir()
+        (workspace / "competitors").mkdir()
+        (workspace / ".recon").mkdir()
+        (workspace / ".recon" / "logs").mkdir()
+        (workspace / ".env").write_text("ANTHROPIC_API_KEY=sk-ant-test-bogus\n")
+        schema = {
+            "domain": "x",
+            "identity": {
+                "company_name": "Acme",
+                "products": ["X"],
+                "decision_context": ["build-vs-buy"],
+            },
+            "rating_scales": {
+                "c": {"name": "Cap", "values": ["1"], "never_use": ["e"]},
+            },
+            "sections": [
+                {
+                    "key": "overview",
+                    "title": "Overview",
+                    "description": "x",
+                    "evidence_types": ["factual"],
+                    "allowed_formats": ["prose"],
+                    "preferred_format": "prose",
+                },
+            ],
+        }
+        (workspace / "recon.yaml").write_text(yaml.dump(schema))
+        for name in ["Alpha", "Beta", "Gamma"]:
+            (workspace / "competitors" / f"{name.lower()}.md").write_text(
+                f"---\nname: {name}\ntype: competitor\n"
+                "research_status: scaffold\n---\n\n",
+            )
+
+        # Seed the workspace as a recent project so welcome can open
+        # it with a digit key (1).
+        import json as _json
+
+        home = tmp_path / "home"
+        (home / ".recon").mkdir(parents=True, exist_ok=True)
+        (home / ".recon" / "recent.json").write_text(
+            _json.dumps([
+                {
+                    "path": str(workspace),
+                    "name": "target-workspace",
+                    "last_opened": "2026-04-11T10:00:00+00:00",
+                },
+            ]),
+        )
+
+        recon = _resolve_recon_binary()
+        if recon is None:
+            pytest.skip("recon binary not found")
+
+        cwd = tmp_path / "empty-cwd"
+        cwd.mkdir()
+        env = {
+            **os.environ,
+            "TERM": "xterm-256color",
+            "COLUMNS": "140",
+            "LINES": "45",
+            "ANTHROPIC_API_KEY": "",
+            "HOME": str(home),
+        }
+        pid, fd = pty.fork()
+        if pid == 0:
+            try:
+                os.chdir(str(cwd))
+                os.execvpe(str(recon), [str(recon), "tui"], env)
+            except Exception:  # pragma: no cover
+                os._exit(127)
+
+        try:
+            reader = _PtyReader(fd)
+            # 1. Welcome renders
+            reader.drain_until("RECENT", timeout=15.0)
+            # 2. Press digit 1 -> opens the seeded recent workspace
+            os.write(fd, b"1")
+            # 3. Dashboard must render
+            reader.drain_until("COMPETITORS", timeout=10.0)
+            # 4. r -> planner
+            os.write(fd, b"r")
+            reader.drain_until("RUN PLANNER", timeout=5.0)
+            # 5. 7 -> FULL_PIPELINE -> run mode
+            os.write(fd, b"7")
+            reader.drain_until("RUN MONITOR", timeout=5.0)
+            # 6. Pipeline must transition OUT of Idle. Before the fix
+            # this hung forever because on_screen_resume wasn't
+            # consuming the pending pipeline.
+            output = reader.drain_until("research", timeout=15.0)
+            assert "research" in output.lower(), (
+                "pipeline never kicked off via the welcome flow -- "
+                "the cached RunScreen bug is back"
+            )
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+
+@_REQUIRES_PTY
 class TestDiscoveryScreenRendersCards:
     """Smoke test: Discovery screen renders its candidates as
     TerminalBox cards with visible checkbox markers. This catches

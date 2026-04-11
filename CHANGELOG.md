@@ -7,6 +7,150 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed -- TUI audit Phase P (cached-screen lifecycle + bug class analysis)
+
+The user reported: "when I try to run the pipeline, this happens.
+it hung, or it's working but there is no terminal logging to show
+progress." They attached a log showing the pipeline queued but
+never started. They also asked that every flaw be treated as a
+symptom of a wider class, not just patched individually.
+
+#### The surface symptom
+
+```
+16:17:24 INFO run RunScreen.on_mount has_pending_pipeline_fn=False
+16:17:29 INFO dashboard action_run competitors=15
+16:17:34 INFO dashboard queued pipeline_fn, switching to run mode
+                  (nothing further -- pipeline never started)
+```
+
+``RunScreen.on_mount`` fired **once at app startup time** (long
+before any pipeline had been queued) and saw no pending pipeline.
+When the user later queued a pipeline and the app switched to run
+mode, Textual **reused the cached RunScreen instance** -- its
+``on_mount`` did NOT fire a second time, so the pending pipeline
+sat on ``app._pending_pipeline_fn`` forever. Phase: Idle.
+
+#### Why on_mount fired at startup (unusual)
+
+The Phase-B ``on_welcome_screen_workspace_selected`` handler
+contained a hack:
+
+```python
+self.switch_mode("run")        # <-- early run-mode activation
+self.remove_mode("dashboard")
+self.add_mode("dashboard", self._make_dashboard_screen)
+self.switch_mode("dashboard")
+```
+
+The ``switch_mode("run")`` was used as a holding mode so
+``remove_mode("dashboard")`` wouldn't raise ``ActiveModeError``.
+Side effect: the run mode's RunScreen instantiated early, fired
+``on_mount`` with ``_pending_pipeline_fn=None``, and permanently
+cached the instance. Any later pipeline launch via the welcome
+flow silently hit the stale one-shot lifecycle.
+
+#### Why my tests missed this
+
+All my PTY tests for the pipeline-launch path spawned with
+``recon tui --workspace=...``, bypassing the welcome screen.
+``ReconApp(workspace_path=...)`` skips the
+``on_welcome_screen_workspace_selected`` handler entirely, so the
+early ``switch_mode("run")`` never fired. The test's ``RunScreen``
+got its ``on_mount`` at the right time and the handshake worked.
+Tests green, real users broken.
+
+### The bug class: "implicit handshake via mutable app state"
+
+Stepping back from the specific symptom: the root problem is a
+coupling pattern that shows up in multiple places.
+
+> Component A mutates ``self.app._some_attribute`` and expects
+> Component B to read it at exactly the right lifecycle event. No
+> type contract, no ownership, no subscription, no backpressure.
+> When the lifecycle event doesn't fire or fires at the wrong
+> time, the handshake silently breaks and nothing logs.
+
+Instances found in the audit:
+
+| Site | Reads | When | Fragile? |
+|---|---|---|---|
+| RunScreen.on_mount | ``app._pending_pipeline_fn`` | once, at first instantiation | **YES -- this bug** |
+| RunScreen._request_stop | ``app._pipeline_cancel_event`` | every button press | no (runtime read) |
+| RunScreen._toggle_pause | ``app._pipeline_pause_event`` | every button press | no (runtime read) |
+| ReconScreen.refresh_chrome | ``app.workspace_context`` | every chrome update | no (property-style read) |
+| DashboardScreen.on_screen_resume | ``self._workspace_path`` | every mode activation | no (runtime read) |
+
+Only the RunScreen pending-pipeline case was fragile. But the
+pattern itself was the smell.
+
+### The systemic fix
+
+Three changes, not one:
+
+**1. Canonical launcher on ReconApp.** ``app.launch_pipeline(fn)``
+is now the only supported way to start a pipeline. It owns both
+halves of the handshake: queueing the fn on the app AND calling
+``switch_mode("run")``. Screens no longer touch
+``_pending_pipeline_fn`` directly. The dashboard calls
+``self.app.launch_pipeline(pipeline_fn)`` instead of a 3-line
+queue + switch_mode sequence. One entry point, one contract.
+
+**2. RunScreen.on_screen_resume replaces on_mount.** The
+``_consume_pending_pipeline`` hook fires now on ``on_screen_resume``,
+which Textual invokes on **every** mode activation, not just the
+first. ``on_mount`` also calls it as a belt-and-suspenders so the
+very first activation (which does fire ``on_mount``) still works.
+Both lifecycle hooks pass through the same idempotent consumer.
+
+**3. Dedicated holding mode on workspace-selected.** The
+``on_welcome_screen_workspace_selected`` handler no longer uses
+``switch_mode("run")`` as a holding mode during the dashboard
+rebuild. Instead it registers a dedicated ``_loading`` mode
+(bare ``Screen`` class) and switches to that before
+``remove_mode("dashboard")``. The run mode is untouched, so its
+cached instance stays uninstantiated until the user actually
+wants to launch a pipeline -- at which point ``launch_pipeline``
+kicks off ``switch_mode("run")`` and ``on_screen_resume`` fires
+for the first time with a pending pipeline to consume.
+
+#### Collateral improvement
+
+``DashboardScreen.on_screen_resume`` was silently swallowing
+exceptions with ``except Exception: pass``. A broken workspace
+(deleted, corrupt recon.yaml) would freeze the dashboard at
+stale data with no visible indication. Now logs via
+``_log.exception`` so the traceback lands in recon.log.
+
+### New regression tests
+
+``TestWelcomeToRunPipelineFlow::test_pipeline_launches_after_welcome_flow``
+-- the canonical welcome-flow pipeline test. Seeds a real
+workspace as a recent project, spawns ``recon tui`` with a fake
+``$HOME``, presses ``1`` on welcome to open the recent, then
+drives dashboard → r → 7 → run monitor. Asserts the pipeline
+reaches the research stage. This test **would have failed** before
+the fix and would have caught the bug on day 1 of Phase M.
+
+This plugs the "test entry points don't match user entry points"
+gap identified as part of the bug-class analysis: every new PTY
+test for a behavior-after-navigation should go through the same
+navigation path a real user takes.
+
+### Why this matters beyond the one bug
+
+The Phase B ``switch_mode`` dance had been in the codebase since
+the chrome work landed. Every phase after B (C, D, E, F, G, H, I,
+J, K, L, M, N, O) ran through it and passed tests. The bug only
+manifests when the user navigates welcome → dashboard → pipeline
+**in that specific order**. I shipped 13 phases without catching
+it because every test I wrote bypassed the welcome flow.
+
+The lesson: **test the navigation paths users actually take, not
+the programmatic shortcuts tests make convenient.**
+
+722 → 723 passing. Lint clean. 11 snapshots.
+
 ### Fixed -- TUI audit Phase O (Discovery redesign + stale dashboard data)
 
 User showed screenshots of a completed discovery round, then

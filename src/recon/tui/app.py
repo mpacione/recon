@@ -245,15 +245,66 @@ class ReconApp(App):
             get_bus().unsubscribe(self._event_subscriber)
 
     def on_welcome_screen_workspace_selected(self, event: WelcomeScreen.WorkspaceSelected) -> None:
+        """Handle the user picking a workspace from the welcome screen.
+
+        Rebuilds the dashboard mode with a fresh factory that captures
+        the new workspace path. Textual refuses to remove the active
+        mode, so we temporarily switch to a dedicated ``_loading``
+        holding mode, remove+re-add dashboard, then switch back to
+        dashboard.
+
+        The previous implementation used ``switch_mode("run")`` as the
+        holding mode, which had a subtle side effect: the early
+        ``switch_mode("run")`` instantiated the cached RunScreen and
+        fired its ``on_mount`` BEFORE any pipeline had been queued. A
+        later ``launch_pipeline()`` call through the normal flow then
+        hit a stale one-shot lifecycle and the pipeline silently
+        refused to start. Using a dedicated ``_loading`` mode avoids
+        touching the run mode at all.
+        """
+        from textual.screen import Screen
+
         _log.info("WorkspaceSelected path=%s", event.path)
         self._workspace_path = Path(event.path)
         self._record_recent_project(self._workspace_path)
         self.refresh_workspace_context()
-        self.switch_mode("run")
+        # Holding mode: a blank Screen so Textual lets us rebuild the
+        # dashboard. Register it lazily the first time we need it.
+        if "_loading" not in self._modes:
+            self.add_mode("_loading", Screen)
+        self.switch_mode("_loading")
         self.remove_mode("dashboard")
         self.add_mode("dashboard", self._make_dashboard_screen)
         self.switch_mode("dashboard")
         _log.info("workspace loaded, dashboard mode active")
+
+    def launch_pipeline(self, pipeline_fn) -> None:  # noqa: ANN001 -- PipelineFn from run.py
+        """Start a pipeline run and activate the run mode.
+
+        This is the canonical way to launch a pipeline from any
+        screen. Replaces the fragile ``app._pending_pipeline_fn``
+        handshake that relied on :meth:`RunScreen.on_mount` or
+        :meth:`on_screen_resume` picking up state at just the right
+        lifecycle event.
+
+        The flow:
+
+        1. Queue the ``pipeline_fn`` on the app (a simple attribute,
+           but owned by this single entry point so the contract is
+           legible).
+        2. ``switch_mode("run")`` activates the cached RunScreen.
+        3. RunScreen's ``on_screen_resume`` hook fires and consumes
+           the queue.
+
+        The reason we still queue rather than calling
+        ``screen.start_pipeline`` directly is that the RunScreen
+        instance isn't accessible before the mode switch -- Textual
+        lazily instantiates it on first activation. The queue bridges
+        the "before first activation" and "after" states cleanly.
+        """
+        _log.info("ReconApp.launch_pipeline queuing pipeline_fn")
+        self._pending_pipeline_fn = pipeline_fn
+        self.switch_mode("run")
 
     def _record_recent_project(self, workspace_path: Path) -> None:
         """Append the opened workspace to ~/.recon/recent.json so the

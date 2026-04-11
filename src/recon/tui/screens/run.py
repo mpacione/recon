@@ -71,12 +71,34 @@ class RunScreen(ReconScreen):
         self._pipeline_fn: PipelineFn | None = None
 
     def on_mount(self) -> None:
-        # Consume any pending pipeline queued on the app before this
-        # screen existed (happens when mode is switched from another
-        # screen that wants to start a pipeline here).
+        """First-time setup. Consuming the pending pipeline happens
+        in :meth:`on_screen_resume` instead so it also fires on
+        subsequent ``switch_mode("run")`` calls, not just the first.
+        """
+        _log.info("RunScreen.on_mount")
+        self._consume_pending_pipeline()
+
+    def on_screen_resume(self) -> None:
+        """Fires every time the screen becomes the active screen.
+
+        Textual caches the ``run`` mode's Screen instance after the
+        first ``add_mode``, so later ``switch_mode("run")`` calls
+        reuse the cached instance without re-firing ``on_mount``. The
+        pending-pipeline handshake (dashboard queues a pipeline_fn on
+        the app, then switches mode) must therefore consume the queue
+        here, not in ``on_mount``. Without this, a user who went
+        welcome → dashboard → r → 7 would see the run screen with
+        Phase: Idle forever because ``_pending_pipeline_fn`` was
+        queued AFTER the one-shot ``on_mount`` already fired at
+        workspace-selected time.
+        """
+        _log.info("RunScreen.on_screen_resume")
+        self._consume_pending_pipeline()
+
+    def _consume_pending_pipeline(self) -> None:
         pending = getattr(self.app, "_pending_pipeline_fn", None)
         _log.info(
-            "RunScreen.on_mount has_pending_pipeline_fn=%s",
+            "RunScreen._consume_pending_pipeline has_pending=%s",
             pending is not None,
         )
         if pending is not None:
