@@ -139,13 +139,17 @@ class WelcomeScreen(ReconScreen):
         background: #000000;
     }
     #welcome-body {
-        align: center middle;
+        /* top-align so the banner stays visible and any newly-
+           mounted Input below the recents list doesn't get clipped
+           off the bottom when content grows past the viewport. */
+        align: center top;
         height: 1fr;
+        overflow-y: auto;
     }
     #welcome-container {
         width: 70;
         height: auto;
-        padding: 2 4;
+        padding: 1 3;
         border: solid #3a3a3a;
         background: #0d0d0d;
     }
@@ -178,9 +182,13 @@ class WelcomeScreen(ReconScreen):
         "[#e0a044]q[/] quit · [#e0a044]?[/] help"
     )
 
-    def __init__(self, recent_projects_path: Path = _DEFAULT_RECENT_PATH) -> None:
+    def __init__(self, recent_projects_path: Path | None = None) -> None:
         super().__init__()
-        self._recent_path = recent_projects_path
+        # Read the module-level default at call time, not definition
+        # time. Monkeypatching the module variable (the standard test
+        # isolation pattern) would otherwise not affect screens
+        # constructed without an explicit path.
+        self._recent_path = recent_projects_path or _DEFAULT_RECENT_PATH
         self._manager = RecentProjectsManager(self._recent_path)
 
     def compose_body(self) -> ComposeResult:
@@ -240,6 +248,7 @@ class WelcomeScreen(ReconScreen):
         )
         container.mount(path_input)
         path_input.focus()
+        self._scroll_input_into_view(path_input)
 
     def _show_open_input(self) -> None:
         container = self.query_one("#welcome-container", Vertical)
@@ -252,6 +261,18 @@ class WelcomeScreen(ReconScreen):
         )
         container.mount(path_input)
         path_input.focus()
+        self._scroll_input_into_view(path_input)
+
+    def _scroll_input_into_view(self, widget: Input) -> None:
+        """Scroll the welcome body so a freshly mounted Input is visible.
+
+        Without this, screens with a full recents list push the Input
+        below the viewport fold and the user sees no visible change
+        when they press ``n`` / ``o``. ``scroll_visible`` walks
+        ancestor scrollables until the widget is in frame.
+        """
+        # Defer a tick so the mount completes before we scroll.
+        self.call_after_refresh(widget.scroll_visible, animate=False)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         path_str = event.value.strip()

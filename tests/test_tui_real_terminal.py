@@ -44,13 +44,20 @@ _REQUIRES_PTY = pytest.mark.skipif(
     reason="real-terminal smoke tests require pty.fork (POSIX only)",
 )
 
-# ANSI/CSI escape sequence pattern -- used to strip control codes from
-# the captured PTY output before substring matching.
-_ANSI_RE = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]|\x1b[()][0-9A-Za-z]")
+# ANSI/CSI/OSC escape sequence pattern -- used to strip control codes
+# from the captured PTY output before substring matching. Covers:
+#   CSI  \x1b[ ... final byte
+#   Charset  \x1b( X  /  \x1b) X
+#   OSC  \x1b] ... BEL (Textual uses these for title + color palette)
+_ANSI_RE = re.compile(
+    rb"\x1b\[[0-?]*[ -/]*[@-~]"
+    rb"|\x1b[()][0-9A-Za-z]"
+    rb"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)",
+)
 
 
 def _strip_ansi(data: bytes) -> str:
-    """Best-effort removal of CSI sequences from raw PTY output.
+    """Best-effort removal of CSI/OSC sequences from raw PTY output.
 
     Returns the result as a UTF-8 string with replacement chars for
     any byte that can't be decoded. Good enough for substring
@@ -228,6 +235,80 @@ def _resolve_recon_binary() -> Path | None:
     return Path(found) if found else None
 
 
+def _spawn_tui(
+    workspace: Path | None = None,
+    cwd: Path | None = None,
+    recent_path: Path | None = None,
+    lines: int = 45,
+    columns: int = 140,
+) -> tuple[int, int]:
+    """Spawn ``recon tui`` in a PTY and return (pid, master_fd).
+
+    Honors ``recent_path`` by writing an empty JSON array to it and
+    pointing ``$HOME`` at a clean directory so the welcome screen
+    can't read the user's real ``~/.recon/recent.json``. This makes
+    the test fully hermetic.
+    """
+    recon = _resolve_recon_binary()
+    if recon is None:
+        pytest.skip("recon binary not found in .venv/bin or PATH")
+
+    fake_home = None
+    if recent_path is not None:
+        fake_home = recent_path.parent
+        (fake_home / ".recon").mkdir(parents=True, exist_ok=True)
+        recent_path.write_text("[]")
+
+    env = {
+        **os.environ,
+        "TERM": "xterm-256color",
+        "COLUMNS": str(columns),
+        "LINES": str(lines),
+        "ANTHROPIC_API_KEY": "",
+    }
+    if fake_home is not None:
+        env["HOME"] = str(fake_home)
+
+    args = [str(recon), "tui"]
+    if workspace is not None:
+        args += ["--workspace", str(workspace)]
+
+    pid, master_fd = pty.fork()
+    if pid == 0:
+        try:
+            if cwd is not None:
+                os.chdir(str(cwd))
+            os.execvpe(str(recon), args, env)
+        except Exception as exc:  # pragma: no cover -- child only
+            sys.stderr.write(f"exec failed: {exc}\n")
+            os._exit(127)
+    return pid, master_fd
+
+
+def _press_and_capture(
+    master_fd: int,
+    key: str,
+    settle: float = 0.6,
+    capture: float = 1.5,
+) -> str:
+    """Write a keystroke and return the cleaned output that follows.
+
+    ``settle`` gives Textual a moment to process the key before we
+    start capturing. ``capture`` is the drain window. Returns the
+    ANSI-stripped concatenated output.
+    """
+    import contextlib as _contextlib
+
+    os.write(master_fd, key.encode("utf-8"))
+    time.sleep(settle)
+    reader = _PtyReader(master_fd)
+    with _contextlib.suppress(TimeoutError):
+        # Drain until timeout; no specific marker. We catch whatever
+        # lands in the capture window.
+        reader.drain_until("__never_happens__", timeout=capture)
+    return reader.buffer
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -385,3 +466,371 @@ class TestRealTerminalSmoke:
             _kill_child(pid)
             with contextlib_suppress():
                 os.close(master_fd)
+
+
+# ---------------------------------------------------------------------------
+# Real-terminal keybind coverage
+#
+# The rest of this file exercises every screen's BINDINGS via PTY, end-to-end.
+# Each test presses a real keystroke and asserts on the rendered output.
+#
+# This coverage is the level the in-process Pilot suite CAN'T give us: Pilot
+# yields Screens as child widgets instead of pushing them, so Textual's
+# binding traversal walks differently than in a real terminal. Unit tests
+# that invoke ``screen.action_xxx()`` directly verify the action method
+# works, but they do NOT verify that the key->action wiring is intact.
+# A full round of those unit tests can be green while every keybind on every
+# screen is broken -- which is how Phase J shipped with a clipping bug on
+# Welcome.
+# ---------------------------------------------------------------------------
+
+
+@_REQUIRES_PTY
+class TestDashboardKeybinds:
+    """Dashboard keybinds that must navigate in a real terminal."""
+
+    def _spawn(self, tmp_path: Path, populated: bool = True) -> tuple[int, int]:
+        workspace = _make_workspace(tmp_path)
+        if not populated:
+            # wipe the pre-populated Alpha Corp profile
+            for p in (workspace / "competitors").iterdir():
+                p.unlink()
+        return _spawn_tui(
+            workspace=workspace,
+            recent_path=tmp_path / "home" / ".recon" / "recent.json",
+        )
+
+    def test_r_opens_run_planner(self, tmp_path: Path) -> None:
+        pid, fd = self._spawn(tmp_path)
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            os.write(fd, b"r")
+            output = reader.drain_until("RUN PLANNER", timeout=5.0)
+            assert "RUN PLANNER" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+    def test_d_opens_discovery(self, tmp_path: Path) -> None:
+        pid, fd = self._spawn(tmp_path)
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            os.write(fd, b"d")
+            output = reader.drain_until("DISCOVERY", timeout=5.0)
+            assert "DISCOVERY" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+    def test_b_opens_browser(self, tmp_path: Path) -> None:
+        pid, fd = self._spawn(tmp_path)
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            os.write(fd, b"b")
+            # The browser renders a DataTable with a "Name" column header.
+            output = reader.drain_until("Name", timeout=5.0)
+            assert "Name" in output
+            assert "Alpha Corp" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+    def test_m_on_empty_dashboard_mounts_input(self, tmp_path: Path) -> None:
+        pid, fd = self._spawn(tmp_path, populated=False)
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("No competitors yet", timeout=15.0)
+            os.write(fd, b"m")
+            output = reader.drain_until("Enter to add", timeout=5.0)
+            assert "Competitor name" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+
+@_REQUIRES_PTY
+class TestWelcomeKeybinds:
+    """Welcome keybinds that must work even when ``~/.recon/recent.json``
+    has zero, some, or many recent entries. The clipping bug that landed
+    in Phase J was invisible to unit tests because the test fixture
+    rendered the screen in a larger viewport than a real 45-row terminal.
+    """
+
+    def _spawn(self, tmp_path: Path, recents: list[tuple[str, str]] | None = None):
+        """Spawn recon tui on the welcome screen with a hermetic
+        ``$HOME`` pointing at a tmp dir, pre-seeded with ``recents``.
+        """
+        home = tmp_path / "home"
+        (home / ".recon").mkdir(parents=True, exist_ok=True)
+        recent_json = home / ".recon" / "recent.json"
+        if recents:
+            import json as _json
+
+            payload = [
+                {
+                    "path": path,
+                    "name": name,
+                    "last_opened": "2026-04-10T10:00:00+00:00",
+                }
+                for name, path in recents
+            ]
+            recent_json.write_text(_json.dumps(payload))
+        else:
+            recent_json.write_text("[]")
+
+        cwd = tmp_path / "empty"
+        cwd.mkdir(exist_ok=True)
+        recon = _resolve_recon_binary()
+        if recon is None:
+            pytest.skip("recon binary not found")
+
+        env = {
+            **os.environ,
+            "TERM": "xterm-256color",
+            "COLUMNS": "140",
+            "LINES": "45",
+            "ANTHROPIC_API_KEY": "",
+            "HOME": str(home),
+        }
+        pid, fd = pty.fork()
+        if pid == 0:
+            try:
+                os.chdir(str(cwd))
+                os.execvpe(str(recon), [str(recon), "tui"], env)
+            except Exception as exc:  # pragma: no cover
+                sys.stderr.write(f"exec failed: {exc}\n")
+                os._exit(127)
+        return pid, fd
+
+    def test_n_mounts_new_project_input_with_no_recents(self, tmp_path: Path) -> None:
+        pid, fd = self._spawn(tmp_path, recents=None)
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("RECENT", timeout=15.0)
+            os.write(fd, b"n")
+            output = reader.drain_until("new-project", timeout=5.0)
+            # The Input defaults to "<home>/recon/new-project"
+            assert "new-project" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+    def test_n_mounts_new_project_input_with_two_recents(
+        self, tmp_path: Path,
+    ) -> None:
+        pid, fd = self._spawn(
+            tmp_path,
+            recents=[
+                ("project-a", str(tmp_path / "project-a")),
+                ("project-b", str(tmp_path / "project-b")),
+            ],
+        )
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("RECENT", timeout=15.0)
+            os.write(fd, b"n")
+            output = reader.drain_until("new-project", timeout=5.0)
+            assert "new-project" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+    def test_n_still_works_with_ten_recents(self, tmp_path: Path) -> None:
+        """Regression: Phase J shipped with welcome clipping the new
+        Input off the bottom when the container overflowed. This test
+        seeds the welcome screen with 10 recents, then presses n, and
+        asserts the Input still lands in the visible viewport.
+        """
+        recents = [
+            (f"project-{i}", str(tmp_path / f"project-{i}")) for i in range(10)
+        ]
+        pid, fd = self._spawn(tmp_path, recents=recents)
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("RECENT", timeout=15.0)
+            os.write(fd, b"n")
+            output = reader.drain_until("new-project", timeout=5.0)
+            assert "new-project" in output, (
+                "welcome new-project Input clipped off-screen when "
+                "recents list is full -- layout regression"
+            )
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+    def test_o_mounts_open_existing_input(self, tmp_path: Path) -> None:
+        pid, fd = self._spawn(tmp_path, recents=None)
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("RECENT", timeout=15.0)
+            os.write(fd, b"o")
+            output = reader.drain_until("Path to workspace", timeout=5.0)
+            assert "Path to workspace" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+    def test_digit_1_opens_first_recent(self, tmp_path: Path) -> None:
+        """Pressing a digit (1-9) on the welcome screen should open
+        the matching recent project and transition to the dashboard.
+        """
+        # Build a real workspace so opening it actually lands on the
+        # dashboard (instead of erroring out with "no recon.yaml").
+        ws_dir = tmp_path / "real-workspace"
+        ws_dir.mkdir()
+        (ws_dir / "competitors").mkdir()
+        (ws_dir / ".recon").mkdir()
+        (ws_dir / ".recon" / "logs").mkdir()
+        schema = {
+            "domain": "Test Domain",
+            "identity": {
+                "company_name": "TestCo",
+                "products": ["TestProduct"],
+                "decision_context": ["build-vs-buy"],
+            },
+            "rating_scales": {
+                "cap": {
+                    "name": "Cap",
+                    "values": ["1", "2"],
+                    "never_use": ["emoji"],
+                },
+            },
+            "sections": [
+                {
+                    "key": "overview",
+                    "title": "Overview",
+                    "description": "x",
+                    "evidence_types": ["factual"],
+                    "allowed_formats": ["prose"],
+                    "preferred_format": "prose",
+                },
+            ],
+        }
+        (ws_dir / "recon.yaml").write_text(yaml.dump(schema))
+
+        pid, fd = self._spawn(
+            tmp_path,
+            recents=[("real-workspace", str(ws_dir))],
+        )
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("RECENT", timeout=15.0)
+            os.write(fd, b"1")
+            # The dashboard chrome header shows the workspace company
+            # name -- "TestCo" in the seeded schema.
+            output = reader.drain_until("TestCo", timeout=10.0)
+            assert "TestCo" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+
+@_REQUIRES_PTY
+class TestRunScreenKeybinds:
+    """Run screen keybinds: p pause, s stop, b back to dashboard."""
+
+    def test_b_returns_to_dashboard(self, tmp_path: Path) -> None:
+        workspace = _make_workspace(tmp_path)
+        pid, fd = _spawn_tui(
+            workspace=workspace,
+            recent_path=tmp_path / "home" / ".recon" / "recent.json",
+        )
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            # r -> planner, 6 -> full pipeline -> run mode
+            os.write(fd, b"r")
+            reader.drain_until("RUN PLANNER", timeout=5.0)
+            os.write(fd, b"6")
+            reader.drain_until("RUN MONITOR", timeout=5.0)
+            # Now press b to go back
+            os.write(fd, b"b")
+            output = reader.drain_until("COMPETITORS", timeout=5.0)
+            assert "COMPETITORS" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+
+@_REQUIRES_PTY
+class TestBrowserKeybinds:
+    """Browser keybinds: b back, escape back."""
+
+    def test_b_returns_to_dashboard(self, tmp_path: Path) -> None:
+        workspace = _make_workspace(tmp_path)
+        pid, fd = _spawn_tui(
+            workspace=workspace,
+            recent_path=tmp_path / "home" / ".recon" / "recent.json",
+        )
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            os.write(fd, b"b")
+            reader.drain_until("Name", timeout=5.0)
+            # Press b again to go back
+            os.write(fd, b"b")
+            output = reader.drain_until("add manually", timeout=5.0)
+            assert "add manually" in output  # dashboard keybind hint
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+    def test_escape_returns_to_dashboard(self, tmp_path: Path) -> None:
+        workspace = _make_workspace(tmp_path)
+        pid, fd = _spawn_tui(
+            workspace=workspace,
+            recent_path=tmp_path / "home" / ".recon" / "recent.json",
+        )
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            os.write(fd, b"b")
+            reader.drain_until("Name", timeout=5.0)
+            os.write(fd, b"\x1b")  # ESC
+            output = reader.drain_until("add manually", timeout=5.0)
+            assert "add manually" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+
+@_REQUIRES_PTY
+class TestPlannerDigitKeybinds:
+    """Planner digit bindings 1-7 must map to the 7 operations."""
+
+    def test_digit_6_full_pipeline_switches_to_run_mode(
+        self, tmp_path: Path,
+    ) -> None:
+        workspace = _make_workspace(tmp_path)
+        pid, fd = _spawn_tui(
+            workspace=workspace,
+            recent_path=tmp_path / "home" / ".recon" / "recent.json",
+        )
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            os.write(fd, b"r")
+            reader.drain_until("RUN PLANNER", timeout=5.0)
+            # Press 6 -> Operation.FULL_PIPELINE -> run mode
+            os.write(fd, b"6")
+            output = reader.drain_until("RUN MONITOR", timeout=5.0)
+            assert "RUN MONITOR" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)

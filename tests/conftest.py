@@ -59,6 +59,28 @@ def _clear_memory_log_buffer():
         get_memory_handler()._buffer.clear()
     yield
 
+
+@pytest.fixture(autouse=True)
+def _isolate_recent_projects(tmp_path, monkeypatch):
+    """Redirect the recent-projects JSON to a per-test tmp path.
+
+    Without this, any test that instantiates ``ReconApp`` ends up
+    writing to the real ``~/.recon/recent.json`` because
+    ``_record_recent_project`` hardcodes that global path. In a long
+    test session that file accumulates dozens of pytest tmp paths,
+    which then bleed into the user's real welcome screen the next
+    time they run ``recon tui``. Patching the module-level
+    ``_DEFAULT_RECENT_PATH`` per test makes each test self-contained
+    and keeps the user's production state clean.
+    """
+    with contextlib.suppress(Exception):
+        recent_path = tmp_path / "isolated_recent.json"
+        monkeypatch.setattr(
+            "recon.tui.screens.welcome._DEFAULT_RECENT_PATH",
+            recent_path,
+        )
+    yield
+
 MINIMAL_SCHEMA_DICT = {
     "domain": "Developer Tools",
     "identity": {

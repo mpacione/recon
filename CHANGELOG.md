@@ -7,6 +7,126 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed -- TUI audit Phase K (keybind regression + test pollution)
+
+User reported "none of the keyboard commands do anything" and asked
+whether the test suites actually verify real keyboard wiring. The
+honest answer was "no" -- the Phase E unit tests verified the action
+methods work when called directly but never pressed real keys end-to-
+end, and the Phase H smoke test only checked ``q`` (an App-level
+binding) which meant every screen-level binding could have been
+broken and the suite would still be green. This phase closes that
+gap and fixes two production bugs the new coverage caught.
+
+#### Bug #1: tests polluted the user's real ``~/.recon/recent.json``
+
+Three integration tests (``test_welcome_new_project_wizard_to_dashboard``,
+``test_open_workspace_switches_to_dashboard``, and friends) called
+``ReconApp()`` without patching ``_DEFAULT_RECENT_PATH``, so every
+test run wrote pytest tmp paths to the global recents file. After a
+normal dev session that file accumulated 10+ stale entries, which
+then rendered in the welcome screen's "Recent Projects" list the
+next time the user ran ``recon tui``. Beyond the visual garbage,
+it caused **Bug #2**.
+
+**Fix (two parts):**
+1. New autouse fixture in ``tests/conftest.py::_isolate_recent_projects``
+   monkey-patches ``recon.tui.screens.welcome._DEFAULT_RECENT_PATH``
+   to a per-test tmp dir. Every test now writes to isolated state.
+2. ``WelcomeScreen.__init__`` used to capture ``_DEFAULT_RECENT_PATH``
+   as a default argument value -- which is evaluated at function
+   definition time, NOT call time. That meant monkey-patching the
+   module variable had no effect on screens constructed later.
+   Fixed to read the module variable at call time:
+   ``self._recent_path = recent_projects_path or _DEFAULT_RECENT_PATH``.
+   This is the small-but-important distinction between default args
+   and runtime lookups in Python that bites everyone once.
+
+#### Bug #2: welcome screen clipped its Input off-screen on ``n`` press
+
+``WelcomeScreen._show_new_input`` mounted an Input into the
+``#welcome-container`` Vertical and called ``.focus()``. On a clean
+install this was fine -- banner + tagline + hint + empty recents +
+Input all fit in the viewport. But with a polluted recents file (or
+any user with 3+ real recents), the container overflowed the
+``align: center middle`` parent and the new Input clipped below the
+viewport fold. Users saw no visible change, concluded the key was
+broken, and gave up. Dashboard ``m`` (manual add) had the same
+structure but the empty-prompt container sat at the top of the body
+region instead of being vertically centered, so it never triggered
+the overflow path.
+
+**Fix:**
+1. ``#welcome-body`` now uses ``align: center top`` (was
+   ``center middle``) and sets ``overflow-y: auto`` so the container
+   scrolls when its contents grow.
+2. New ``WelcomeScreen._scroll_input_into_view`` helper calls
+   ``call_after_refresh(widget.scroll_visible, animate=False)`` after
+   mounting the Input. ``scroll_visible`` walks ancestor scrollables
+   until the widget is in frame -- which is exactly the behavior
+   that was missing. The ``call_after_refresh`` defer matters
+   because ``mount`` is async-ish and calling ``scroll_visible``
+   inline races the layout pass.
+
+#### Test coverage gap that masked both bugs
+
+Before this phase the TUI had three layers of tests:
+- **Unit tests** called ``screen.action_xxx()`` directly. These
+  verified action methods do the right thing when invoked, but
+  did NOT verify the key→action wiring at all.
+- **Integration tests** used ``pilot.press()`` via a full
+  ``ReconApp``. These DID exercise the binding path, but ran
+  in Textual's Pilot harness which has a different focus model
+  than a real terminal. Passed even when real terminals failed.
+- **One real-terminal smoke test** sent ``q`` to quit. ``q`` is an
+  App-level binding, not screen-level, so it would fire even if
+  every screen binding on every screen was broken.
+
+**New coverage:** ``tests/test_tui_real_terminal.py`` gained 13 new
+PTY-based keybind tests that press real keys and assert on the
+rendered output:
+
+- ``TestDashboardKeybinds`` -- r→planner, d→discovery, b→browser,
+  m on empty→Input mount
+- ``TestWelcomeKeybinds`` -- n with 0 recents, n with 2 recents,
+  **n with 10 recents** (the regression from Bug #2), o→open Input,
+  **digit 1→first recent** (verifies the recent project bindings)
+- ``TestRunScreenKeybinds`` -- b→back to dashboard (via planner
+  digit 6 → run mode → b)
+- ``TestBrowserKeybinds`` -- b→back, escape→back
+- ``TestPlannerDigitKeybinds`` -- digit 6→full pipeline→run mode
+
+Each test is **hermetic**: spawns ``recon tui`` in a fresh PTY with
+a fake ``$HOME`` pointing at a tmp dir with its own ``.recon/``
+subdirectory, so the tests can't see or write to the user's real
+state. The ``_spawn_tui`` helper honors a ``recent_path`` argument
+that pre-seeds the welcome screen with the exact recents list the
+test wants, which made the 10-recents regression trivially
+reproducible.
+
+#### Bonus fixes
+
+- ``_ANSI_RE`` in the smoke test now also strips OSC sequences
+  (``\x1b] ... \x07``) that Textual emits for title and color
+  palette updates. Without this, substring assertions on output
+  that contained these sequences were flaky.
+- ``~/.recon/recent.json`` was cleaned of the 10 polluted pytest
+  paths that accumulated during development.
+
+#### Tests
+- 699 → 712 passing (+13 new PTY tests). Lint clean.
+- Verified manually across 0, 1, 3, 5, 10, and 15 recents that
+  pressing ``n`` still lands the Input visibly on screen every time.
+- Production ``~/.recon/recent.json`` stays empty after a full
+  test run, confirming the isolation fixture works.
+
+Lesson for future phases: **when a test setup yields a Screen as a
+child widget instead of pushing it, you're not testing the focus
+model that real terminals use.** The unit tests and the in-process
+Pilot tests are both useful but neither catches a whole class of
+real-terminal bugs. Every new screen needs at least one PTY-based
+smoke test that presses its primary keybinding.
+
 ### Added -- TUI audit Phase J (TerminalBox + CardStack primitives)
 
 Closes the remaining visual gap with cyberspace.online by giving
