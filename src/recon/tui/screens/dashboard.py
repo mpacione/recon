@@ -14,8 +14,8 @@ from pathlib import Path  # noqa: TCH003 -- used at runtime
 from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, Input, Static
+from textual.containers import Vertical
+from textual.widgets import Input, Static
 
 from recon.logging import get_logger
 from recon.tui.models.dashboard import DashboardData  # noqa: TCH001 -- used at runtime
@@ -28,12 +28,16 @@ class DashboardScreen(ReconScreen):
     """Workspace status dashboard."""
 
     BINDINGS = [
+        Binding("r", "run", "run pipeline"),
+        Binding("d", "discover", "discover competitors"),
+        Binding("b", "browse", "browse competitors"),
+        Binding("m", "add_manually", "add manually"),
         Binding("y", "start_discovery", "Yes, discover", show=False),
     ]
 
     keybind_hints = (
         "[#e0a044]r[/] run · [#e0a044]d[/] discover · [#e0a044]b[/] browse · "
-        "[#e0a044]q[/] quit · [#e0a044]?[/] help"
+        "[#e0a044]m[/] add manually · [#e0a044]q[/] quit · [#e0a044]?[/] help"
     )
 
     DEFAULT_CSS = """
@@ -55,26 +59,11 @@ class DashboardScreen(ReconScreen):
         height: auto;
         margin: 0 0 1 0;
     }
-    .action-bar {
-        height: auto;
-        margin: 1 0;
-        layout: horizontal;
-    }
-    .action-bar Button {
-        margin: 0 1 0 0;
-    }
     #empty-prompt {
         height: auto;
         margin: 1 0;
         padding: 1 2;
         border: solid #3a3a3a;
-    }
-    .empty-actions {
-        height: auto;
-        margin: 1 0 0 0;
-    }
-    .empty-actions Button {
-        margin: 0 1 0 0;
     }
     """
 
@@ -89,32 +78,15 @@ class DashboardScreen(ReconScreen):
         else:
             yield from self._compose_workspace_status()
 
-        with Horizontal(classes="action-bar"):
-            yield Button("Run", id="btn-run", variant="primary")
-            yield Button("Discover", id="btn-discover")
-            yield Button("Browse", id="btn-browse")
-            yield Button("Quit", id="btn-quit", variant="error")
-
     def _compose_empty_prompt(self):
         with Vertical(id="empty-prompt"):
             yield Static("[#efe5c0]No competitors yet.[/]")
             yield Static("")
             yield Static(
-                "Search the web for competitors in this domain,\n"
-                "or add them manually by name.",
+                "Press [#e0a044]d[/] to discover competitors via web search,\n"
+                "or press [#e0a044]m[/] to add them manually by name.",
                 classes="dim",
             )
-            yield Static("")
-            with Horizontal(classes="empty-actions"):
-                yield Button(
-                    "Start Discovery",
-                    id="btn-empty-discover",
-                    variant="primary",
-                )
-                yield Button(
-                    "Add Manually",
-                    id="btn-empty-manual",
-                )
 
     def _compose_workspace_status(self):
         yield Static(
@@ -192,30 +164,44 @@ class DashboardScreen(ReconScreen):
         if self._data.total_competitors == 0:
             self._push_discovery()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        button_id = event.button.id
+    def action_run(self) -> None:
         _log.info(
-            "DashboardScreen button pressed id=%s competitors=%d",
-            button_id,
-            self._data.total_competitors,
+            "DashboardScreen action_run competitors=%d", self._data.total_competitors,
         )
-        if button_id in ("btn-browse", "btn-empty-browse"):
-            self._push_browser()
-        elif button_id in ("btn-discover", "btn-empty-discover"):
-            self._push_discovery()
-        elif button_id == "btn-empty-manual":
-            self._show_manual_add_input()
-        elif button_id == "btn-run":
-            if self._data.total_competitors == 0:
-                self.app.notify(
-                    "No competitors yet. Discover or add some first.",
-                    title="Nothing to run",
-                    severity="warning",
-                )
-                return
-            self._push_planner()
-        elif button_id == "btn-quit":
-            self.app.exit()
+        if self._data.total_competitors == 0:
+            self.app.notify(
+                "No competitors yet. Discover or add some first.",
+                title="Nothing to run",
+                severity="warning",
+            )
+            return
+        self._push_planner()
+
+    def action_discover(self) -> None:
+        _log.info("DashboardScreen action_discover")
+        self._push_discovery()
+
+    def action_browse(self) -> None:
+        _log.info("DashboardScreen action_browse")
+        if self._data.total_competitors == 0:
+            self.app.notify(
+                "No competitors to browse yet. Discover or add some first.",
+                title="Nothing to browse",
+                severity="warning",
+            )
+            return
+        self._push_browser()
+
+    def action_add_manually(self) -> None:
+        _log.info("DashboardScreen action_add_manually")
+        if self._data.total_competitors > 0:
+            self.app.notify(
+                "Manual add only works on an empty workspace; "
+                "use the discovery flow instead.",
+                severity="information",
+            )
+            return
+        self._show_manual_add_input()
 
     def _push_browser(self) -> None:
         from recon.tui.screens.browser import CompetitorBrowserScreen

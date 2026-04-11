@@ -8,8 +8,8 @@ for the selected competitor on the right.
 from __future__ import annotations
 
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
-from textual.containers import Horizontal
-from textual.widgets import Button, DataTable, Static
+from textual.binding import Binding
+from textual.widgets import DataTable, Static
 
 from recon.logging import get_logger
 from recon.tui.models.dashboard import DashboardData  # noqa: TCH001
@@ -21,7 +21,10 @@ _log = get_logger(__name__)
 class CompetitorBrowserScreen(ReconScreen):
     """Scrollable competitor list with detail panel."""
 
-    keybind_hints = "[#e0a044]esc[/] back · [#e0a044]↑↓[/] navigate · [#e0a044]q[/] quit"
+    keybind_hints = (
+        "[#e0a044]b[/] back · [#e0a044]esc[/] back · "
+        "[#e0a044]↑↓[/] navigate · [#e0a044]q[/] quit"
+    )
 
     DEFAULT_CSS = """
     CompetitorBrowserScreen {
@@ -37,18 +40,11 @@ class CompetitorBrowserScreen(ReconScreen):
         padding: 1 2;
         border: solid #3a3a3a;
     }
-    .action-bar {
-        height: auto;
-        margin: 1 0;
-        layout: horizontal;
-    }
-    .action-bar Button {
-        margin: 0 1 0 0;
-    }
     """
 
     BINDINGS = [
-        ("escape", "pop_screen", "Back"),
+        Binding("b", "back", "back"),
+        Binding("escape", "back", "back"),
     ]
 
     def __init__(self, data: DashboardData) -> None:
@@ -74,15 +70,9 @@ class CompetitorBrowserScreen(ReconScreen):
                 id="browser-detail",
             )
 
-        yield Static("")
-        with Horizontal(classes="action-bar"):
-            yield Button("Back to Dashboard", id="btn-back", variant="primary")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        button_id = event.button.id or ""
-        _log.info("CompetitorBrowserScreen button pressed id=%s", button_id)
-        if button_id == "btn-back":
-            self.app.pop_screen()
+    def action_back(self) -> None:
+        _log.info("CompetitorBrowserScreen action_back")
+        self.app.pop_screen()
 
     def on_mount(self) -> None:
         if not self._data.competitor_rows:

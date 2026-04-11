@@ -38,7 +38,10 @@ class _WelcomeApp(App):
         self._recent_path = recent_path
 
     def compose(self) -> ComposeResult:
-        yield WelcomeScreen(recent_projects_path=self._recent_path)
+        yield Static("")
+
+    def on_mount(self) -> None:
+        self.push_screen(WelcomeScreen(recent_projects_path=self._recent_path))
 
 
 class _WelcomeWithRecentsApp(App):
@@ -49,7 +52,10 @@ class _WelcomeWithRecentsApp(App):
         self._recent_path = recent_path
 
     def compose(self) -> ComposeResult:
-        yield WelcomeScreen(recent_projects_path=self._recent_path)
+        yield Static("")
+
+    def on_mount(self) -> None:
+        self.push_screen(WelcomeScreen(recent_projects_path=self._recent_path))
 
 
 class _DashboardEmptyApp(App):
@@ -60,6 +66,9 @@ class _DashboardEmptyApp(App):
         self._workspace_path = workspace_path
 
     def compose(self) -> ComposeResult:
+        yield Static("")
+
+    def on_mount(self) -> None:
         data = DashboardData(
             domain="Developer Tools",
             company_name="Acme Corp",
@@ -67,7 +76,9 @@ class _DashboardEmptyApp(App):
             status_counts={},
             competitor_rows=[],
         )
-        yield DashboardScreen(data=data, workspace_path=self._workspace_path)
+        self.push_screen(
+            DashboardScreen(data=data, workspace_path=self._workspace_path),
+        )
 
 
 class _DashboardPopulatedApp(App):
@@ -78,6 +89,9 @@ class _DashboardPopulatedApp(App):
         self._workspace_path = workspace_path
 
     def compose(self) -> ComposeResult:
+        yield Static("")
+
+    def on_mount(self) -> None:
         data = DashboardData(
             domain="Developer Tools",
             company_name="Acme Corp",
@@ -101,7 +115,9 @@ class _DashboardPopulatedApp(App):
             last_run_cost=48.20,
             run_count=3,
         )
-        yield DashboardScreen(data=data, workspace_path=self._workspace_path)
+        self.push_screen(
+            DashboardScreen(data=data, workspace_path=self._workspace_path),
+        )
 
 
 class _DiscoveryApp(App):
@@ -150,17 +166,21 @@ class _RunIdleApp(App):
     CSS = RECON_CSS
 
     def compose(self) -> ComposeResult:
-        yield RunScreen()
+        yield Static("")
+
+    def on_mount(self) -> None:
+        self.push_screen(RunScreen())
 
 
 class _RunActiveApp(App):
     CSS = RECON_CSS
 
     def compose(self) -> ComposeResult:
-        yield RunScreen()
+        yield Static("")
 
     def on_mount(self) -> None:
-        screen = self.query_one(RunScreen)
+        screen = RunScreen()
+        self.push_screen(screen)
         screen.current_phase = "research"
         screen.progress = 0.51
         screen.cost_usd = 18.40

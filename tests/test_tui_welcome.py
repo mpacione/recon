@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from textual.widgets import Button, Static
+from textual.binding import Binding
+from textual.widgets import Static
 
 from recon.tui.screens.welcome import (
     RecentProject,
@@ -113,11 +114,18 @@ class TestWelcomeScreen:
 
         return WelcomeTestApp(), json_path
 
-    async def test_mounts_with_new_and_open_buttons(self, welcome_app) -> None:
+    async def test_does_not_render_action_row_buttons(self, welcome_app) -> None:
+        """Welcome's action-row Buttons (New / Open) are gone.
+
+        Pressing ``n`` mounts the new-project Input; ``o`` mounts the
+        open-project Input. Recent projects are selected by their
+        index key (1..9).
+        """
         app, _ = welcome_app
         async with app.run_test(size=(120, 40)):
-            assert app.query_one("#btn-new", Button)
-            assert app.query_one("#btn-open", Button)
+            assert not app.query("#btn-new")
+            assert not app.query("#btn-open")
+            assert not app.query(".action-row")
 
     async def test_shows_no_recent_message_when_empty(self, welcome_app) -> None:
         app, _ = welcome_app
@@ -136,44 +144,134 @@ class TestWelcomeScreen:
             assert len(recent_items) == 2
 
 
+class TestWelcomeScreenKeybindings:
+    """Welcome's actions are exposed via keybindings.
+
+    - ``n`` mounts the new-project Input
+    - ``o`` mounts the open-project Input
+    - ``1``..``9`` open the corresponding recent project
+    """
+
+    async def test_screen_declares_new_open_keybindings(self, tmp_path: Path) -> None:
+        from textual.app import App, ComposeResult
+
+        json_path = tmp_path / "recent.json"
+
+        class TestApp(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield WelcomeScreen(recent_projects_path=json_path)
+
+        app = TestApp()
+        async with app.run_test(size=(120, 40)):
+            screen = app.query_one(WelcomeScreen)
+            keys = {b.key for b in screen.BINDINGS if isinstance(b, Binding)}
+            assert "n" in keys
+            assert "o" in keys
+
+    async def test_action_new_mounts_path_input(self, tmp_path: Path) -> None:
+        from textual.app import App, ComposeResult
+        from textual.widgets import Input
+
+        json_path = tmp_path / "recent.json"
+
+        class TestApp(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield WelcomeScreen(recent_projects_path=json_path)
+
+        app = TestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(WelcomeScreen)
+            screen.action_new()
+            await pilot.pause()
+            assert app.query_one("#new-path-input", Input) is not None
+
+    async def test_action_open_mounts_path_input(self, tmp_path: Path) -> None:
+        from textual.app import App, ComposeResult
+        from textual.widgets import Input
+
+        json_path = tmp_path / "recent.json"
+
+        class TestApp(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield WelcomeScreen(recent_projects_path=json_path)
+
+        app = TestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(WelcomeScreen)
+            screen.action_open()
+            await pilot.pause()
+            assert app.query_one("#open-path-input", Input) is not None
+
+    async def test_action_open_recent_posts_workspace_selected(
+        self, tmp_path: Path
+    ) -> None:
+        """Pressing a digit key (1..9) opens the matching recent
+        project. Implementation detail: each digit binds to
+        ``action_open_recent`` with the index as a parameter.
+        """
+        from textual.app import App, ComposeResult
+
+        json_path = tmp_path / "recent.json"
+        manager = RecentProjectsManager(json_path)
+        manager.add(Path("/tmp/alpha"), "Alpha")
+        manager.add(Path("/tmp/beta"), "Beta")
+
+        opened: list[str] = []
+
+        class TestApp(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield WelcomeScreen(recent_projects_path=json_path)
+
+            def on_welcome_screen_workspace_selected(
+                self, event: WelcomeScreen.WorkspaceSelected
+            ) -> None:
+                opened.append(event.path)
+
+        app = TestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(WelcomeScreen)
+            # Open the second recent (index 1) -- which is "Alpha"
+            # because beta was added second so it's at index 0
+            screen.action_open_recent(1)
+            await pilot.pause()
+            assert opened == ["/tmp/alpha"]
+
+    async def test_keybind_hints_mention_new_open(self, tmp_path: Path) -> None:
+        from textual.app import App, ComposeResult
+
+        json_path = tmp_path / "recent.json"
+
+        class TestApp(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield WelcomeScreen(recent_projects_path=json_path)
+
+        app = TestApp()
+        async with app.run_test(size=(120, 40)):
+            screen = app.query_one(WelcomeScreen)
+            hints = screen.keybind_hints
+            assert "n" in hints
+            assert "o" in hints
+            assert "new" in hints
+            assert "open" in hints
+
+
 class TestWelcomeScreenWiring:
-    async def test_open_button_shows_path_input(self, tmp_path: Path) -> None:
-        from textual.app import App, ComposeResult
-        from textual.widgets import Input
+    """Wiring tests that exercise the Input submit flow.
 
-        json_path = tmp_path / "recent.json"
-
-        class TestApp(App):
-            CSS = "Screen { background: #000000; }"
-
-            def compose(self) -> ComposeResult:
-                yield WelcomeScreen(recent_projects_path=json_path)
-
-        app = TestApp()
-        async with app.run_test(size=(120, 40)) as pilot:
-            app.query_one("#btn-open", Button).press()
-            await pilot.pause()
-            path_input = app.query_one("#open-path-input", Input)
-            assert path_input is not None
-
-    async def test_new_button_shows_path_input(self, tmp_path: Path) -> None:
-        from textual.app import App, ComposeResult
-        from textual.widgets import Input
-
-        json_path = tmp_path / "recent.json"
-
-        class TestApp(App):
-            CSS = "Screen { background: #000000; }"
-
-            def compose(self) -> ComposeResult:
-                yield WelcomeScreen(recent_projects_path=json_path)
-
-        app = TestApp()
-        async with app.run_test(size=(120, 40)) as pilot:
-            app.query_one("#btn-new", Button).press()
-            await pilot.pause()
-            path_input = app.query_one("#new-path-input", Input)
-            assert path_input is not None
+    The actual Input mounting now happens via the action methods
+    rather than button presses, but the message-posting behavior on
+    submit is unchanged.
+    """
 
     async def test_new_path_submit_posts_message(self, tmp_path: Path) -> None:
         from textual.app import App, ComposeResult
@@ -188,16 +286,21 @@ class TestWelcomeScreenWiring:
             def compose(self) -> ComposeResult:
                 yield WelcomeScreen(recent_projects_path=json_path)
 
-            def on_welcome_screen_new_project_requested(self, event: WelcomeScreen.NewProjectRequested) -> None:
+            def on_welcome_screen_new_project_requested(
+                self, event: WelcomeScreen.NewProjectRequested
+            ) -> None:
                 new_requests.append(event.path)
 
         app = TestApp()
         async with app.run_test(size=(120, 40)) as pilot:
-            app.query_one("#btn-new", Button).press()
+            screen = app.query_one(WelcomeScreen)
+            screen.action_new()
             await pilot.pause()
             path_input = app.query_one("#new-path-input", Input)
             path_input.value = str(tmp_path / "my-project")
-            path_input.post_message(Input.Submitted(path_input, str(tmp_path / "my-project")))
+            path_input.post_message(
+                Input.Submitted(path_input, str(tmp_path / "my-project"))
+            )
             await pilot.pause()
             assert len(new_requests) == 1
             assert "my-project" in new_requests[0]
@@ -215,16 +318,21 @@ class TestWelcomeScreenWiring:
             def compose(self) -> ComposeResult:
                 yield WelcomeScreen(recent_projects_path=json_path)
 
-            def on_welcome_screen_workspace_selected(self, event: WelcomeScreen.WorkspaceSelected) -> None:
+            def on_welcome_screen_workspace_selected(
+                self, event: WelcomeScreen.WorkspaceSelected
+            ) -> None:
                 workspace_opened.append(event.path)
 
         app = TestApp()
         async with app.run_test(size=(120, 40)) as pilot:
-            app.query_one("#btn-open", Button).press()
+            screen = app.query_one(WelcomeScreen)
+            screen.action_open()
             await pilot.pause()
             path_input = app.query_one("#open-path-input", Input)
             path_input.value = str(tmp_workspace)
-            path_input.post_message(Input.Submitted(path_input, str(tmp_workspace)))
+            path_input.post_message(
+                Input.Submitted(path_input, str(tmp_workspace))
+            )
             await pilot.pause()
             assert len(workspace_opened) == 1
             assert workspace_opened[0] == str(tmp_workspace)

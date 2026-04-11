@@ -13,9 +13,10 @@ from typing import Any
 
 from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
-from textual.containers import Horizontal, Vertical
+from textual.binding import Binding
+from textual.containers import Vertical
 from textual.reactive import reactive
-from textual.widgets import Button, Static
+from textual.widgets import Static
 
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
@@ -28,6 +29,12 @@ PipelineFn = Callable[["RunScreen"], Coroutine[Any, Any, None]]
 
 class RunScreen(ReconScreen):
     """Live pipeline monitor with reactive state."""
+
+    BINDINGS = [
+        Binding("p", "pause", "pause/resume"),
+        Binding("s", "stop", "stop"),
+        Binding("b", "back", "back to dashboard"),
+    ]
 
     keybind_hints = (
         "[#e0a044]p[/] pause/resume · [#e0a044]s[/] stop · "
@@ -51,14 +58,6 @@ class RunScreen(ReconScreen):
     #run-activity-section {
         height: auto;
         margin: 1 0;
-    }
-    .action-bar {
-        height: auto;
-        margin: 1 0;
-        layout: horizontal;
-    }
-    .action-bar Button {
-        margin: 0 1 0 0;
     }
     """
 
@@ -90,21 +89,18 @@ class RunScreen(ReconScreen):
         with Vertical(id="run-activity-section"):
             yield Static("[bold #e0a044]── ACTIVITY ──[/]")
             yield Static("[#a89984]waiting for pipeline...[/]", id="run-activity")
-        yield Static("")
-        with Horizontal(classes="action-bar"):
-            yield Button("Pause", id="btn-pause")
-            yield Button("Stop", id="btn-stop", variant="error")
-            yield Button("Back to Dashboard", id="btn-back-to-dashboard", variant="primary")
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        button_id = event.button.id or ""
-        _log.info("RunScreen button pressed id=%s", button_id)
-        if button_id == "btn-back-to-dashboard":
-            self.app.switch_mode("dashboard")
-        elif button_id == "btn-pause":
-            self._toggle_pause()
-        elif button_id == "btn-stop":
-            self._request_stop()
+    def action_back(self) -> None:
+        _log.info("RunScreen action_back")
+        self.app.switch_mode("dashboard")
+
+    def action_pause(self) -> None:
+        _log.info("RunScreen action_pause")
+        self._toggle_pause()
+
+    def action_stop(self) -> None:
+        _log.info("RunScreen action_stop")
+        self._request_stop()
 
     def _request_stop(self) -> None:
         """Set the cancel event the TUI runner stored on the app, if any."""
@@ -129,8 +125,9 @@ class RunScreen(ReconScreen):
 
         Pause is implemented by clearing an asyncio.Event the worker
         pool waits on before each task. Resume sets it again. The
-        button label flips between "Pause" and "Resume" so the user
-        can see the current state.
+        ``current_phase`` reactive flips to ``"paused"`` so the chrome
+        header strip and the on-screen Phase widget both reflect the
+        state.
         """
         pause_event = getattr(self.app, "_pipeline_pause_event", None)
         if pause_event is None:
@@ -141,18 +138,16 @@ class RunScreen(ReconScreen):
             )
             return
 
-        pause_button = self.query_one("#btn-pause", Button)
         if pause_event.is_set():
             # Currently running -> pause
             pause_event.clear()
-            pause_button.label = "Resume"
             self.current_phase = "paused"
-            self.add_activity("Pipeline paused -- click Resume to continue")
+            self.add_activity("Pipeline paused -- press p again to resume")
             self.app.notify("Pipeline paused", severity="information")
         else:
             # Currently paused -> resume
             pause_event.set()
-            pause_button.label = "Pause"
+            self.current_phase = "running"
             self.add_activity("Pipeline resumed")
             self.app.notify("Pipeline resumed", severity="information")
 

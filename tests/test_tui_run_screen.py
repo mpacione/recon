@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.widgets import Static
 
 from recon.tui.screens.run import RunScreen
@@ -97,10 +98,8 @@ class TestRunScreen:
             assert "research" in phases_seen
             assert "complete" in phases_seen
 
-    async def test_stop_button_sets_app_cancel_event(self) -> None:
+    async def test_action_stop_sets_app_cancel_event(self) -> None:
         import asyncio
-
-        from textual.widgets import Button
 
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
@@ -108,17 +107,14 @@ class TestRunScreen:
             app._pipeline_cancel_event = event
 
             screen = app.query_one(RunScreen)
-            stop_btn = screen.query_one("#btn-stop", Button)
-            stop_btn.press()
+            screen.action_stop()
             await pilot.pause()
 
             assert event.is_set()
             assert screen.current_phase == "stopping"
 
-    async def test_pause_button_toggles_pause_event_and_label(self) -> None:
+    async def test_action_pause_toggles_pause_event_and_phase(self) -> None:
         import asyncio
-
-        from textual.widgets import Button
 
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
@@ -127,24 +123,20 @@ class TestRunScreen:
             app._pipeline_pause_event = event
 
             screen = app.query_one(RunScreen)
-            pause_btn = screen.query_one("#btn-pause", Button)
 
-            # First press: pause -> event cleared, label "Resume"
-            pause_btn.press()
+            # First press: pause -> event cleared, phase = paused
+            screen.action_pause()
             await pilot.pause()
             assert not event.is_set()
-            assert str(pause_btn.label) == "Resume"
             assert screen.current_phase == "paused"
 
-            # Second press: resume -> event set, label "Pause"
-            pause_btn.press()
+            # Second press: resume -> event set, phase != paused
+            screen.action_pause()
             await pilot.pause()
             assert event.is_set()
-            assert str(pause_btn.label) == "Pause"
+            assert screen.current_phase != "paused"
 
-    async def test_pause_button_with_no_active_pipeline_notifies(self) -> None:
-        from textual.widgets import Button
-
+    async def test_action_pause_with_no_active_pipeline_notifies(self) -> None:
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
             screen = app.query_one(RunScreen)
@@ -155,18 +147,16 @@ class TestRunScreen:
                 "notify",
                 lambda self, msg, **kw: notifications.append(msg),
             ):
-                screen.query_one("#btn-pause", Button).press()
+                screen.action_pause()
                 await pilot.pause()
 
             assert any("No active pipeline" in m for m in notifications)
 
-    async def test_stop_unblocks_paused_pipeline(self) -> None:
+    async def test_action_stop_unblocks_paused_pipeline(self) -> None:
         """Stop while paused should release the pause so the worker
         can observe the cancel and exit cleanly.
         """
         import asyncio
-
-        from textual.widgets import Button
 
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
@@ -176,15 +166,13 @@ class TestRunScreen:
             app._pipeline_pause_event = pause
 
             screen = app.query_one(RunScreen)
-            screen.query_one("#btn-stop", Button).press()
+            screen.action_stop()
             await pilot.pause()
 
             assert cancel.is_set()
             assert pause.is_set(), "Stop should release the pause event"
 
-    async def test_stop_button_with_no_active_pipeline_notifies(self) -> None:
-        from textual.widgets import Button
-
+    async def test_action_stop_with_no_active_pipeline_notifies(self) -> None:
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
             screen = app.query_one(RunScreen)
@@ -195,7 +183,7 @@ class TestRunScreen:
                 "notify",
                 lambda self, msg, **kw: notifications.append(msg),
             ):
-                screen.query_one("#btn-stop", Button).press()
+                screen.action_stop()
                 await pilot.pause()
 
             assert any("No active pipeline" in m for m in notifications)
@@ -237,3 +225,75 @@ class TestRunScreen:
             await pilot.pause()
             assert len(gate_result) >= 1
             assert screen.current_phase == "complete"
+
+
+class TestRunScreenKeybindings:
+    """RunScreen exposes pause/stop/back via keybindings.
+
+    The action-bar buttons are gone; pressing p/s/b fires the
+    matching ``action_*`` method.
+    """
+
+    async def test_screen_declares_pause_stop_back_keybindings(self) -> None:
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)):
+            screen = app.query_one(RunScreen)
+            keys = {b.key for b in screen.BINDINGS if isinstance(b, Binding)}
+            assert "p" in keys
+            assert "s" in keys
+            assert "b" in keys
+
+    async def test_does_not_render_action_bar_buttons(self) -> None:
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)):
+            assert not app.query("#btn-pause")
+            assert not app.query("#btn-stop")
+            assert not app.query("#btn-back-to-dashboard")
+            assert not app.query(".action-bar")
+
+    async def test_action_back_switches_to_dashboard_mode(self) -> None:
+        switch_calls: list[str] = []
+
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(RunScreen)
+            with patch.object(
+                type(app),
+                "switch_mode",
+                lambda self, name: switch_calls.append(name),
+            ):
+                screen.action_back()
+                await pilot.pause()
+            assert switch_calls == ["dashboard"]
+
+    async def test_keybind_hints_mention_pause_stop_back(self) -> None:
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)):
+            screen = app.query_one(RunScreen)
+            hints = screen.keybind_hints
+            assert "p" in hints
+            assert "s" in hints
+            assert "b" in hints
+            assert "pause" in hints
+            assert "stop" in hints
+
+    async def test_pause_phase_indicator_reflects_paused_state(self) -> None:
+        """The visual cue that used to come from the button label
+        flipping to "Resume" now lives in the phase status: when
+        paused, current_phase is set to ``paused`` and the chrome /
+        run-phase widget renders that.
+        """
+        import asyncio
+
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            event = asyncio.Event()
+            event.set()
+            app._pipeline_pause_event = event
+
+            screen = app.query_one(RunScreen)
+            screen.action_pause()
+            await pilot.pause()
+            assert screen.current_phase == "paused"
+            phase_static = app.query_one("#run-phase", Static)
+            assert "Paused" in str(phase_static.content)

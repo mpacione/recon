@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.widgets import DataTable, Static
 
 from recon.tui.models.dashboard import DashboardData
@@ -95,3 +96,47 @@ class TestCompetitorBrowserScreen:
             await pilot.pause()
             detail = app.screen.query_one("#browser-detail", Static)
             assert "Competitor 2" in str(detail.content)
+
+
+class TestBrowserKeybindings:
+    """Browser exposes its only action (back to dashboard) via keybinds.
+
+    The action-bar Back button is gone; pressing ``b`` (or ``escape``)
+    pops the screen back to the dashboard.
+    """
+
+    async def test_screen_declares_back_keybinding(self) -> None:
+        app = _BrowserTestApp(data=_make_data(3))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, CompetitorBrowserScreen)
+            keys = {b.key for b in screen.BINDINGS if isinstance(b, Binding)}
+            assert "b" in keys
+            assert "escape" in keys
+
+    async def test_does_not_render_action_bar_buttons(self) -> None:
+        app = _BrowserTestApp(data=_make_data(3))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert not app.screen.query("#btn-back")
+            assert not app.screen.query(".action-bar")
+
+    async def test_pressing_b_returns_to_dashboard(self) -> None:
+        app = _BrowserTestApp(data=_make_data(3))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, CompetitorBrowserScreen)
+            await pilot.press("b")
+            await pilot.pause()
+            assert not isinstance(app.screen, CompetitorBrowserScreen)
+
+    async def test_keybind_hints_mention_back(self) -> None:
+        app = _BrowserTestApp(data=_make_data(3))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, CompetitorBrowserScreen)
+            hints = screen.keybind_hints
+            assert "b" in hints
+            assert "back" in hints

@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path  # noqa: TCH003 -- used at runtime in fixtures
 
 from textual.app import App, ComposeResult
-from textual.widgets import Button, Static
+from textual.binding import Binding
+from textual.widgets import Static
 
 from recon.tui.models.dashboard import DashboardData
 from recon.tui.screens.dashboard import DashboardScreen
@@ -85,21 +86,39 @@ class TestDashboardScreen:
             stats = app.query_one("#competitor-stats", Static)
             assert "47" in str(stats.content)
 
-    async def test_shows_action_buttons(self, tmp_path: Path) -> None:
+    async def test_does_not_render_action_bar_buttons(self, tmp_path: Path) -> None:
+        """The action-bar Buttons (Run / Discover / Browse / Quit) are gone.
+
+        Their behavior is now exposed via key bindings in the chrome
+        keybind hint strip; pressing the corresponding letter key fires
+        the matching action method.
+        """
         data = _make_dashboard_data(total_competitors=5)
         app = _DashboardTestApp(data, tmp_path)
         async with app.run_test(size=(120, 40)):
-            assert app.query_one("#btn-run", Button)
-            assert app.query_one("#btn-discover", Button)
-            assert app.query_one("#btn-browse", Button)
+            assert not app.query("#btn-run")
+            assert not app.query("#btn-discover")
+            assert not app.query("#btn-browse")
+            assert not app.query("#btn-quit")
+            assert not app.query(".action-bar")
 
     async def test_empty_workspace_shows_prompt(self, tmp_path: Path) -> None:
         data = _make_dashboard_data(total_competitors=0)
         app = _DashboardTestApp(data, tmp_path)
         async with app.run_test(size=(120, 40)):
             assert app.query_one("#empty-prompt")
-            assert app.query_one("#btn-empty-discover", Button)
-            assert app.query_one("#btn-empty-manual", Button)
+
+    async def test_empty_workspace_does_not_render_action_buttons(
+        self, tmp_path: Path
+    ) -> None:
+        """Empty-state CTAs ("Start Discovery" / "Add Manually") are
+        replaced by keybind-driven actions and an instructional Static.
+        """
+        data = _make_dashboard_data(total_competitors=0)
+        app = _DashboardTestApp(data, tmp_path)
+        async with app.run_test(size=(120, 40)):
+            assert not app.query("#btn-empty-discover")
+            assert not app.query("#btn-empty-manual")
 
     async def test_populated_workspace_hides_empty_prompt(self, tmp_path: Path) -> None:
         data = _make_dashboard_data(total_competitors=10)
@@ -121,44 +140,127 @@ class TestDashboardScreen:
             assert "35" in content
 
 
-class TestDashboardButtonWiring:
-    async def test_browse_button_pushes_browser_screen(self, tmp_path: Path) -> None:
+class TestDashboardKeybindings:
+    """Dashboard exposes its actions via key bindings on the screen.
+
+    The action-bar buttons are gone; pressing r/d/b/m fires the
+    matching ``action_*`` method on :class:`DashboardScreen`.
+    """
+
+    async def test_screen_declares_run_discover_browse_keybindings(
+        self, tmp_path: Path
+    ) -> None:
+        data = _make_dashboard_data(total_competitors=5, status_counts={"scaffold": 5})
+        app = _DashboardTestApp(data, tmp_path)
+        async with app.run_test(size=(120, 40)):
+            screen = app.query_one(DashboardScreen)
+            keys = {b.key for b in screen.BINDINGS if isinstance(b, Binding)}
+            assert "r" in keys
+            assert "d" in keys
+            assert "b" in keys
+            assert "m" in keys
+
+    async def test_action_browse_pushes_browser_screen(self, tmp_path: Path) -> None:
         from recon.tui.screens.browser import CompetitorBrowserScreen
 
         data = _make_dashboard_data(total_competitors=5, status_counts={"scaffold": 5})
         app = _DashboardTestApp(data, tmp_path)
         async with app.run_test(size=(120, 40)) as pilot:
-            app.query_one("#btn-browse", Button).press()
+            screen = app.query_one(DashboardScreen)
+            screen.action_browse()
             await pilot.pause()
             assert isinstance(app.screen, CompetitorBrowserScreen)
 
-    async def test_discover_button_pushes_discovery_screen(self, tmp_path: Path) -> None:
+    async def test_action_discover_pushes_discovery_screen(self, tmp_path: Path) -> None:
         from recon.tui.screens.discovery import DiscoveryScreen
 
         data = _make_dashboard_data(total_competitors=5)
         app = _DashboardTestApp(data, tmp_path)
         async with app.run_test(size=(120, 40)) as pilot:
-            app.query_one("#btn-discover", Button).press()
+            screen = app.query_one(DashboardScreen)
+            screen.action_discover()
             await pilot.pause()
             assert isinstance(app.screen, DiscoveryScreen)
 
-    async def test_run_button_pushes_planner_screen(self, tmp_path: Path) -> None:
+    async def test_action_run_pushes_planner_screen(self, tmp_path: Path) -> None:
         from recon.tui.screens.planner import RunPlannerScreen
 
         data = _make_dashboard_data(total_competitors=10, status_counts={"scaffold": 10})
         app = _DashboardTestApp(data, tmp_path)
         async with app.run_test(size=(120, 40)) as pilot:
-            app.query_one("#btn-run", Button).press()
+            screen = app.query_one(DashboardScreen)
+            screen.action_run()
             await pilot.pause()
             assert isinstance(app.screen, RunPlannerScreen)
 
-    async def test_y_key_on_empty_workspace_pushes_discovery(self, tmp_path: Path) -> None:
+    async def test_action_run_on_empty_workspace_notifies_instead_of_pushing(
+        self, tmp_path: Path
+    ) -> None:
+        from unittest.mock import patch
+
+        from recon.tui.screens.planner import RunPlannerScreen
+
+        data = _make_dashboard_data(total_competitors=0)
+        app = _DashboardTestApp(data, tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(DashboardScreen)
+            notes: list[str] = []
+            with patch.object(
+                type(app), "notify", lambda self, msg, **kw: notes.append(msg),
+            ):
+                screen.action_run()
+                await pilot.pause()
+            assert any("Nothing to run" in n or "No competitors" in n for n in notes)
+            assert not isinstance(app.screen, RunPlannerScreen)
+
+    async def test_action_add_manually_mounts_input_on_empty_workspace(
+        self, tmp_path: Path
+    ) -> None:
+        from textual.widgets import Input
+
+        data = _make_dashboard_data(total_competitors=0)
+        app = _DashboardTestApp(data, tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = app.query_one(DashboardScreen)
+            screen.action_add_manually()
+            await pilot.pause()
+            assert app.query_one("#manual-add-input", Input) is not None
+
+    async def test_keybind_hints_mention_run_discover_browse(
+        self, tmp_path: Path
+    ) -> None:
+        data = _make_dashboard_data(total_competitors=5)
+        app = _DashboardTestApp(data, tmp_path)
+        async with app.run_test(size=(120, 40)):
+            screen = app.query_one(DashboardScreen)
+            hints = screen.keybind_hints
+            assert "r" in hints
+            assert "d" in hints
+            assert "b" in hints
+            assert "run" in hints
+            assert "discover" in hints
+            assert "browse" in hints
+
+
+class TestDashboardWiring:
+
+    async def test_action_start_discovery_pushes_discovery_on_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """The hidden ``y`` binding routes through ``action_start_discovery``
+        which only fires on empty workspaces. The action method is
+        unit-tested directly here; an end-to-end ``pilot.press("y")``
+        check lives in the integration suite, where ReconApp pushes
+        DashboardScreen as a real active screen and the binding
+        traversal works normally.
+        """
         from recon.tui.screens.discovery import DiscoveryScreen
 
         data = _make_dashboard_data(total_competitors=0)
         app = _DashboardTestApp(data, tmp_path)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.press("y")
+            screen = app.query_one(DashboardScreen)
+            screen.action_start_discovery()
             await pilot.pause()
             assert isinstance(app.screen, DiscoveryScreen)
 

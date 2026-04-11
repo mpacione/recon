@@ -56,7 +56,7 @@ class TestDashboardDiscoveryFlow:
             await pilot.pause()
             assert isinstance(app.screen, DashboardScreen)
 
-            app.screen.query_one("#btn-discover", Button).press()
+            await pilot.press("d")
             await pilot.pause()
             assert isinstance(app.screen, DiscoveryScreen)
 
@@ -94,7 +94,7 @@ class TestDashboardToPlannerToRunFlow:
             assert isinstance(app.screen, DashboardScreen)
             assert app.current_mode == "dashboard"
 
-            app.screen.query_one("#btn-run", Button).press()
+            await pilot.press("r")
             await pilot.pause()
             assert isinstance(app.screen, RunPlannerScreen)
 
@@ -131,7 +131,7 @@ class TestPlannerStartsPipelineWithRunScreen:
                 await pilot.pause()
                 assert isinstance(app.screen, DashboardScreen)
 
-                app.screen.query_one("#btn-run", Button).press()
+                await pilot.press("r")
                 await pilot.pause()
                 assert isinstance(app.screen, RunPlannerScreen)
 
@@ -270,7 +270,7 @@ class TestPlannerAddNewFlow:
                 await pilot.pause()
                 assert isinstance(app.screen, DashboardScreen)
 
-                app.screen.query_one("#btn-run", Button).press()
+                await pilot.press("r")
                 await pilot.pause()
                 assert isinstance(app.screen, RunPlannerScreen)
 
@@ -355,7 +355,7 @@ class TestPlannerUpdateSpecificFlow:
                 await pilot.pause()
                 assert isinstance(app.screen, DashboardScreen)
 
-                app.screen.query_one("#btn-run", Button).press()
+                await pilot.press("r")
                 await pilot.pause()
                 assert isinstance(app.screen, RunPlannerScreen)
 
@@ -412,7 +412,7 @@ class TestPlannerDiffAllFlow:
         with patch("recon.pipeline.Pipeline.execute", fake_execute):
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
-                app.screen.query_one("#btn-run", Button).press()
+                await pilot.press("r")
                 await pilot.pause()
                 # btn-op-4 is DIFF_ALL (5th option, index 4)
                 app.screen.query_one("#btn-op-4", Button).press()
@@ -452,7 +452,7 @@ class TestPlannerRerunFailedFlow:
         with patch("recon.pipeline.Pipeline.execute", fake_execute):
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
-                app.screen.query_one("#btn-run", Button).press()
+                await pilot.press("r")
                 await pilot.pause()
                 # btn-op-5 is RERUN_FAILED (6th option, index 5)
                 app.screen.query_one("#btn-op-5", Button).press()
@@ -509,7 +509,7 @@ class TestStopButtonCancelsRunningPipeline:
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
                 # Drive through planner -> FULL_PIPELINE -> run mode
-                app.screen.query_one("#btn-run", Button).press()
+                await pilot.press("r")
                 await pilot.pause()
                 app.screen.query_one("#btn-op-6", Button).press()
                 await pilot.pause()
@@ -525,9 +525,8 @@ class TestStopButtonCancelsRunningPipeline:
                     await pilot.pause()
                 assert execute_started.is_set()
 
-                # Press Stop while the pipeline is mid-flight
-                run_screen = app.screen
-                run_screen.query_one("#btn-stop", Button).press()
+                # Press Stop (s key) while the pipeline is mid-flight
+                await pilot.press("s")
                 await pilot.pause()
 
                 # Let the slow execute observe the cancel and finalize
@@ -601,7 +600,7 @@ class TestPauseResumeIntegration:
         with patch("recon.pipeline.Pipeline.execute", slow_execute):
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
-                app.screen.query_one("#btn-run", Button).press()
+                await pilot.press("r")
                 await pilot.pause()
                 app.screen.query_one("#btn-op-6", Button).press()
                 await pilot.pause()
@@ -623,13 +622,18 @@ class TestPauseResumeIntegration:
                 )
                 assert stashed_pause.is_set(), "pause_event starts in running state"
 
-                # Pause -- the steps_completed counter should freeze
-                pause_btn = app.screen.query_one("#btn-pause", Button)
-                pause_btn.press()
+                # Pause via the keybind -- the steps_completed counter
+                # should freeze. The visual cue is now current_phase
+                # flipping to "paused" rather than a button label change.
+                from recon.tui.screens.run import RunScreen
+
+                run_screen = app.screen
+                assert isinstance(run_screen, RunScreen)
+                await pilot.press("p")
                 await pilot.pause()
                 steps_at_pause = len(steps_completed)
                 assert not stashed_pause.is_set(), "pause should clear the event"
-                assert str(pause_btn.label) == "Resume"
+                assert run_screen.current_phase == "paused"
 
                 # Hold the pause for a moment and confirm work doesn't advance
                 for _ in range(5):
@@ -640,16 +644,10 @@ class TestPauseResumeIntegration:
                 )
 
                 # Resume + tell the fake it can wrap up
-                pause_btn.press()
+                await pilot.press("p")
                 await pilot.pause()
-                assert str(pause_btn.label) == "Pause"
+                assert stashed_pause.is_set()
                 allow_finish.set()
-
-                # Wait for the screen to report the run is done
-                from recon.tui.screens.run import RunScreen
-
-                run_screen = app.screen
-                assert isinstance(run_screen, RunScreen)
                 for _ in range(80):
                     if run_screen.current_phase in ("done", "error", "cancelled"):
                         break
@@ -711,7 +709,7 @@ class TestFullPipelineThroughTuiNoMock:
         ):
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause()
-                app.screen.query_one("#btn-run", Button).press()
+                await pilot.press("r")
                 await pilot.pause()
                 # btn-op-2 is UPDATE_ALL (3rd option, index 2) -- shorter than full pipeline
                 app.screen.query_one("#btn-op-2", Button).press()
@@ -749,7 +747,7 @@ class TestDashboardBrowserFlow:
             await pilot.pause()
             assert isinstance(app.screen, DashboardScreen)
 
-            app.screen.query_one("#btn-browse", Button).press()
+            await pilot.press("b")
             await pilot.pause()
             assert isinstance(app.screen, CompetitorBrowserScreen)
 

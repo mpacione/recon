@@ -13,9 +13,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
-from textual.containers import Horizontal, Vertical
+from textual.binding import Binding
+from textual.containers import Vertical
 from textual.message import Message
-from textual.widgets import Button, Input, Static
+from textual.widgets import Input, Static
 
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
@@ -148,14 +149,6 @@ class WelcomeScreen(ReconScreen):
         border: solid #3a3a3a;
         background: #0d0d0d;
     }
-    .action-row {
-        height: auto;
-        margin: 1 0;
-        layout: horizontal;
-    }
-    .action-row Button {
-        margin: 0 1 0 0;
-    }
     #recent-section {
         margin: 1 0 0 0;
         height: auto;
@@ -163,12 +156,25 @@ class WelcomeScreen(ReconScreen):
     .recent-item {
         width: 100%;
         height: auto;
-        margin: 0 0 1 0;
     }
     """
 
+    BINDINGS = [
+        Binding("n", "new", "new project"),
+        Binding("o", "open", "open existing"),
+        Binding("1", "open_recent(0)", "recent 1", show=False),
+        Binding("2", "open_recent(1)", "recent 2", show=False),
+        Binding("3", "open_recent(2)", "recent 3", show=False),
+        Binding("4", "open_recent(3)", "recent 4", show=False),
+        Binding("5", "open_recent(4)", "recent 5", show=False),
+        Binding("6", "open_recent(5)", "recent 6", show=False),
+        Binding("7", "open_recent(6)", "recent 7", show=False),
+        Binding("8", "open_recent(7)", "recent 8", show=False),
+        Binding("9", "open_recent(8)", "recent 9", show=False),
+    ]
+
     keybind_hints = (
-        "[#e0a044]n[/] new · [#e0a044]o[/] open · "
+        "[#e0a044]n[/] new · [#e0a044]o[/] open · [#e0a044]1-9[/] recent · "
         "[#e0a044]q[/] quit · [#e0a044]?[/] help"
     )
 
@@ -182,9 +188,11 @@ class WelcomeScreen(ReconScreen):
             yield Static(_RECON_BANNER, id="welcome-banner")
             yield Static("[#a89984]competitive intelligence research[/]")
             yield Static("")
-            with Horizontal(classes="action-row"):
-                yield Button("New Project", id="btn-new", variant="primary")
-                yield Button("Open Existing", id="btn-open")
+            yield Static(
+                "Press [#e0a044]n[/] to create a new project,\n"
+                "or press [#e0a044]o[/] to open an existing workspace.",
+                id="welcome-actions-hint",
+            )
             yield Static("")
             with Vertical(id="recent-section"):
                 yield Static("[bold #e0a044]── RECENT PROJECTS ──[/]")
@@ -195,33 +203,28 @@ class WelcomeScreen(ReconScreen):
         if not projects:
             yield Static("[#a89984]No recent projects[/]", id="recent-empty")
             return
-        for i, project in enumerate(projects):
+        for i, project in enumerate(projects[:9]):
             display_path = project.path.replace(str(Path.home()), "~")
-            yield Button(
-                f"{project.name}  —  {display_path}",
-                id=f"btn-recent-{i}",
+            yield Static(
+                f"  [#e0a044]{i + 1}[/]  [#efe5c0]{project.name}[/]"
+                f"  [#3a3a3a]·[/]  [#a89984]{display_path}[/]",
+                id=f"recent-item-{i}",
                 classes="recent-item",
             )
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        button_id = event.button.id or ""
-        _log.info("WelcomeScreen button pressed id=%s", button_id)
-        if button_id == "btn-new":
-            self._show_new_input()
-        elif button_id == "btn-open":
-            self._show_open_input()
-        elif button_id.startswith("btn-recent-"):
-            self._open_recent(button_id)
+    def action_new(self) -> None:
+        _log.info("WelcomeScreen action_new")
+        self._show_new_input()
 
-    def _open_recent(self, button_id: str) -> None:
-        try:
-            index = int(button_id.removeprefix("btn-recent-"))
-        except ValueError:
-            return
+    def action_open(self) -> None:
+        _log.info("WelcomeScreen action_open")
+        self._show_open_input()
+
+    def action_open_recent(self, index: int) -> None:
         projects = self._manager.load()
         if 0 <= index < len(projects):
             path = projects[index].path
-            _log.info("WelcomeScreen opening recent path=%s", path)
+            _log.info("WelcomeScreen opening recent index=%d path=%s", index, path)
             self.post_message(self.WorkspaceSelected(path))
 
     def _show_new_input(self) -> None:

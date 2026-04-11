@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed -- TUI audit Phase E (keyboard-first navigation)
+
+The action-bar Buttons that lived at the bottom of every full screen
+are gone. Every action is now reachable through a key binding declared
+on the screen itself, surfaced in the chrome's bottom keybind hint
+strip. Modal screens (Wizard, Discovery, Selector, Curation, Planner)
+keep their buttons because they're pop-overs and click-driven.
+
+- **DashboardScreen** removes `Run` / `Discover` / `Browse` / `Quit`
+  buttons. Adds `r` / `d` / `b` / `m` bindings (run, discover, browse,
+  add manually). The empty-prompt panel also drops its CTA buttons in
+  favor of an instructional Static (`Press d to discover ...`).
+- **RunScreen** removes `Pause` / `Stop` / `Back to Dashboard`
+  buttons. Adds `p` / `s` / `b` bindings. The pause-state visual cue
+  (previously the button label flipping to "Resume") now lives in
+  `current_phase` flipping to `paused`, which the chrome header bar
+  and the run-phase widget both reflect. `_toggle_pause` no longer
+  touches a Button widget — it mutates `current_phase` only.
+- **CompetitorBrowserScreen** removes the `Back to Dashboard` button.
+  Adds `b` binding (alongside the existing `escape`).
+- **WelcomeScreen** removes `New Project` / `Open Existing` /
+  `btn-recent-N` buttons. Adds `n` / `o` bindings plus `1`..`9` for
+  recent projects. Recent projects render as numbered Static rows
+  (`  1  Acme CI  ·  ~/projects/acme-ci`).
+- **Keybind hints refined** on every screen so the bottom strip is
+  the canonical place to learn what each screen does.
+
+#### Snapshot quality fix uncovered during this pass
+
+While regenerating snapshot baselines after the visual changes, I
+noticed the dashboard / run / welcome snapshot SVGs had been
+near-empty since day one (~14KB each, with zero references to the
+expected screen content). Root cause: those snapshot test apps were
+using `yield ScreenClass()` in `compose()`, which mounts the screen
+as a child widget rather than pushing it as the active screen — and
+the persistent chrome (header bar, log pane, keybind hint) only
+renders for the active screen. The "passing" snapshots were
+effectively comparing blank canvases.
+
+Fixed: `_DashboardEmptyApp`, `_DashboardPopulatedApp`, `_RunIdleApp`,
+`_RunActiveApp`, `_WelcomeApp`, and `_WelcomeWithRecentsApp` now use
+the same `compose: yield Static(""); on_mount: self.push_screen(...)`
+pattern that `_BrowserApp` already used. Regenerated baselines are
+now 22-42KB each and contain real chrome + body content. This means
+future visual regressions on these screens will actually be caught.
+
+#### Tests
+- 17 new TUI tests covering the new bindings, action methods, and
+  the disappearance of the action-bar buttons. Each screen has:
+  - one "BINDINGS list contains expected key entries" assertion
+  - one "buttons no longer rendered" assertion
+  - one or more "calling action_xxx() does the right thing" assertions
+  - a keybind hint string check
+- Two end-to-end pilot.press checks live in `test_tui_integration.py`
+  via ReconApp (where the screens are pushed properly): one for
+  `pilot.press("p")` toggling pause, one for `pilot.press("s")`
+  cancelling a slow run. The remaining 11 button-press calls in
+  the integration suite were migrated to `pilot.press("r"/"d"/"b")`.
+- 644 → 661 passing.
+
+Gotcha captured for posterity
+- Textual only walks BINDINGS via the focused widget's ancestor
+  chain plus the active screen. When a Screen is yielded as a child
+  widget (the unit-test pattern most TUI tests use), pressing a key
+  via `pilot.press()` only triggers the screen's bindings if some
+  child widget has focus and the screen is one of its ancestors. With
+  the action-bar buttons gone there are no focusable children by
+  default, so unit tests use direct `screen.action_xxx()` calls and
+  the integration tests use ReconApp's mode-switching path which
+  pushes the screen as the active screen.
+
 ### Changed -- TUI audit Phase D (retro visual language)
 
 A consistent visual pass across every screen so the TUI feels like
