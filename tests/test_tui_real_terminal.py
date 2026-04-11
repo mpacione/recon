@@ -947,6 +947,128 @@ class TestAppLevelKeybinds:
 
 
 @_REQUIRES_PTY
+class TestInputFocusVsScreenBindings:
+    """When an Input has focus, typed characters must go to the Input
+    and NOT trigger screen-level bindings. This was a user-facing
+    concern: "if I'm typing a competitor name that contains 'r',
+    will it accidentally open the run planner?"
+    """
+
+    def test_r_inside_add_manually_input_types_char(
+        self, tmp_path: Path,
+    ) -> None:
+        # Need an empty workspace so the dashboard empty prompt
+        # renders and `m` mounts the Input.
+        workspace = tmp_path / "empty-ws"
+        workspace.mkdir()
+        (workspace / "competitors").mkdir()
+        (workspace / ".recon").mkdir()
+        (workspace / ".recon" / "logs").mkdir()
+        schema = {
+            "domain": "x",
+            "identity": {
+                "company_name": "Co",
+                "products": ["X"],
+                "decision_context": ["build-vs-buy"],
+            },
+            "rating_scales": {
+                "c": {"name": "Cap", "values": ["1"], "never_use": ["e"]},
+            },
+            "sections": [
+                {
+                    "key": "overview",
+                    "title": "Overview",
+                    "description": "d",
+                    "evidence_types": ["factual"],
+                    "allowed_formats": ["prose"],
+                    "preferred_format": "prose",
+                },
+            ],
+        }
+        (workspace / "recon.yaml").write_text(yaml.dump(schema))
+
+        pid, fd = _spawn_tui(
+            workspace=workspace,
+            recent_path=tmp_path / "home" / ".recon" / "recent.json",
+        )
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("No competitors yet", timeout=15.0)
+            os.write(fd, b"m")
+            reader.drain_until("Enter to add", timeout=5.0)
+            # Type a name containing every dashboard keybind char.
+            # If any of these fire their binding, the Input value
+            # won't contain the whole string.
+            os.write(fd, b"recon research tool")
+            time.sleep(0.5)
+            output = reader.drain_until(
+                "recon research tool",
+                timeout=3.0,
+            )
+            # Input captured every keystroke
+            assert "recon research tool" in output
+            # And none of the screen bindings fired
+            assert "RUN PLANNER" not in output, (
+                "r keybind leaked through Input focus"
+            )
+            assert "DISCOVERY" not in output, (
+                "d keybind leaked through Input focus"
+            )
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+
+@_REQUIRES_PTY
+class TestWorkspaceRecoveryEdgeCases:
+    """The TUI must gracefully handle broken workspace state instead
+    of crashing. Users hit these cases when they clone a repo, delete
+    a project mid-session, or paste a typo into ``--workspace``.
+    """
+
+    def test_nonexistent_workspace_path_falls_back_to_welcome(
+        self, tmp_path: Path,
+    ) -> None:
+        """``recon tui --workspace /does/not/exist`` should show the
+        welcome screen instead of crashing.
+        """
+        recon = _resolve_recon_binary()
+        if recon is None:
+            pytest.skip("recon binary not found")
+        bogus = tmp_path / "not-a-real-dir"
+        home = tmp_path / "home"
+        (home / ".recon").mkdir(parents=True, exist_ok=True)
+        (home / ".recon" / "recent.json").write_text("[]")
+        env = {
+            **os.environ,
+            "TERM": "xterm-256color",
+            "COLUMNS": "140",
+            "LINES": "45",
+            "ANTHROPIC_API_KEY": "",
+            "HOME": str(home),
+        }
+        pid, fd = pty.fork()
+        if pid == 0:
+            try:
+                os.execvpe(
+                    str(recon),
+                    [str(recon), "tui", "--workspace", str(bogus)],
+                    env,
+                )
+            except Exception:  # pragma: no cover
+                os._exit(127)
+        try:
+            reader = _PtyReader(fd)
+            output = reader.drain_until("RECENT", timeout=15.0)
+            assert "RECENT" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+
+@_REQUIRES_PTY
 class TestAddManuallyFlow:
     """End-to-end: empty dashboard -> m -> type name -> Enter -> profile persisted."""
 

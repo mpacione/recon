@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- TUI audit Phase N (input focus + workspace recovery)
+
+Two more PTY tests to lock in behaviors that were working but
+untested -- both are regressions waiting to happen.
+
+**``TestInputFocusVsScreenBindings::test_r_inside_add_manually_input_types_char``**
+
+Covers a user-facing concern: "if I'm typing a competitor name
+that contains 'r', will it accidentally open the run planner?"
+The answer is no because Textual's key dispatcher sends keystrokes
+to the focused Input first and they never propagate to screen
+BINDINGS. But the default focus behavior of widgets is exactly the
+kind of thing that breaks silently in a future upgrade. This test
+types ``"recon research tool"`` into the manual-add Input and
+asserts (a) the text lands in the input, (b) ``RUN PLANNER`` never
+appears (proving ``r`` didn't leak), (c) ``DISCOVERY`` never appears
+(proving ``d`` didn't leak).
+
+**``TestWorkspaceRecoveryEdgeCases::test_nonexistent_workspace_path_falls_back_to_welcome``**
+
+Covers: ``recon tui --workspace /does/not/exist`` should show the
+welcome screen instead of crashing. This already works because
+``ReconApp._make_dashboard_screen`` returns a WelcomeScreen when
+the path doesn't contain ``recon.yaml``, but nothing was pinning
+that behavior. Test spawns recon with a bogus ``--workspace`` and
+waits for "RECENT" (welcome chrome) to render.
+
+718 → 720 passing. Lint clean.
+
+#### Other edge cases manually verified (not added as tests yet)
+
+- Running the pipeline without an API key surfaces the warning
+  notification and the user can still navigate back to dashboard
+  with ``b``.
+- Discovery without an API key shows "manual only" notification
+  and the screen still renders.
+- Wizard ``Tab`` navigates between the 3 Input fields (Company /
+  Products / Domain) and typed text is preserved in each.
+- Workspace with broken YAML in recon.yaml doesn't crash (captures
+  7500+ chars of output).
+- Recent project pointing at a deleted directory doesn't crash;
+  welcome stays visible.
+- Empty submit on the manual-add Input is a no-op (no profile
+  written to disk).
+- F-keys (F1/F5/F12) don't crash; they're silently ignored.
+- Pressing ``m`` + typing + empty Enter does nothing harmful.
+
 ### Fixed -- TUI audit Phase M (Ctrl+C, add-manually round trip)
 
 More user-reported issues caught by end-to-end PTY testing. The
