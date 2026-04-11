@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- TUI audit Phase H (real-terminal smoke test)
+
+PTY-based smoke tests that spawn the actual ``recon tui`` binary,
+drive it with real keystrokes, and read the rendered ANSI output
+back through the master file descriptor. Catches a class of bugs
+that the in-process Pilot tests miss: ANSI escapes not flushed,
+keyboard handling that works in the test harness but not in a real
+terminal, startup-time crashes, and clean shutdown on q.
+
+- **`tests/test_tui_real_terminal.py`** -- new test file with two
+  end-to-end happy-path walks:
+  - ``test_dashboard_renders_quits_cleanly`` -- spawns
+    ``recon tui --workspace=<tmp>`` against a populated workspace,
+    waits for the dashboard chrome to render, asserts on header bar
+    contents (workspace company + domain), body content
+    (`COMPETITORS` divider), keybind hint strip
+    (`r run · d discover · b browse · m add manually`), and the
+    ActivityFeed/LogPane placeholders. Then sends ``q`` and asserts
+    clean exit.
+  - ``test_no_workspace_shows_welcome`` -- spawns
+    ``recon tui`` from an empty cwd, waits for the welcome chrome,
+    asserts on the recon banner, the `competitive intelligence research`
+    subtitle, and the `n new · o open` keybind hint. Quits with q.
+- **`_PtyReader`** helper -- stateful accumulating reader so callers
+  can drain in stages (e.g. wait for body marker, then keep
+  draining for the bottom chrome) without losing earlier content.
+  Strips ANSI/CSI/OSC escape sequences with a regex, decodes as
+  UTF-8 with replacement, exposes a ``buffer`` property for full
+  capture and ``drain_until(marker, timeout)`` for advancement.
+- **`_wait_or_kill`** helper -- escalation path for child shutdown:
+  waits for natural exit, sends SIGINT after 1s, SIGTERM after 3s,
+  reports the result. Handles the case where Textual swallows the
+  first keystroke during a re-layout.
+- Skipped on Windows / non-POSIX via ``pytest.mark.skipif`` on
+  ``hasattr(pty, "fork")``. Skipped if the recon binary isn't found
+  in ``.venv/bin`` or on PATH.
+- 689 → 691 passing.
+
+#### Real bug uncovered: chrome layout was broken in real terminals
+
+Writing the smoke test exposed a serious chrome rendering bug that
+the in-process Pilot tests had been missing for two phases. The
+``ReconScreen.compose()`` was yielding four separate ``dock: bottom``
+widgets (KeybindHint, LogPane, ActivityFeed, RunStatusBar) directly
+under the screen. In headless test mode this looked correct in
+snapshot SVGs, but in a real terminal Textual's layout engine
+chose only one of them to render -- the rest collapsed to zero
+height and the keybind hints, log tail, and run status bar were
+all invisible to actual users.
+
+**Fix:** all bottom chrome now lives inside a single
+``Vertical#recon-footer`` container that itself docks to the bottom
+with ``height: auto`` and ``layout: vertical``. The four pieces are
+ordered top-to-bottom inside the footer (RunStatusBar →
+ActivityFeed → LogPane → KeybindHint), and Textual lays them out
+sequentially. Each individual widget no longer has ``dock: bottom``
+in its CSS (only the wrapping container does).
+
+This is exactly the kind of bug the smoke test was designed to
+catch on its first run, and it did. Snapshot baselines for all six
+full-screen variants were regenerated to capture the corrected
+layout.
+
 ### Added -- TUI audit Phase G (RunStatusBar widget)
 
 A thin one-line status strip in the persistent chrome that surfaces

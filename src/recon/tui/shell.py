@@ -180,7 +180,6 @@ class KeybindHint(Static):
 
     DEFAULT_CSS = """
     KeybindHint {
-        dock: bottom;
         height: 1;
         background: #1d1d1d;
         color: #a89984;
@@ -206,7 +205,6 @@ class LogPane(Static):
 
     DEFAULT_CSS = """
     LogPane {
-        dock: bottom;
         height: 8;
         background: #0d0d0d;
         color: #a89984;
@@ -290,7 +288,6 @@ class ActivityFeed(Static):
 
     DEFAULT_CSS = """
     ActivityFeed {
-        dock: bottom;
         height: 8;
         background: #0d0d0d;
         color: #efe5c0;
@@ -429,7 +426,6 @@ class RunStatusBar(Static):
 
     DEFAULT_CSS = """
     RunStatusBar {
-        dock: bottom;
         height: 1;
         background: #1d1d1d;
         color: #efe5c0;
@@ -556,6 +552,11 @@ class ReconScreen(Screen):
         padding: 1 2;
         overflow-y: auto;
     }
+    #recon-footer {
+        dock: bottom;
+        height: auto;
+        layout: vertical;
+    }
     """
 
     keybind_hints: str = "[#a89984]q quit · ? help[/]"
@@ -568,20 +569,19 @@ class ReconScreen(Screen):
         with Vertical(id="recon-body"):
             yield from self.compose_body()
 
-        # Bottom-docked widgets render in reverse-yield order, so the
-        # final visual stack from top to bottom of the screen footer is:
-        #   RunStatusBar  (1 line, hidden when idle)
-        #   ActivityFeed  (8 lines, typed events)
-        #   LogPane       (8 lines, raw log lines)
-        #   KeybindHint   (1 line, key bindings)
-        if getattr(self, "show_keybind_hint", True):
-            yield KeybindHint(self.keybind_hints)
-        if getattr(self, "show_log_pane", True):
-            yield LogPane()
-        if getattr(self, "show_activity_feed", True):
-            yield ActivityFeed()
-        if getattr(self, "show_run_status_bar", True):
-            yield RunStatusBar()
+        # All bottom chrome lives inside a single docked Vertical.
+        # Stacking dock:bottom widgets directly under the screen
+        # confuses Textual's layout engine -- only one would render
+        # in a real terminal.
+        with Vertical(id="recon-footer"):
+            if getattr(self, "show_run_status_bar", True):
+                yield RunStatusBar()
+            if getattr(self, "show_activity_feed", True):
+                yield ActivityFeed()
+            if getattr(self, "show_log_pane", True):
+                yield LogPane()
+            if getattr(self, "show_keybind_hint", True):
+                yield KeybindHint(self.keybind_hints)
 
     def compose_body(self) -> ComposeResult:
         """Override in subclasses to render the screen's actual content."""
