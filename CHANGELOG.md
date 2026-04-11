@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- TUI audit Phase F (ActivityFeed widget)
+
+A second pane in the persistent chrome that renders typed engine
+events from the in-process bus, side-by-side with the existing raw
+LogPane. This is the "what is the engine doing right now" pane that
+the user can scan at a glance, while LogPane remains the verbose
+unfiltered tail of the in-memory log buffer for debugging.
+
+- **`recon/tui/shell.py::ActivityFeed`** -- new bottom-docked
+  Static widget. 8-line tall, dark background, top border. Holds a
+  bounded ``deque`` of the last 20 typed events; renders the most
+  recent 6 with iconography:
+  - `▶ run started · full_pipeline` (RunStarted)
+  - `→ stage : research` (RunStageStarted)
+  - `✓ stage : research` (RunStageCompleted)
+  - `✓ run complete · $4.27` (RunCompleted)
+  - `✗ run failed · <error>` (RunFailed)
+  - `⊘ run cancelled` (RunCancelled)
+  - `$ $0.42 (claude-sonnet-4-5)` (CostRecorded)
+  - `✓ Cursor.overview` (SectionResearched)
+  - `✗ Linear.pricing` (SectionFailed)
+  - `◎ 5 themes discovered` (ThemesDiscovered)
+  - `+ profile : Cursor` (ProfileCreated)
+- **Subscription lifecycle** -- subscribe in ``on_mount``,
+  unsubscribe in ``on_unmount``. Events from any thread are routed
+  through ``app.call_from_thread`` so deque mutation and re-render
+  happen on the message loop. A short ``set_interval`` poll catches
+  events that arrive between mount and the first render.
+- **`ReconScreen` chrome composition** -- ActivityFeed now docks
+  above LogPane in every full screen. New ``show_activity_feed``
+  class flag mirrors the existing ``show_log_pane`` flag so screens
+  can opt out if needed.
+- **Snapshot baselines** regenerated for all six full-screen
+  variants (Welcome, Dashboard×2, Run×2, Browser) to include the
+  new pane.
+
+#### Tests
+- **`tests/test_tui_activity_feed.py`** -- 16 new tests covering:
+  - empty state placeholder
+  - one render assertion per event type (11 events)
+  - bounded deque (publish 25, only the last 20 are retained)
+  - ordering (oldest at top, newest at bottom)
+  - subscription lifecycle (unsubscribed on unmount, post-unmount
+    publishes do not raise)
+  - chrome composition (LogPane and ActivityFeed both present in a
+    test ReconScreen subclass)
+- 661 → 677 passing.
+
 ### Changed -- TUI audit Phase E (keyboard-first navigation)
 
 The action-bar Buttons that lived at the bottom of every full screen

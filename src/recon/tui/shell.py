@@ -19,7 +19,9 @@ log pane and delegates body content to ``compose_body()``.
 
 from __future__ import annotations
 
+import contextlib
 import os
+from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -27,6 +29,21 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
+from recon.events import (
+    CostRecorded,
+    Event,
+    ProfileCreated,
+    RunCancelled,
+    RunCompleted,
+    RunFailed,
+    RunStageCompleted,
+    RunStageStarted,
+    RunStarted,
+    SectionFailed,
+    SectionResearched,
+    ThemesDiscovered,
+    get_bus,
+)
 from recon.logging import get_memory_handler
 from recon.tui.widgets import humanize_path
 
@@ -245,6 +262,152 @@ class LogPane(Static):
 
 
 # ----------------------------------------------------------------------
+# ActivityFeed -- typed engine events with iconography
+# ----------------------------------------------------------------------
+
+
+class ActivityFeed(Static):
+    """Rolling feed of typed engine events from :mod:`recon.events`.
+
+    Distinct from :class:`LogPane`, which renders raw log lines from
+    the in-memory log buffer. ActivityFeed subscribes to the
+    process-wide event bus and decorates each event with an icon and
+    a short human-readable summary so the user can scan pipeline
+    progress at a glance.
+
+    Subscription lifecycle: subscribe in :meth:`on_mount`, deregister
+    in :meth:`on_unmount`. Events arrive on whichever thread the
+    publisher is running on; we route them through ``app.call_from_thread``
+    so the deque mutation and re-render happen on the message loop.
+
+    The widget keeps a bounded ``deque`` of the last N entries
+    (default 20) and re-renders from the deque on every event. A
+    short ``set_interval`` poll catches the case where an event arrives
+    while the screen isn't yet mounted (the deque captures it; the
+    poll redraws it once the widget is alive).
+    """
+
+    DEFAULT_CSS = """
+    ActivityFeed {
+        dock: bottom;
+        height: 8;
+        background: #0d0d0d;
+        color: #efe5c0;
+        padding: 0 1;
+        border-top: solid #3a3a3a;
+    }
+    """
+
+    DEFAULT_CAPACITY = 20
+    VISIBLE_LINES = 6
+
+    def __init__(self, capacity: int = DEFAULT_CAPACITY) -> None:
+        super().__init__("", markup=True)
+        self._entries: deque[str] = deque(maxlen=capacity)
+        self._subscriber = self._on_event
+        self._dirty = True
+
+    def on_mount(self) -> None:
+        get_bus().subscribe(self._subscriber)
+        self._render_feed()
+        self.set_interval(0.25, self._render_feed_if_dirty, name="activity-feed-tick")
+
+    def on_unmount(self) -> None:
+        with contextlib.suppress(Exception):
+            get_bus().unsubscribe(self._subscriber)
+
+    # -- subscriber ----------------------------------------------------
+
+    def _on_event(self, event: Event) -> None:
+        line = self._format_event(event)
+        if line is None:
+            return
+        # The publisher may be on any thread; route the mutation
+        # through the message loop.
+        try:
+            self.app.call_from_thread(self._append, line)
+        except Exception:
+            # Test apps without a running message loop can mutate inline
+            self._append(line)
+
+    def _append(self, line: str) -> None:
+        self._entries.append(line)
+        self._dirty = True
+        self._render_feed()
+
+    # -- rendering -----------------------------------------------------
+
+    def _render_feed_if_dirty(self) -> None:
+        if self._dirty:
+            self._render_feed()
+
+    def _render_feed(self) -> None:
+        self._dirty = False
+        if not self._entries:
+            self.update("[#3a3a3a]│ no activity yet[/]")
+            return
+        visible = list(self._entries)[-self.VISIBLE_LINES :]
+        rendered = "\n".join(f"[#3a3a3a]│[/] {line}" for line in visible)
+        self.update(rendered)
+
+    # -- formatting ----------------------------------------------------
+
+    def _format_event(self, event: Event) -> str | None:
+        if isinstance(event, RunStarted):
+            op = event.operation or "run"
+            return f"[#e0a044]▶[/] [#efe5c0]run started[/] [#a89984]· {op}[/]"
+        if isinstance(event, RunStageStarted):
+            return (
+                f"[#e0a044]→[/] [#efe5c0]stage[/] [#a89984]:[/] "
+                f"[#efe5c0]{event.stage}[/]"
+            )
+        if isinstance(event, RunStageCompleted):
+            return (
+                f"[#98971a]✓[/] [#efe5c0]stage[/] [#a89984]:[/] "
+                f"[#efe5c0]{event.stage}[/]"
+            )
+        if isinstance(event, RunCompleted):
+            return (
+                f"[#98971a]✓[/] [#efe5c0]run complete[/] "
+                f"[#a89984]·[/] [#e0a044]${event.total_cost_usd:.2f}[/]"
+            )
+        if isinstance(event, RunFailed):
+            err = (event.error or "")[:60]
+            return (
+                f"[#cc241d]✗[/] [#efe5c0]run failed[/] "
+                f"[#a89984]·[/] [#cc241d]{err}[/]"
+            )
+        if isinstance(event, RunCancelled):
+            return "[#cc241d]⊘[/] [#efe5c0]run cancelled[/]"
+        if isinstance(event, CostRecorded):
+            return (
+                f"[#e0a044]$[/] [#e0a044]${event.cost_usd:.2f}[/] "
+                f"[#a89984]({event.model})[/]"
+            )
+        if isinstance(event, SectionResearched):
+            return (
+                f"[#98971a]✓[/] [#efe5c0]{event.competitor_name}[/]"
+                f"[#3a3a3a].[/][#a89984]{event.section_key}[/]"
+            )
+        if isinstance(event, SectionFailed):
+            return (
+                f"[#cc241d]✗[/] [#efe5c0]{event.competitor_name}[/]"
+                f"[#3a3a3a].[/][#a89984]{event.section_key}[/]"
+            )
+        if isinstance(event, ThemesDiscovered):
+            return (
+                f"[#e0a044]◎[/] [#e0a044]{event.theme_count}[/] "
+                f"[#efe5c0]themes discovered[/]"
+            )
+        if isinstance(event, ProfileCreated):
+            return (
+                f"[#98971a]+[/] [#efe5c0]profile[/] [#a89984]:[/] "
+                f"[#efe5c0]{event.name}[/]"
+            )
+        return None
+
+
+# ----------------------------------------------------------------------
 # Base screen
 # ----------------------------------------------------------------------
 
@@ -267,6 +430,7 @@ class ReconScreen(Screen):
     """
 
     show_log_pane: bool = True
+    show_activity_feed: bool = True
     show_keybind_hint: bool = True
 
     DEFAULT_CSS = """
@@ -290,8 +454,13 @@ class ReconScreen(Screen):
         with Vertical(id="recon-body"):
             yield from self.compose_body()
 
+        # ActivityFeed (typed engine events) docks above LogPane (raw
+        # log lines). Both are bottom-docked so the screen body
+        # shrinks to make room. Keybind hints sit at the very bottom.
         if getattr(self, "show_log_pane", True):
             yield LogPane()
+        if getattr(self, "show_activity_feed", True):
+            yield ActivityFeed()
         if getattr(self, "show_keybind_hint", True):
             yield KeybindHint(self.keybind_hints)
 
