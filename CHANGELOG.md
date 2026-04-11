@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed -- TUI audit Phase M (Ctrl+C, add-manually round trip)
+
+More user-reported issues caught by end-to-end PTY testing. The
+theme of this phase: **every keystroke a user expects should actually
+do something**, and the way to prove that is to press real keys in
+a real terminal.
+
+#### Bug: Ctrl+C didn't quit the app
+
+Textual's default input handling treats Ctrl+C as a regular key
+(no effect), not as SIGINT. Users who tried Ctrl+C to exit saw no
+response and had to find another way out. Fix: new binding
+``Binding("ctrl+c", "quit", "Quit", show=False, priority=True)``
+on ``ReconApp``. Priority flag makes sure screen-level bindings
+never eat Ctrl+C first.
+
+#### Tests
+
+New ``TestAppLevelKeybinds`` class in test_tui_real_terminal.py:
+- ``test_ctrl_c_exits_from_dashboard`` -- verifies Ctrl+C kills
+  the app cleanly (WIFEXITED or WIFSIGNALED both accepted)
+- ``test_question_mark_shows_help_notification`` -- verifies the
+  existing ``?`` binding surfaces the "Keybinds" toast
+
+New ``TestAddManuallyFlow`` class exercises the full round trip:
+- empty workspace dashboard renders
+- press ``m`` → Input mounts
+- type "Acme Widgets" + Enter
+- "Added" notification appears
+- **profile file actually lands on disk** in ``workspace/competitors/``
+
+The disk-write assertion is the piece the in-process Pilot tests
+couldn't catch: you can test widget mount/focus in isolation but you
+can't easily verify the workspace state on disk without a full
+subprocess. The PTY test does both in ~1.5 seconds.
+
+715 → 718 passing. Lint clean.
+
+#### Edge cases also manually verified
+
+- Wizard Esc → back to welcome (already worked, now confirmed)
+- Narrow 80x24 terminal: dashboard renders, ``r`` → planner, Esc
+  back all work
+- ``?`` key shows help toast
+- Unknown keys (like ``z``) don't crash; the app ignores them
+- Rapid key bursts in modals don't crash (planner absorbs unknown
+  keys silently)
+
 ### Fixed -- TUI audit Phase L (universal Escape on modals)
 
 Continuing the keybind audit after Phase K's real-terminal coverage

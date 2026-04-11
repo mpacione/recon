@@ -38,6 +38,7 @@ class ReconApp(App):
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
+        Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
         Binding("?", "help", "Help"),
     ]
 

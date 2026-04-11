@@ -897,3 +897,113 @@ class TestModalEscapeKeybinds:
             _kill_child(pid)
             with contextlib_suppress():
                 os.close(fd)
+
+
+@_REQUIRES_PTY
+class TestAppLevelKeybinds:
+    """App-level bindings (q, Ctrl+C, ?) that fire from any screen."""
+
+    def test_ctrl_c_exits_from_dashboard(self, tmp_path: Path) -> None:
+        """Ctrl+C is the universal "exit this CLI" keystroke. Textual
+        defaults to treating it as a regular keypress (i.e. no effect),
+        so recon needs an explicit binding.
+        """
+        workspace = _make_workspace(tmp_path)
+        pid, fd = _spawn_tui(
+            workspace=workspace,
+            recent_path=tmp_path / "home" / ".recon" / "recent.json",
+        )
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            # Send Ctrl+C (\x03)
+            os.write(fd, b"\x03")
+            done_pid, status = _wait_or_kill(pid, timeout=5.0)
+            if done_pid == 0:
+                pytest.fail("Ctrl+C did not exit recon tui within 5s")
+            assert os.WIFEXITED(status) or os.WIFSIGNALED(status)
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+    def test_question_mark_shows_help_notification(self, tmp_path: Path) -> None:
+        workspace = _make_workspace(tmp_path)
+        pid, fd = _spawn_tui(
+            workspace=workspace,
+            recent_path=tmp_path / "home" / ".recon" / "recent.json",
+        )
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            os.write(fd, b"?")
+            # The help handler calls self.notify("Q=Quit  ?=Help", title="Keybinds")
+            output = reader.drain_until("Keybinds", timeout=5.0)
+            assert "Keybinds" in output or "Q=Quit" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+
+@_REQUIRES_PTY
+class TestAddManuallyFlow:
+    """End-to-end: empty dashboard -> m -> type name -> Enter -> profile persisted."""
+
+    def test_m_type_enter_creates_profile(self, tmp_path: Path) -> None:
+        # Empty workspace -- no competitor profiles
+        workspace = tmp_path / "empty-workspace"
+        workspace.mkdir()
+        (workspace / "competitors").mkdir()
+        (workspace / ".recon").mkdir()
+        (workspace / ".recon" / "logs").mkdir()
+        schema = {
+            "domain": "Dev Tools",
+            "identity": {
+                "company_name": "Acme",
+                "products": ["X"],
+                "decision_context": ["build-vs-buy"],
+            },
+            "rating_scales": {
+                "c": {
+                    "name": "Cap",
+                    "values": ["1", "2"],
+                    "never_use": ["emoji"],
+                },
+            },
+            "sections": [
+                {
+                    "key": "overview",
+                    "title": "Overview",
+                    "description": "x",
+                    "evidence_types": ["factual"],
+                    "allowed_formats": ["prose"],
+                    "preferred_format": "prose",
+                },
+            ],
+        }
+        (workspace / "recon.yaml").write_text(yaml.dump(schema))
+
+        pid, fd = _spawn_tui(
+            workspace=workspace,
+            recent_path=tmp_path / "home" / ".recon" / "recent.json",
+        )
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("No competitors yet", timeout=15.0)
+            # Press m -> Input mounts
+            os.write(fd, b"m")
+            reader.drain_until("Enter to add", timeout=5.0)
+            # Type a name and press Enter
+            os.write(fd, b"Acme Widgets\r")
+            output = reader.drain_until("Added", timeout=5.0)
+            assert "Added" in output
+
+            # Verify the profile actually landed on disk
+            profiles = list((workspace / "competitors").glob("*.md"))
+            assert len(profiles) == 1
+            assert "acme" in profiles[0].name.lower()
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
