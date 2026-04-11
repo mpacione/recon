@@ -68,8 +68,11 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
     """7-option run planner with cost estimate."""
 
     BINDINGS = [
-        Binding(str(i + 1), f"select_{i + 1}", f"Option {i + 1}", show=False)
-        for i in range(7)
+        *(
+            Binding(str(i + 1), f"select_{i + 1}", f"Option {i + 1}", show=False)
+            for i in range(7)
+        ),
+        Binding("escape", "cancel", "Back", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -203,6 +206,10 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
 
     def action_select_7(self) -> None:
         self._select_by_number("7")
+
+    def action_cancel(self) -> None:
+        """Dismiss the planner without a selection (Esc keybind)."""
+        self.dismiss(None)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""

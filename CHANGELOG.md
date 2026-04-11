@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed -- TUI audit Phase L (universal Escape on modals)
+
+Continuing the keybind audit after Phase K's real-terminal coverage
+exposed a gap: four modal screens (planner, discovery, selector,
+theme curation) had NO ``escape`` binding. Users who pushed into a
+modal and wanted to back out could only click the "Back" / "Cancel"
+button -- on a keyboard-first TUI, that's broken. Every other modal
+in the ecosystem (vim, k9s, lazygit, fzf, etc.) treats Esc as the
+universal "back out" key. recon should too.
+
+#### Fix
+
+Added ``Binding("escape", "cancel", ..., show=False)`` to all four
+modal screens, plus the corresponding ``action_cancel`` methods:
+
+- **RunPlannerScreen.action_cancel** -> ``dismiss(None)``  (same as
+  the existing Back button)
+- **DiscoveryScreen.action_cancel** -> ``dismiss(state.accepted_candidates)``
+  (preserves whatever the user has already accepted -- matching the
+  Done button, NOT the Cancel semantics. Escape = "I'm done", not
+  "throw it all away", which is the less surprising default when
+  you've been curating for a while.)
+- **CompetitorSelectorScreen.action_cancel** -> ``dismiss([])``
+- **ThemeCurationScreen.action_cancel** -> ``dismiss([])``
+  (empty selection tells the pipeline to skip synthesis without
+  failing the run)
+
+#### Tests
+
+New ``TestModalEscapeKeybinds`` class in
+``tests/test_tui_real_terminal.py`` with 3 PTY-based tests:
+
+- planner Esc returns to dashboard
+- discovery Esc returns to dashboard
+- selector Esc returns to dashboard (requires the user to traverse
+  planner -> digit 2 -> selector first, which exercises the full
+  navigation chain)
+
+712 -> 715 passing. Lint clean.
+
+Wizard modal already had ``escape`` wired to ``action_go_back``
+(Phase B). Browser screen already had it (Phase E). Every modal in
+the app now backs out on Esc.
+
 ### Fixed -- TUI audit Phase K (keybind regression + test pollution)
 
 User reported "none of the keyboard commands do anything" and asked

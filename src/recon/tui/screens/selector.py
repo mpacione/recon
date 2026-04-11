@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
@@ -20,6 +21,10 @@ _log = get_logger(__name__)
 
 class CompetitorSelectorScreen(ModalScreen[list[str]]):
     """Checkbox list of competitors with select all / done."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
 
     DEFAULT_CSS = """
     CompetitorSelectorScreen {
@@ -102,6 +107,10 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
         if self._selected_flags[index]:
             return f"[#e0a044]\\[x][/]  {self._competitors[index]}"
         return f"[#3a3a3a]\\[ ][/]  [#a89984]{self._competitors[index]}[/]"
+
+    def action_cancel(self) -> None:
+        """Dismiss the selector with an empty selection (Esc keybind)."""
+        self.dismiss([])
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""

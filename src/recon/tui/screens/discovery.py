@@ -33,6 +33,7 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         Binding("up", "cursor_up", "Up", show=False),
         Binding("down", "cursor_down", "Down", show=False),
         Binding("space", "toggle_current", "Toggle", show=False),
+        Binding("escape", "cancel", "Back", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -130,6 +131,17 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         if candidates and 0 <= self._cursor_index < len(candidates):
             self._state.toggle(self._cursor_index)
             self._schedule_recompose()
+
+    def action_cancel(self) -> None:
+        """Dismiss the discovery screen (Esc keybind).
+
+        Returns the currently-accepted candidates, matching what the
+        Done button does. This is the universal "back out without
+        losing work" convention: pressing Escape finalizes whatever
+        the user has already accepted rather than throwing away the
+        whole round.
+        """
+        self.dismiss(self._state.accepted_candidates)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="discovery-container"):

@@ -834,3 +834,66 @@ class TestPlannerDigitKeybinds:
             _kill_child(pid)
             with contextlib_suppress():
                 os.close(fd)
+
+
+@_REQUIRES_PTY
+class TestModalEscapeKeybinds:
+    """Every modal screen (planner, discovery, selector, curation)
+    must handle ``escape`` as "back out". This is the universal
+    convention and it was missing on several modals through Phase K.
+    """
+
+    def _fresh_workspace(self, tmp_path: Path) -> tuple[int, int]:
+        workspace = _make_workspace(tmp_path)
+        return _spawn_tui(
+            workspace=workspace,
+            recent_path=tmp_path / "home" / ".recon" / "recent.json",
+        )
+
+    def test_planner_escape_returns_to_dashboard(self, tmp_path: Path) -> None:
+        pid, fd = self._fresh_workspace(tmp_path)
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            os.write(fd, b"r")
+            reader.drain_until("RUN PLANNER", timeout=5.0)
+            os.write(fd, b"\x1b")  # ESC
+            output = reader.drain_until("add manually", timeout=5.0)
+            # "add manually" lives in the dashboard keybind hint strip
+            assert "add manually" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+    def test_discovery_escape_returns_to_dashboard(self, tmp_path: Path) -> None:
+        pid, fd = self._fresh_workspace(tmp_path)
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            os.write(fd, b"d")
+            reader.drain_until("DISCOVERY", timeout=5.0)
+            os.write(fd, b"\x1b")
+            output = reader.drain_until("add manually", timeout=5.0)
+            assert "add manually" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)
+
+    def test_selector_escape_returns_to_dashboard(self, tmp_path: Path) -> None:
+        pid, fd = self._fresh_workspace(tmp_path)
+        try:
+            reader = _PtyReader(fd)
+            reader.drain_until("COMPETITORS", timeout=15.0)
+            os.write(fd, b"r")
+            reader.drain_until("RUN PLANNER", timeout=5.0)
+            os.write(fd, b"2")  # UPDATE_SPECIFIC -> selector
+            reader.drain_until("SELECT", timeout=5.0)
+            os.write(fd, b"\x1b")
+            output = reader.drain_until("add manually", timeout=5.0)
+            assert "add manually" in output
+        finally:
+            _kill_child(pid)
+            with contextlib_suppress():
+                os.close(fd)

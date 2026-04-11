@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
@@ -23,6 +24,10 @@ _log = get_logger(__name__)
 
 class ThemeCurationScreen(ModalScreen[list[DiscoveredTheme]]):
     """Interactive theme curation gate for the pipeline."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
 
     DEFAULT_CSS = """
     ThemeCurationScreen {
@@ -108,6 +113,15 @@ class ThemeCurationScreen(ModalScreen[list[DiscoveredTheme]]):
             f"{checkbox}  {index + 1}. {entry.label}  "
             f"({entry.chunk_count} chunks, {entry.evidence_strength})"
         )
+
+    def action_cancel(self) -> None:
+        """Dismiss curation with an empty selection (Esc keybind).
+
+        Pipeline treats an empty theme list as "skip synthesis" so
+        pressing Escape is a safe way to bail out of the gate without
+        losing the run.
+        """
+        self.dismiss([])
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
