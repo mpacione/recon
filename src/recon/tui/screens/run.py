@@ -14,11 +14,11 @@ from typing import Any
 from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
-from textual.containers import Vertical
 from textual.reactive import reactive
 from textual.widgets import Static
 
 from recon.logging import get_logger
+from recon.tui.run_monitor import CompetitorGrid, WorkerPanel
 from recon.tui.shell import ReconScreen
 from recon.tui.widgets import format_progress_bar
 
@@ -108,15 +108,50 @@ class RunScreen(ReconScreen):
 
 
     def compose_body(self) -> ComposeResult:
-        yield Static("[bold #e0a044]── RUN MONITOR ──[/]", id="run-title")
-        yield Static("")
+        # Legacy phase/progress/cost Statics for backward compat with
+        # tests that query these by ID. The CompetitorGrid renders its
+        # own header with the same info, so these are supplementary.
         yield Static(self._format_phase(), id="run-phase")
         yield Static(self._format_progress(), id="run-progress")
         yield Static(self._format_cost(), id="run-cost")
         yield Static("")
-        with Vertical(id="run-activity-section"):
-            yield Static("[bold #e0a044]── ACTIVITY ──[/]")
-            yield Static("[#a89984]waiting for pipeline...[/]", id="run-activity")
+
+        # The new competitor grid — subscribes to the bus and renders
+        # per-competitor ASCII progress bars in real time.
+        self._grid = CompetitorGrid(
+            competitor_names=self._competitor_names(),
+            section_keys=self._section_keys(),
+        )
+        yield self._grid
+        yield WorkerPanel(grid=self._grid)
+
+    def _competitor_names(self) -> list[str]:
+        """Pull competitor names from the workspace for grid init."""
+        try:
+            ws_path = getattr(self.app, "_workspace_path", None)
+            if ws_path is None:
+                return []
+            from recon.workspace import Workspace
+
+            ws = Workspace.open(ws_path)
+            return [p["name"] for p in ws.list_profiles()]
+        except Exception:
+            return []
+
+    def _section_keys(self) -> list[str]:
+        """Pull section keys from the workspace schema for grid init."""
+        try:
+            ws_path = getattr(self.app, "_workspace_path", None)
+            if ws_path is None:
+                return []
+            from recon.workspace import Workspace
+
+            ws = Workspace.open(ws_path)
+            if ws.schema and ws.schema.sections:
+                return [s.key for s in ws.schema.sections]
+            return []
+        except Exception:
+            return []
 
     def action_back(self) -> None:
         _log.info("RunScreen action_back")

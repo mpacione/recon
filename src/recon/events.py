@@ -122,6 +122,12 @@ class CostRecorded(Event):
 
 
 @dataclass(frozen=True)
+class SectionStarted(Event):
+    competitor_name: str = ""
+    section_key: str = ""
+
+
+@dataclass(frozen=True)
 class SectionResearched(Event):
     competitor_name: str = ""
     section_key: str = ""

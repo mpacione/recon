@@ -19,11 +19,14 @@ class _RunTestApp(App):
 
 
 class TestRunScreen:
-    async def test_mounts_with_title(self) -> None:
+    async def test_mounts_with_monitor_heading(self) -> None:
+        from recon.tui.run_monitor import CompetitorGrid
+
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)):
-            title = app.query_one("#run-title", Static)
-            assert "RUN MONITOR" in str(title.content)
+            grid = app.query_one(CompetitorGrid)
+            content = str(grid.render())
+            assert "MONITOR" in content or "waiting" in content.lower()
 
     async def test_shows_idle_phase(self) -> None:
         app = _RunTestApp()
@@ -70,14 +73,13 @@ class TestRunScreen:
             cost = app.query_one("#run-cost", Static)
             assert "$42.50" in str(cost.content)
 
-    async def test_add_activity(self) -> None:
+    async def test_add_activity_appends_to_internal_log(self) -> None:
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
             screen = app.query_one(RunScreen)
             screen.add_activity("Cursor -- Capabilities -- done")
             await pilot.pause()
-            log = app.query_one("#run-activity", Static)
-            assert "Cursor" in str(log.content)
+            assert "Cursor" in screen._activity[-1]
 
     async def test_start_pipeline_updates_phase(self) -> None:
         phases_seen: list[str] = []

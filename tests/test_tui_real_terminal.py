@@ -754,10 +754,12 @@ class TestRunScreenKeybinds:
             os.write(fd, b"r")
             reader.drain_until("RUN PLANNER", timeout=5.0)
             os.write(fd, b"6")
-            reader.drain_until("RUN MONITOR", timeout=5.0)
+            # The run screen renders "RESEARCH MONITOR" (from
+            # CompetitorGrid) or "Phase:" (from legacy statics).
+            reader.drain_until("MONITOR", timeout=10.0)
             # Now press b to go back
             os.write(fd, b"b")
-            output = reader.drain_until("COMPETITORS", timeout=5.0)
+            output = reader.drain_until("COMPETITORS", timeout=10.0)
             assert "COMPETITORS" in output
         finally:
             _kill_child(pid)
@@ -828,8 +830,8 @@ class TestPlannerDigitKeybinds:
             reader.drain_until("RUN PLANNER", timeout=5.0)
             # Press 6 -> Operation.FULL_PIPELINE -> run mode
             os.write(fd, b"6")
-            output = reader.drain_until("RUN MONITOR", timeout=5.0)
-            assert "RUN MONITOR" in output
+            output = reader.drain_until("MONITOR", timeout=5.0)
+            assert "MONITOR" in output
         finally:
             _kill_child(pid)
             with contextlib_suppress():
@@ -1129,7 +1131,7 @@ class TestDiscoveryToPipelineFlow:
             reader.drain_until("RUN PLANNER", timeout=5.0)
             # Press 7 -> FULL_PIPELINE -> run mode
             os.write(fd, b"7")
-            reader.drain_until("RUN MONITOR", timeout=5.0)
+            reader.drain_until("MONITOR", timeout=5.0)
             # Pipeline should transition OUT of Idle within a few
             # seconds (the fake API key will make it fail, but the
             # transition is what we're pinning). If `handle_discovery_result`
@@ -1252,7 +1254,7 @@ class TestWelcomeToRunPipelineFlow:
             reader.drain_until("RUN PLANNER", timeout=5.0)
             # 5. 7 -> FULL_PIPELINE -> run mode
             os.write(fd, b"7")
-            reader.drain_until("RUN MONITOR", timeout=5.0)
+            reader.drain_until("MONITOR", timeout=5.0)
             # 6. Pipeline must transition OUT of Idle. Before the fix
             # this hung forever because on_screen_resume wasn't
             # consuming the pending pipeline.

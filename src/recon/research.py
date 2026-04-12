@@ -238,6 +238,17 @@ class ResearchOrchestrator:
             "web_search" if tools else "none",
         )
 
+        # Publish SectionStarted so the TUI run monitor can show
+        # in-flight sections with the >> indicator in real time.
+        from recon.events import SectionStarted, publish
+
+        publish(
+            SectionStarted(
+                competitor_name=task.competitor_name,
+                section_key=task.section_key,
+            ),
+        )
+
         try:
             try:
                 response = await self.llm_client.complete(
