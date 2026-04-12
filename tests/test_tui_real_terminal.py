@@ -360,7 +360,7 @@ class TestRealTerminalSmoke:
             #    arrive after the body in the same render cycle but
             #    sometimes split across chunks). Buffer accumulates so
             #    we still have access to the header that arrived earlier.
-            output = reader.drain_until("add manually", timeout=5.0)
+            output = reader.drain_until("edit schema", timeout=5.0)
 
             # 3. Header bar contents
             assert "Acme Corp" in output, (
@@ -379,7 +379,7 @@ class TestRealTerminalSmoke:
             assert "run" in lower
             assert "discover" in lower
             assert "browse" in lower
-            assert "add manually" in lower
+            assert "edit schema" in lower
 
             # 6. The persistent chrome should include both the
             #    ActivityFeed and LogPane placeholders
@@ -784,8 +784,8 @@ class TestBrowserKeybinds:
             reader.drain_until("Name", timeout=5.0)
             # Press b again to go back
             os.write(fd, b"b")
-            output = reader.drain_until("add manually", timeout=5.0)
-            assert "add manually" in output  # dashboard keybind hint
+            output = reader.drain_until("edit schema", timeout=5.0)
+            assert "edit schema" in output  # dashboard keybind hint
         finally:
             _kill_child(pid)
             with contextlib_suppress():
@@ -803,8 +803,8 @@ class TestBrowserKeybinds:
             os.write(fd, b"b")
             reader.drain_until("Name", timeout=5.0)
             os.write(fd, b"\x1b")  # ESC
-            output = reader.drain_until("add manually", timeout=5.0)
-            assert "add manually" in output
+            output = reader.drain_until("edit schema", timeout=5.0)
+            assert "edit schema" in output
         finally:
             _kill_child(pid)
             with contextlib_suppress():
@@ -860,9 +860,9 @@ class TestModalEscapeKeybinds:
             os.write(fd, b"r")
             reader.drain_until("RUN PLANNER", timeout=5.0)
             os.write(fd, b"\x1b")  # ESC
-            output = reader.drain_until("add manually", timeout=5.0)
-            # "add manually" lives in the dashboard keybind hint strip
-            assert "add manually" in output
+            output = reader.drain_until("edit schema", timeout=5.0)
+            # "edit schema" lives in the dashboard keybind hint strip
+            assert "edit schema" in output
         finally:
             _kill_child(pid)
             with contextlib_suppress():
@@ -876,8 +876,8 @@ class TestModalEscapeKeybinds:
             os.write(fd, b"d")
             reader.drain_until("DISCOVERY", timeout=5.0)
             os.write(fd, b"\x1b")
-            output = reader.drain_until("add manually", timeout=5.0)
-            assert "add manually" in output
+            output = reader.drain_until("edit schema", timeout=5.0)
+            assert "edit schema" in output
         finally:
             _kill_child(pid)
             with contextlib_suppress():
@@ -893,8 +893,8 @@ class TestModalEscapeKeybinds:
             os.write(fd, b"2")  # UPDATE_SPECIFIC -> selector
             reader.drain_until("SELECT", timeout=5.0)
             os.write(fd, b"\x1b")
-            output = reader.drain_until("add manually", timeout=5.0)
-            assert "add manually" in output
+            output = reader.drain_until("edit schema", timeout=5.0)
+            assert "edit schema" in output
         finally:
             _kill_child(pid)
             with contextlib_suppress():

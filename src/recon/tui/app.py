@@ -359,6 +359,29 @@ class ReconApp(App):
         _log.info("creating workspace at %s", result.output_dir)
         try:
             result.output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Guard: if the target directory already has competitor
+            # profiles from a previous project, wipe them so the new
+            # project starts clean. Without this, discovery results
+            # from project A bleed into project B when the user reuses
+            # the same directory name.
+            competitors_dir = result.output_dir / "competitors"
+            if competitors_dir.exists():
+                existing = list(competitors_dir.glob("*.md"))
+                if existing:
+                    _log.info(
+                        "cleaning %d existing competitor profiles from %s",
+                        len(existing),
+                        competitors_dir,
+                    )
+                    for p in existing:
+                        p.unlink()
+                    self.notify(
+                        f"Cleaned {len(existing)} existing profiles from "
+                        f"previous project in this directory.",
+                        severity="information",
+                    )
+
             (result.output_dir / "recon.yaml").write_text(
                 yaml.dump(result.schema, default_flow_style=False, sort_keys=False)
             )

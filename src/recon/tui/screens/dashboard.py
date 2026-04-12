@@ -33,12 +33,13 @@ class DashboardScreen(ReconScreen):
         Binding("d", "discover", "discover competitors"),
         Binding("b", "browse", "browse competitors"),
         Binding("m", "add_manually", "add manually"),
+        Binding("e", "edit_schema", "edit schema"),
         Binding("y", "start_discovery", "Yes, discover", show=False),
     ]
 
     keybind_hints = (
         "[#e0a044]r[/] run · [#e0a044]d[/] discover · [#e0a044]b[/] browse · "
-        "[#e0a044]m[/] add manually · [#e0a044]q[/] quit · [#e0a044]?[/] help"
+        "[#e0a044]e[/] edit schema · [#e0a044]q[/] quit · [#e0a044]?[/] help"
     )
 
     DEFAULT_CSS = """
@@ -203,6 +204,40 @@ class DashboardScreen(ReconScreen):
             )
             return
         self._push_planner()
+
+    def action_edit_schema(self) -> None:
+        """Open ``recon.yaml`` in the user's ``$EDITOR``.
+
+        Suspends the TUI while the editor is open, then refreshes the
+        dashboard data on return (in case sections changed).
+        """
+        import os
+        import subprocess
+
+        schema_path = self._workspace_path / "recon.yaml"
+        if not schema_path.exists():
+            self.app.notify(
+                "No recon.yaml found in this workspace.",
+                severity="warning",
+            )
+            return
+
+        editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "vim"))
+        _log.info("action_edit_schema editor=%s path=%s", editor, schema_path)
+
+        with self.app.suspend():
+            subprocess.run([editor, str(schema_path)], check=False)
+
+        # Refresh dashboard to pick up any schema changes
+        from recon.tui.models.dashboard import build_dashboard_data
+        from recon.workspace import Workspace
+
+        try:
+            ws = Workspace.open(self._workspace_path)
+            self.refresh_data(build_dashboard_data(ws))
+            self.app.notify("Schema reloaded", severity="information")
+        except Exception:
+            _log.exception("failed to reload schema after edit")
 
     def action_discover(self) -> None:
         _log.info("DashboardScreen action_discover")

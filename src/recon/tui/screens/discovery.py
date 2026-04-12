@@ -16,11 +16,10 @@ from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Static
+from textual.widgets import Button, DataTable, Input, Static
 
 from recon.discovery import DiscoveryCandidate, DiscoveryState  # noqa: TCH001
 from recon.logging import get_logger
-from recon.tui.primitives import TerminalBox
 
 _log = get_logger(__name__)
 
@@ -138,6 +137,7 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
             len(self._state.all_candidates),
             self._search_fn is not None,
         )
+        self._populate_table()
         if (
             self._search_fn is not None
             and not self._auto_started
@@ -146,6 +146,15 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
             self._auto_started = True
             _log.info("DiscoveryScreen: auto-starting initial search on mount")
             self._do_search()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Toggle acceptance when the user presses Enter on a row."""
+        index = event.cursor_row
+        candidates = self._state.all_candidates
+        if 0 <= index < len(candidates):
+            self._state.toggle(index)
+            self._populate_table()
+            self._update_summary()
 
     def action_cursor_up(self) -> None:
         count = len(self._state.all_candidates)
@@ -158,10 +167,16 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
             self._cursor_index = (self._cursor_index + 1) % count
 
     def action_toggle_current(self) -> None:
+        """Toggle the candidate at the DataTable cursor position."""
+        try:
+            table = self.query_one("#discovery-table", DataTable)
+            index = table.cursor_row
+        except Exception:
+            index = self._cursor_index
         candidates = self._state.all_candidates
-        if candidates and 0 <= self._cursor_index < len(candidates):
-            self._state.toggle(self._cursor_index)
-            self._schedule_recompose()
+        if candidates and 0 <= index < len(candidates):
+            self._state.toggle(index)
+            self._refresh_display()
 
     def action_cancel(self) -> None:
         """Dismiss the discovery screen (Esc keybind).
@@ -249,53 +264,29 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
                 )
             return
 
-        for i, candidate in enumerate(candidates):
-            yield self._build_candidate_card(i, candidate)
+        table = DataTable(id="discovery-table")
+        yield table
 
-    def _build_candidate_card(self, index: int, candidate: DiscoveryCandidate):
-        """Render a single candidate as a ``TerminalBox`` card.
+    def _populate_table(self) -> None:
+        """Fill (or refill) the DataTable from the current state.
 
-        Uses cyberspace.online's post-card pattern: a bordered card with
-        a header line showing the checkbox + name + URL + tier, a body
-        paragraph with the blurb, and a dim footer with provenance.
-        The card's border color reflects acceptance state (amber when
-        accepted, dim grey when rejected) so the user can see at a glance
-        which candidates are in the roster.
-
-        Escape the brackets in the Rich markup -- `[x]` and `[ ]` get
-        eaten by the parser otherwise.
+        Called on mount and after any state change (search round,
+        toggle, accept all, reject all).
         """
-        tier_display = candidate.suggested_tier.value.capitalize()
-        checkbox = (
-            "[#e0a044]\\[x][/]" if candidate.accepted else "[#3a3a3a]\\[ ][/]"
-        )
-        name_color = "#efe5c0" if candidate.accepted else "#a89984"
-        classes = "discovery-card accepted" if candidate.accepted else "discovery-card rejected"
+        try:
+            table = self.query_one("#discovery-table", DataTable)
+        except Exception:
+            return
 
-        header = Static(
-            f"{checkbox}  "
-            f"[bold {name_color}]{candidate.name}[/]  "
-            f"[#a89984]·[/]  "
-            f"[#a89984]{candidate.url}[/]  "
-            f"[#a89984]·[/]  "
-            f"[#a89984]Tier: {tier_display}[/]",
-            classes="candidate-header",
-        )
-        body = Static(
-            f"[#efe5c0]{candidate.blurb}[/]",
-            classes="candidate-body",
-        )
-        footer = Static(
-            f"[#3a3a3a]found via:[/] [#a89984]{candidate.provenance}[/]",
-            classes="candidate-footer",
-        )
-        return TerminalBox(
-            header,
-            body,
-            footer,
-            id=f"candidate-{index}",
-            classes=classes,
-        )
+        table.clear(columns=True)
+        table.add_columns("", "Name", "Tier", "URL")
+        table.cursor_type = "row"
+
+        for candidate in self._state.all_candidates:
+            marker = "✓" if candidate.accepted else "·"
+            tier = candidate.suggested_tier.value.capitalize()
+            url_short = candidate.url[:40] if candidate.url else ""
+            table.add_row(marker, candidate.name, tier, url_short)
 
     def _build_roster_summary(self):
         accepted = self._state.accepted_candidates
@@ -401,7 +392,31 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         await self.recompose()
 
     def _refresh_display(self) -> None:
-        self._schedule_recompose()
+        """Rebuild the DataTable and summary from current state.
+
+        Much cheaper than a full recompose — just clears and re-adds
+        rows. Falls back to recompose if the table isn't mounted yet
+        (e.g., first render before any candidates exist).
+        """
+        try:
+            self._populate_table()
+            self._update_summary()
+        except Exception:
+            self._schedule_recompose()
+
+    def _update_summary(self) -> None:
+        """Refresh the summary line (accepted / rejected counts)."""
+        try:
+            summary = self.query_one("#discovery-summary", Static)
+            accepted = len(self._state.accepted_candidates)
+            rejected = len(self._state.rejected_candidates)
+            summary.update(
+                f"[#a89984]rounds:[/] [#e0a044]{self._state.round_count}[/]  "
+                f"[#3a3a3a]·[/]  [#a89984]accepted:[/] [#e0a044]{accepted}[/]  "
+                f"[#3a3a3a]·[/]  [#a89984]rejected:[/] [#e0a044]{rejected}[/]",
+            )
+        except Exception:
+            pass
 
     @work
     async def _schedule_recompose(self) -> None:
