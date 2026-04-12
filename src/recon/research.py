@@ -80,6 +80,7 @@ class ResearchOrchestrator:
     max_workers: int = 5
     schema_override: ReconSchema | None = None
     use_web_search: bool = True
+    max_retries: int = 1
 
     @property
     def _schema(self) -> ReconSchema:
@@ -222,7 +223,78 @@ class ResearchOrchestrator:
         return age > dt.timedelta(days=max_age_days)
 
     async def _research_one(self, system_prompt: str, task: ResearchTask) -> dict:
-        """Research a single section for a single competitor."""
+        """Research a single section for a single competitor.
+
+        Retries up to ``max_retries`` times on failure before marking the
+        section as failed. Each retry emits a ``SectionRetrying`` event so
+        the TUI can show retry state.
+        """
+        from recon.events import SectionRetrying, SectionStarted, publish
+
+        publish(
+            SectionStarted(
+                competitor_name=task.competitor_name,
+                section_key=task.section_key,
+            ),
+        )
+
+        last_error: Exception | None = None
+
+        for attempt in range(1 + self.max_retries):
+            if attempt > 0:
+                _log.info(
+                    "research retry attempt=%d section=%s competitor=%s error=%s",
+                    attempt,
+                    task.section_key,
+                    task.competitor_name,
+                    last_error,
+                )
+                publish(
+                    SectionRetrying(
+                        competitor_name=task.competitor_name,
+                        section_key=task.section_key,
+                        attempt=attempt,
+                        error=str(last_error),
+                    ),
+                )
+
+            try:
+                response = await self._call_llm(system_prompt, task)
+            except Exception as exc:
+                last_error = exc
+                continue
+
+            _log.info(
+                "research got response section=%s competitor=%s in=%d out=%d len=%d",
+                task.section_key,
+                task.competitor_name,
+                response.input_tokens,
+                response.output_tokens,
+                len(response.text),
+            )
+
+            self._append_to_profile(task.competitor_slug, task.section_key, response.text)
+
+            return {
+                "competitor": task.competitor_name,
+                "section": task.section_key,
+                "tokens": {"input": response.input_tokens, "output": response.output_tokens},
+            }
+
+        _log.exception(
+            "research failed after %d attempts section=%s competitor=%s",
+            1 + self.max_retries,
+            task.section_key,
+            task.competitor_name,
+        )
+        error_detail = str(last_error) if last_error else "unknown"
+        self._mark_section_failed(task.competitor_slug, task.section_key, error_detail)
+        raise last_error  # type: ignore[misc]
+
+    async def _call_llm(self, system_prompt: str, task: ResearchTask) -> "LLMResponse":
+        """Make the LLM call, falling back to no-tools if web_search is unavailable."""
+        from recon.llm import LLMResponse  # noqa: F811
+
         user_prompt = compose_research_prompt(
             schema=self._schema,
             section_key=task.section_key,
@@ -238,64 +310,26 @@ class ResearchOrchestrator:
             "web_search" if tools else "none",
         )
 
-        # Publish SectionStarted so the TUI run monitor can show
-        # in-flight sections with the >> indicator in real time.
-        from recon.events import SectionStarted, publish
-
-        publish(
-            SectionStarted(
-                competitor_name=task.competitor_name,
-                section_key=task.section_key,
-            ),
-        )
-
         try:
-            try:
-                response = await self.llm_client.complete(
+            return await self.llm_client.complete(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                tools=tools,
+                max_tokens=8192,
+            )
+        except Exception as exc:
+            msg = str(exc).lower()
+            if tools and ("web_search" in msg or "tool" in msg or "not enabled" in msg):
+                _log.warning(
+                    "research web_search tool unavailable, retrying without: %s",
+                    exc,
+                )
+                return await self.llm_client.complete(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
-                    tools=tools,
-                    max_tokens=8192,
+                    max_tokens=4096,
                 )
-            except Exception as exc:
-                msg = str(exc).lower()
-                if tools and ("web_search" in msg or "tool" in msg or "not enabled" in msg):
-                    _log.warning(
-                        "research web_search tool unavailable, retrying without: %s",
-                        exc,
-                    )
-                    response = await self.llm_client.complete(
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
-                        max_tokens=4096,
-                    )
-                else:
-                    raise
-        except Exception:
-            _log.exception(
-                "research failed section=%s competitor=%s",
-                task.section_key,
-                task.competitor_name,
-            )
-            self._mark_section_failed(task.competitor_slug, task.section_key)
             raise
-
-        _log.info(
-            "research got response section=%s competitor=%s in=%d out=%d len=%d",
-            task.section_key,
-            task.competitor_name,
-            response.input_tokens,
-            response.output_tokens,
-            len(response.text),
-        )
-
-        self._append_to_profile(task.competitor_slug, task.section_key, response.text)
-
-        return {
-            "competitor": task.competitor_name,
-            "section": task.section_key,
-            "tokens": {"input": response.input_tokens, "output": response.output_tokens},
-        }
 
     def _append_to_profile(self, slug: str, section_key: str, content: str) -> None:
         """Append research content to a profile and update section_status."""
@@ -327,7 +361,7 @@ class ResearchOrchestrator:
             ),
         )
 
-    def _mark_section_failed(self, slug: str, section_key: str) -> None:
+    def _mark_section_failed(self, slug: str, section_key: str, error: str = "") -> None:
         """Flag ``section_key`` as failed in the profile's section_status map."""
         path = self.workspace.competitors_dir / f"{slug}.md"
         if not path.exists():
@@ -338,7 +372,7 @@ class ResearchOrchestrator:
         existing = section_status.get(section_key) or {}
         if not isinstance(existing, dict):
             existing = {}
-        existing = {**existing, "status": "failed"}
+        existing = {**existing, "status": "failed", "error": error}
         section_status[section_key] = existing
         post["section_status"] = section_status
         path.write_text(frontmatter.dumps(post))
@@ -349,6 +383,7 @@ class ResearchOrchestrator:
             SectionFailed(
                 competitor_name=post.metadata.get("name", slug),
                 section_key=section_key,
+                error=error,
             ),
         )
 

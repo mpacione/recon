@@ -138,6 +138,47 @@ class TestCompetitorGridEventHandling:
             content = str(grid.render())
             assert "failed" in content.lower()
 
+    async def test_section_failed_shows_error_detail_inline(self) -> None:
+        from recon.events import SectionFailed, publish
+        from recon.tui.run_monitor import CompetitorGrid
+
+        app = _GridTestApp(
+            competitor_names=["Cursor"],
+            section_keys=["overview", "pricing"],
+        )
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            publish(SectionFailed(
+                competitor_name="Cursor",
+                section_key="pricing",
+                error="rate limit exceeded",
+            ))
+            await pilot.pause()
+            grid = app.query_one(CompetitorGrid)
+            content = str(grid.render())
+            assert "rate limit" in content.lower()
+
+    async def test_section_retrying_shows_retrying_state(self) -> None:
+        from recon.events import SectionRetrying, publish
+        from recon.tui.run_monitor import CompetitorGrid
+
+        app = _GridTestApp(
+            competitor_names=["Cursor"],
+            section_keys=["overview", "pricing"],
+        )
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            publish(SectionRetrying(
+                competitor_name="Cursor",
+                section_key="pricing",
+                attempt=1,
+                error="timeout",
+            ))
+            await pilot.pause()
+            grid = app.query_one(CompetitorGrid)
+            content = str(grid.render())
+            assert "retrying" in content.lower()
+
     async def test_cost_recorded_updates_total(self) -> None:
         from recon.events import CostRecorded, RunStarted, publish
         from recon.tui.run_monitor import CompetitorGrid

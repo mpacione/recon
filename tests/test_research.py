@@ -513,3 +513,160 @@ class TestResearchOrchestrator:
         await orchestrator.research_all()
 
         assert call_order == ["overview", "pricing", "capabilities"]
+
+    async def test_retries_once_before_marking_failed(
+        self, tmp_workspace: Path
+    ) -> None:
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        call_count = 0
+
+        async def fail_then_succeed(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                msg = "rate limit exceeded"
+                raise RuntimeError(msg)
+            return LLMResponse(
+                text="## Overview\nRetried content.\n\n## Sources\n- [S](https://s.com) -- 2026-01-01",
+                input_tokens=100,
+                output_tokens=50,
+                model="claude-sonnet-4-20250514",
+                stop_reason="end_turn",
+            )
+
+        llm = _mock_llm_client()
+        llm.complete = AsyncMock(side_effect=fail_then_succeed)
+
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+            max_retries=1,
+        )
+        await orchestrator.research_all()
+
+        assert call_count == 2
+        alpha = ws.read_profile("alpha")
+        assert alpha["research_status"] == "researched"
+        assert "Retried content" in alpha["_content"]
+
+    async def test_retry_exhausted_marks_failed_with_error(
+        self, tmp_workspace: Path
+    ) -> None:
+        from recon.events import SectionFailed, get_bus
+
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        llm = _mock_llm_client()
+        llm.complete = AsyncMock(side_effect=RuntimeError("persistent error"))
+
+        captured_events: list[SectionFailed] = []
+
+        def capture(event: object) -> None:
+            if isinstance(event, SectionFailed):
+                captured_events.append(event)
+
+        bus = get_bus()
+        bus.subscribe(capture)
+
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+            max_retries=1,
+        )
+        await orchestrator.research_all()
+
+        bus.unsubscribe(capture)
+
+        # Should have called: initial + 1 retry = 2 calls
+        assert llm.complete.call_count == 2
+
+        alpha = ws.read_profile("alpha")
+        section_status = alpha.get("section_status") or {}
+        assert section_status.get("overview", {}).get("status") == "failed"
+
+        assert len(captured_events) == 1
+        assert "persistent error" in captured_events[0].error
+
+    async def test_retry_emits_section_retrying_event(
+        self, tmp_workspace: Path
+    ) -> None:
+        from recon.events import get_bus
+
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        call_count = 0
+
+        async def fail_then_succeed(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                msg = "timeout"
+                raise RuntimeError(msg)
+            return LLMResponse(
+                text="## Overview\nContent.\n\n## Sources\n- [S](https://s.com) -- 2026-01-01",
+                input_tokens=100,
+                output_tokens=50,
+                model="claude-sonnet-4-20250514",
+                stop_reason="end_turn",
+            )
+
+        llm = _mock_llm_client()
+        llm.complete = AsyncMock(side_effect=fail_then_succeed)
+
+        retrying_events: list[object] = []
+
+        def capture(event: object) -> None:
+            from recon.events import SectionRetrying
+            if isinstance(event, SectionRetrying):
+                retrying_events.append(event)
+
+        bus = get_bus()
+        bus.subscribe(capture)
+
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+            max_retries=1,
+        )
+        await orchestrator.research_all()
+
+        bus.unsubscribe(capture)
+
+        assert len(retrying_events) == 1
+
+    async def test_no_retry_when_max_retries_zero(
+        self, tmp_workspace: Path
+    ) -> None:
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        llm = _mock_llm_client()
+        llm.complete = AsyncMock(side_effect=RuntimeError("boom"))
+
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+            max_retries=0,
+        )
+        await orchestrator.research_all()
+
+        assert llm.complete.call_count == 1
+        alpha = ws.read_profile("alpha")
+        section_status = alpha.get("section_status") or {}
+        assert section_status.get("overview", {}).get("status") == "failed"

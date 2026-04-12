@@ -42,6 +42,7 @@ from recon.events import (
     RunStarted,
     SectionFailed,
     SectionResearched,
+    SectionRetrying,
     SectionStarted,
     get_bus,
 )
@@ -58,6 +59,7 @@ _log = get_logger(__name__)
 WAITING = "--"
 QUEUED = ".."
 ACTIVE = ">>"
+RETRYING = "~>"
 DONE = "ok"
 FAILED = "!!"
 
@@ -68,6 +70,7 @@ class CompetitorStatus:
 
     name: str
     sections: OrderedDict[str, str] = field(default_factory=OrderedDict)
+    failure_errors: dict[str, str] = field(default_factory=dict)
 
     @property
     def total(self) -> int:
@@ -161,6 +164,17 @@ class RunMonitorState:
 # ---------------------------------------------------------------------------
 # ASCII progress bar renderer
 # ---------------------------------------------------------------------------
+
+_MAX_ERROR_DISPLAY_LEN = 30
+
+
+def _truncate_error(error: str) -> str:
+    """Extract a short, meaningful error hint from an exception message."""
+    cleaned = error.strip().split("\n")[0]
+    if len(cleaned) > _MAX_ERROR_DISPLAY_LEN:
+        return cleaned[:_MAX_ERROR_DISPLAY_LEN] + "..."
+    return cleaned
+
 
 _FULL_BLOCK = "\u2588"  # █
 _LIGHT_SHADE = "\u2591"  # ░
@@ -271,9 +285,15 @@ class CompetitorGrid(Static):
                 self._state.active_section_names,
             )
             self._dirty = True
+        elif isinstance(event, SectionRetrying):
+            cs = self._state.get_or_create(event.competitor_name)
+            cs.sections[event.section_key] = RETRYING
+            self._dirty = True
         elif isinstance(event, SectionFailed):
             cs = self._state.get_or_create(event.competitor_name)
             cs.sections[event.section_key] = FAILED
+            if event.error:
+                cs.failure_errors[event.section_key] = event.error
             self._state.active_workers = len(
                 self._state.active_section_names,
             )
@@ -330,10 +350,16 @@ class CompetitorGrid(Static):
             pct_str = f"{cs.progress_fraction * 100:.0f}%"
 
             # Status indicator on the right
+            retrying = sum(1 for v in cs.sections.values() if v == RETRYING)
             if cs.is_complete:
                 indicator = "  [#98971a]\\[ok][/]"
             elif cs.failed > 0:
-                indicator = f"  [#cc241d]{cs.failed} failed[/]"
+                first_error = next(iter(cs.failure_errors.values()), "")
+                error_hint = _truncate_error(first_error) if first_error else ""
+                error_suffix = f": {error_hint}" if error_hint else ""
+                indicator = f"  [#cc241d]{cs.failed} failed{error_suffix}[/]"
+            elif retrying > 0:
+                indicator = f"  [#d79921]~> retrying[/]"
             elif cs.active_section:
                 indicator = f"  [#e0a044]>> {cs.active_section}[/]"
             else:

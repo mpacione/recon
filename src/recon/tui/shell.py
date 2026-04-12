@@ -42,6 +42,7 @@ from recon.events import (
     RunStarted,
     SectionFailed,
     SectionResearched,
+    SectionRetrying,
     ThemesDiscovered,
     get_bus,
 )
@@ -387,10 +388,21 @@ class ActivityFeed(Static):
                 f"[#98971a]✓[/] [#efe5c0]{event.competitor_name}[/]"
                 f"[#3a3a3a].[/][#a89984]{event.section_key}[/]"
             )
+        if isinstance(event, SectionRetrying):
+            return (
+                f"[#d79921]~>[/] [#efe5c0]{event.competitor_name}[/]"
+                f"[#3a3a3a].[/][#a89984]{event.section_key}[/]"
+                f" [#a89984]retry {event.attempt}[/]"
+            )
         if isinstance(event, SectionFailed):
+            error_hint = ""
+            if event.error:
+                short = event.error.strip().split("\n")[0][:30]
+                error_hint = f" [#a89984]({short})[/]"
             return (
                 f"[#cc241d]✗[/] [#efe5c0]{event.competitor_name}[/]"
                 f"[#3a3a3a].[/][#a89984]{event.section_key}[/]"
+                f"{error_hint}"
             )
         if isinstance(event, ThemesDiscovered):
             return (

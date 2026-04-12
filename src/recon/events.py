@@ -134,6 +134,14 @@ class SectionResearched(Event):
 
 
 @dataclass(frozen=True)
+class SectionRetrying(Event):
+    competitor_name: str = ""
+    section_key: str = ""
+    attempt: int = 1
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class SectionFailed(Event):
     competitor_name: str = ""
     section_key: str = ""
