@@ -670,3 +670,34 @@ class TestResearchOrchestrator:
         alpha = ws.read_profile("alpha")
         section_status = alpha.get("section_status") or {}
         assert section_status.get("overview", {}).get("status") == "failed"
+
+    async def test_cost_callback_fires_per_section(
+        self, tmp_workspace: Path
+    ) -> None:
+        """Cost callback should fire for each successful section, not
+        once at the end. This enables streaming cost in the TUI."""
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        ws.create_profile("Beta")
+
+        llm = _mock_llm_client()
+
+        cost_events: list[dict] = []
+
+        async def on_cost(input_tokens: int, output_tokens: int) -> None:
+            cost_events.append({"input": input_tokens, "output": output_tokens})
+
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+            cost_callback=on_cost,
+        )
+        await orchestrator.research_all()
+
+        # 2 competitors × 1 section (minimal schema) = 2 cost callbacks
+        assert len(cost_events) == 2
+        assert all(e["input"] == 500 for e in cost_events)
+        assert all(e["output"] == 200 for e in cost_events)

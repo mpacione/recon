@@ -344,14 +344,23 @@ class Pipeline:
     # ------------------------------------------------------------------
 
     async def _stage_research(self, run_id: str, cost_tracker: CostTracker) -> None:
-        """Execute the research stage."""
+        """Execute the research stage.
+
+        Cost is recorded per-section via a callback, not aggregated
+        after the batch. This enables streaming cost in the TUI.
+        """
+
+        async def _on_cost(input_tokens: int, output_tokens: int) -> None:
+            await self._record_tokens(run_id, cost_tracker, input_tokens, output_tokens)
+
         orchestrator = ResearchOrchestrator(
             workspace=self.workspace,
             llm_client=self.llm_client,
             max_workers=self.config.max_research_workers,
+            cost_callback=_on_cost,
         )
 
-        results = await orchestrator.research_all(
+        await orchestrator.research_all(
             targets=self.config.targets,
             stale_only=self.config.stale_only,
             max_age_days=self.config.max_age_days,
@@ -359,10 +368,6 @@ class Pipeline:
             cancel_event=self.cancel_event,
             pause_event=self.pause_event,
         )
-
-        total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
-        total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)
-        await self._record_tokens(run_id, cost_tracker, total_input, total_output)
 
     async def _stage_verify(self, run_id: str, cost_tracker: CostTracker) -> None:
         """Execute the verification stage.
@@ -470,23 +475,28 @@ class Pipeline:
         path.write_text(frontmatter.dumps(post))
 
     async def _stage_enrich(self, run_id: str, cost_tracker: CostTracker) -> None:
-        """Execute all enrichment passes."""
+        """Execute all enrichment passes.
+
+        Cost is recorded per-profile via a callback, not aggregated
+        after each pass. This enables streaming cost in the TUI.
+        """
+
+        async def _on_cost(input_tokens: int, output_tokens: int) -> None:
+            await self._record_tokens(run_id, cost_tracker, input_tokens, output_tokens)
+
         for enrichment_pass in EnrichmentPass:
             orchestrator = EnrichmentOrchestrator(
                 workspace=self.workspace,
                 llm_client=self.llm_client,
                 enrichment_pass=enrichment_pass,
                 max_workers=self.config.max_enrich_workers,
+                cost_callback=_on_cost,
             )
-            results = await orchestrator.enrich_all(
+            await orchestrator.enrich_all(
                 targets=self.config.targets,
                 cancel_event=self.cancel_event,
                 pause_event=self.pause_event,
             )
-
-            total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
-            total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)
-            await self._record_tokens(run_id, cost_tracker, total_input, total_output)
 
     async def _stage_index(self, run_id: str) -> None:
         """Execute the indexing stage."""

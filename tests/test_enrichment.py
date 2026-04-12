@@ -220,3 +220,36 @@ class TestEnrichmentOrchestrator:
 
         call_kwargs = llm.complete.call_args[1]
         assert "sentiment" in call_kwargs["system_prompt"].lower() or "developer" in call_kwargs["system_prompt"].lower()
+
+    async def test_cost_callback_fires_per_profile(self, tmp_workspace: Path) -> None:
+        """Cost callback should fire for each enriched profile."""
+        import frontmatter as fm
+
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        for name in ("Alpha", "Beta"):
+            path = ws.create_profile(name)
+            post = fm.load(str(path))
+            post.content = "## Overview\nResearch content.\n"
+            path.write_text(fm.dumps(post))
+
+        llm = _mock_llm("Enriched content.")
+
+        cost_events: list[dict] = []
+
+        async def on_cost(input_tokens: int, output_tokens: int) -> None:
+            cost_events.append({"input": input_tokens, "output": output_tokens})
+
+        orchestrator = EnrichmentOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            enrichment_pass=EnrichmentPass.CLEANUP,
+            max_workers=1,
+            cost_callback=on_cost,
+        )
+        await orchestrator.enrich_all()
+
+        assert len(cost_events) == 2
+        assert all(e["input"] == 200 for e in cost_events)
+        assert all(e["output"] == 100 for e in cost_events)

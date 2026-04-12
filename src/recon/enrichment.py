@@ -9,6 +9,7 @@ Three progressive enrichment passes:
 from __future__ import annotations
 
 import asyncio  # noqa: TCH003 -- used at runtime for cancel_event type
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -19,6 +20,8 @@ from recon.llm import LLMClient  # noqa: TCH001
 from recon.logging import get_logger
 from recon.workers import WorkerPool
 from recon.workspace import Workspace  # noqa: TCH001
+
+CostCallback = Callable[[int, int], Awaitable[None]]
 
 _log = get_logger(__name__)
 
@@ -73,6 +76,7 @@ class EnrichmentOrchestrator:
     llm_client: LLMClient
     enrichment_pass: EnrichmentPass
     max_workers: int = 5
+    cost_callback: CostCallback | None = None
 
     async def enrich_all(
         self,
@@ -168,6 +172,12 @@ class EnrichmentOrchestrator:
         )
 
         self._update_profile(slug, response.text)
+
+        if self.cost_callback is not None:
+            try:
+                await self.cost_callback(response.input_tokens, response.output_tokens)
+            except Exception:
+                _log.exception("cost_callback raised")
 
         return {
             "competitor": name,
