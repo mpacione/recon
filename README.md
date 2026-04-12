@@ -16,7 +16,7 @@ A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agen
 
 | Component | State | Notes |
 |---|---|---|
-| Engine layer (pipeline, research, verification, enrichment, index, themes, synthesis, deliver, discovery, tag) | **Stable** | 400+ unit tests, 25 integration tests, lint clean |
+| Engine layer (pipeline, research, verification, enrichment, index, themes, synthesis, deliver, discovery, tag) | **Stable** | 600+ unit tests, 25+ integration tests, lint clean |
 | `recon init` / `add` / `status` | **Stable** | Headless init produces full 8-section default schema |
 | `recon discover` | **Stable** | Uses `web_search_20250305` tool for live competitor discovery |
 | `recon research [target | --all]` | **Stable** | Target argument honored; tracks per-section `researched_at` timestamps in frontmatter |
@@ -25,18 +25,20 @@ A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agen
 | `recon enrich [target | --all]` | **Stable** | Target argument honored; unknown names error clearly |
 | `recon verify [target | --all] [--tier ...]` | **Stable** | Per-section verification honoring schema tiers; writes summary to profile frontmatter |
 | `recon index` / `retrieve` | **Stable** | Local fastembed + ChromaDB, incremental via SHA-256 hashes |
-| `recon tag` | **Stable** | K-means clustering with LLM-generated strategic theme labels |
+| `recon tag` | **Stable** | K-means clustering with async LLM-generated theme labels (mechanical TF-IDF fallback when no LLM client) |
 | `recon synthesize` / `distill` / `summarize` | **Stable** | Single-pass + deep 4-pass synthesis, distillation, meta-synthesis |
-| `recon run` (full pipeline) | **Stable** | End-to-end: research → verify → enrich → index → themes → synthesize → deliver. Writes `themes/<slug>.md`, `themes/distilled/<slug>.md`, and `executive_summary.md`. |
-| TUI: welcome / wizard / dashboard / discovery / browser | **Working** | Screens render, navigate, accept input, write profiles |
-| TUI: run button → planner → pipeline execution | **Working** | Planner-to-pipeline wiring landed; all six research-facing planner operations call the real engine via `tui/pipeline_runner.py` |
-| TUI: competitor selector (update specific / diff specific) | **Working** | Pushed from planner when the chosen op needs targets |
-| TUI: diff update / rerun failed operations | **Working** | `DIFF_ALL` / `DIFF_SPECIFIC` re-research sections older than the staleness window; `RERUN_FAILED` retries sections marked `failed` in frontmatter |
-| TUI: add new (discover + research) | **Working** | The `ADD_NEW` planner option pushes `DiscoveryScreen`, creates profiles for accepted candidates, then runs the pipeline scoped to just those new names |
-| TUI: Stop button | **Working** | Sets a cancel event the pipeline checks between stages and inside `WorkerPool`; run finishes the current stage and ends with `RunStatus.CANCELLED` |
-| TUI: Pause button | **WIP** | Still notifies "not yet implemented" — needs `WorkerPool` semaphore suspension semantics |
+| `recon run` (full pipeline) | **Stable** | End-to-end: research → verify → enrich → index → themes → synthesize → deliver |
+| TUI: persistent chrome | **Stable** | Header bar (workspace context), ActivityFeed (typed engine events), LogPane (raw log tail), RunStatusBar (1-line status during runs), KeybindHint strip |
+| TUI: keyboard-first navigation | **Stable** | All full screens use keybinds (r/d/b/e/m on dashboard, p/s/b on run, n/o/1-9 on welcome). Escape closes all modals. Ctrl+C exits. No action-bar buttons. |
+| TUI: welcome / wizard / dashboard | **Stable** | Welcome with recent projects (1-9 digit keys), wizard 4-step scaffold, dashboard with TerminalBox card stack layout, `e` opens `recon.yaml` in $EDITOR |
+| TUI: discovery (DataTable) | **Stable** | Candidates render in a scrollable DataTable. Arrow keys navigate, Enter toggles accept/reject. Duplicate project guard wipes old profiles on reinit. |
+| TUI: competitor browser | **Stable** | DataTable with detail panel. `b` or `escape` to return. |
+| TUI: planner → pipeline execution | **Stable** | All 7 planner operations call the real engine via `pipeline_runner.py`. `ReconApp.launch_pipeline` is the canonical entry point. |
+| TUI: competitor grid run monitor | **Stable** | Per-competitor ASCII progress bars (████░░░░), failed counts, active section indicators (>> Pricing), worker panel, elapsed time + running cost. Subscribes to EventBus in real time. |
+| TUI: pause / stop / cancel | **Stable** | Pause/resume via asyncio.Event semaphore. Stop sets cancel event. Both work mid-run. |
+| TUI: theme curation gate | **Working** | Pipeline gate pushes ThemeCurationScreen mid-run. Toggle themes on/off, synthesize selected. Theme labels still use mechanical fallback (fastembed integration pending). |
+| Real-terminal PTY smoke tests | **Stable** | 25 tests spawn `recon tui` in a real PTY, press real keys, assert on rendered output. Covers every screen's primary keybinds + edge cases. |
 | Real-API E2E tests | **Available** | Opt-in via `ANTHROPIC_API_KEY`, tests in `tests/test_e2e_real.py` |
-| Fake-LLM CLI E2E tests | **Stable** | `tests/test_cli_e2e_fake_llm.py` covers `research`, `enrich`, and `run` via `CliRunner` |
 
 ## Install
 
@@ -317,9 +319,14 @@ AI-native code editor built on VS Code...
 | `discovery.py` | Iterative competitor discovery with LLM agent |
 | `pipeline.py` | Full pipeline orchestrator with state tracking |
 | `logging.py` | Central file-based logging with live flush (`~/.recon/logs/recon.log`) |
-| `tui/app.py` | Textual app with `MODES` (dashboard + run), global state |
-| `tui/theme.py` | Warm amber retro terminal theme |
-| `tui/widgets.py` | Status panel, competitor table, progress bar, curation/monitor panels |
+| `tui/app.py` | Textual app with `MODES` (dashboard + run), `launch_pipeline` entry point, engine event subscriber |
+| `tui/shell.py` | Persistent chrome: `ReconHeaderBar`, `LogPane`, `ActivityFeed`, `RunStatusBar`, `KeybindHint`, `ReconScreen` base class |
+| `tui/theme.py` | Warm amber retro terminal theme (cyberspace.online aesthetic), global button/input CSS |
+| `tui/primitives.py` | `TerminalBox` bordered card container, `CardStack` vertical rhythm wrapper |
+| `tui/run_monitor.py` | `CompetitorGrid` per-competitor progress bars, `WorkerPanel` active worker display |
+| `tui/pipeline_runner.py` | Planner Operation → PipelineConfig mapping, pipeline_fn factory |
+| `tui/widgets.py` | Format helpers (`format_progress_bar`, `humanize_path`, `format_worker_list`) |
+| `events.py` | In-process EventBus + 17 typed event dataclasses (RunStarted, SectionStarted, CostRecorded, etc) |
 | `tui/models/dashboard.py` | `DashboardData` + `build_dashboard_data` |
 | `tui/models/curation.py` | Theme curation data model |
 | `tui/models/monitor.py` | Run monitor data model |
@@ -336,7 +343,7 @@ AI-native code editor built on VS Code...
 ## Development
 
 ```bash
-# Run tests (534 passing, 4 skipped real-API tests, ~35s)
+# Run tests (738 passing, 4 skipped real-API tests, ~90s)
 pytest tests/ -q
 
 # Run with coverage
@@ -377,6 +384,10 @@ Full design documentation lives in [`design/`](design/):
 | [`design/research-and-verification.md`](design/research-and-verification.md) | Section-by-section batching, multi-agent consensus protocol, format constraints |
 | [`design/setup-and-discovery.md`](design/setup-and-discovery.md) | Discovery flow, schema wizard, theme discovery, own-product research |
 | [`design/operations.md`](design/operations.md) | Run planner, incremental runs, diff updates, cost estimation |
+| [`design/tui-audit-2026-04-10.md`](design/tui-audit-2026-04-10.md) | 20-finding TUI audit with severity ratings, flow analysis |
+| [`design/system-improvement-plan-2026-04-10.md`](design/system-improvement-plan-2026-04-10.md) | 8 architectural levers sequenced for 0.3.0 / 0.4.0 milestones |
+| [`design/systemic-fixes-proposal-2026-04-11.md`](design/systemic-fixes-proposal-2026-04-11.md) | Theme labeling, button styling, run monitor redesign analysis |
+| [`design/session-handoff-2026-04-12.md`](design/session-handoff-2026-04-12.md) | Session handoff: 15 phases shipped, 7 open items, gotchas |
 
 ## License
 
