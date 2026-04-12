@@ -161,6 +161,47 @@ class TestDashboardData:
         statuses = {s.key: s for s in data.section_statuses}
         assert statuses["overview"].completed == 0
 
+    def test_estimate_full_run_cost_produces_nonzero(self, tmp_workspace: Path) -> None:
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        ws.create_profile("Beta")
+
+        from recon.tui.screens.dashboard import _estimate_full_run_cost
+
+        estimate = _estimate_full_run_cost(ws)
+
+        assert estimate > 0
+
+    def test_read_cost_summary_works_inside_async_loop(
+        self, tmp_workspace: Path
+    ) -> None:
+        """_read_cost_summary must return real data even when called from
+        inside a running event loop (the TUI context). Previously it
+        silently returned zeros because asyncio.run() can't nest."""
+        import asyncio
+
+        from recon.state import StateStore
+        from recon.tui.models.dashboard import _read_cost_summary
+
+        async def seed_and_read() -> dict:
+            store = StateStore(db_path=tmp_workspace / ".recon" / "state.db")
+            await store.initialize()
+            run_id = await store.create_run(operation="test", parameters={})
+            await store.record_cost(
+                run_id=run_id,
+                model="claude-sonnet-4-5",
+                input_tokens=1000,
+                output_tokens=500,
+                cost_usd=0.42,
+            )
+            return _read_cost_summary(ws)
+
+        ws = Workspace.open(tmp_workspace)
+        result = asyncio.run(seed_and_read())
+
+        assert result["total_cost"] == pytest.approx(0.42, abs=0.01)
+        assert result["run_count"] == 1
+
     def test_enriched_defaults(self, tmp_workspace: Path) -> None:
         ws = Workspace.open(tmp_workspace)
 

@@ -77,18 +77,25 @@ def build_dashboard_data(workspace: Workspace) -> DashboardData:
     )
 
 
+_ZERO_COST_SUMMARY: dict[str, Any] = {"run_count": 0, "total_cost": 0.0, "last_run_cost": 0.0}
+
+
 def _read_cost_summary(workspace: Workspace) -> dict[str, Any]:
     """Read run/cost aggregates from the workspace's state.db.
 
-    Synchronous wrapper around the async StateStore. Returns zeros if
-    the state DB is missing or unreadable -- the dashboard should never
-    crash because of state-store gymnastics.
+    Synchronous wrapper around the async StateStore. Works both from
+    a plain synchronous context (``asyncio.run``) and from inside a
+    running event loop (spawns a thread so the nested coroutine gets
+    its own loop). Returns zeros if the state DB is missing or
+    unreadable -- the dashboard should never crash because of
+    state-store gymnastics.
     """
     import asyncio
+    import concurrent.futures
 
     db_path = workspace.root / ".recon" / "state.db"
     if not db_path.exists():
-        return {"run_count": 0, "total_cost": 0.0, "last_run_cost": 0.0}
+        return dict(_ZERO_COST_SUMMARY)
 
     from recon.state import StateStore
 
@@ -98,13 +105,21 @@ def _read_cost_summary(workspace: Workspace) -> dict[str, Any]:
         return await store.get_workspace_run_summary()
 
     try:
-        return asyncio.run(_read())
+        asyncio.get_running_loop()
     except RuntimeError:
-        # Already inside an event loop -- caller is async-aware,
-        # they should call get_workspace_run_summary themselves
-        return {"run_count": 0, "total_cost": 0.0, "last_run_cost": 0.0}
+        # No event loop running — safe to use asyncio.run()
+        try:
+            return asyncio.run(_read())
+        except Exception:
+            return dict(_ZERO_COST_SUMMARY)
+
+    # Inside a running event loop — run in a separate thread
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(asyncio.run, _read())
+            return future.result(timeout=5.0)
     except Exception:
-        return {"run_count": 0, "total_cost": 0.0, "last_run_cost": 0.0}
+        return dict(_ZERO_COST_SUMMARY)
 
 
 def _build_section_statuses(schema: object, profiles: list[dict[str, Any]]) -> list[SectionStatus]:
