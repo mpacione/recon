@@ -13,7 +13,6 @@ Cluster labels can be generated two ways:
 
 from __future__ import annotations
 
-import asyncio
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -95,13 +94,54 @@ def _generate_queries(texts: list[str], label: str) -> list[str]:
 
 _SOURCES_HEADER_RE = re.compile(r"^\s*#+\s*Sources\b", re.IGNORECASE | re.MULTILINE)
 
+# Citation date parentheticals: (Accessed April 12, 2026), (Last updated March 2026)
+_CITATION_DATE_RE = re.compile(
+    r"\((?:Accessed|Last\s+updated|Retrieved|Reviewed)[^)]*\d{4}[^)]*\)",
+    re.IGNORECASE,
+)
+
+# Numbered citation lines: 1. Title. "..." https://...
+_NUMBERED_CITATION_RE = re.compile(
+    r"^\s*\d+\.\s+.*https?://.*$",
+    re.MULTILINE,
+)
+
+# Bare URL lines (standalone https://... on their own line)
+_BARE_URL_RE = re.compile(
+    r"^\s*https?://\S+\s*$",
+    re.MULTILINE,
+)
+
 
 def _strip_sources(text: str) -> str:
-    """Drop the Sources section from a chunk so clustering focuses on content."""
+    """Drop source citation noise from a chunk so clustering focuses on content.
+
+    Handles three layers of citation noise:
+    1. Everything after a ``## Sources`` heading (the original logic)
+    2. Inline citation date parentheticals like ``(Accessed April 12, 2026)``
+       that appear within the body text before the Sources heading
+    3. Numbered citation lines like ``1. Name. "..." https://...``
+    4. Bare URL lines
+
+    Without this, the most frequent terms across all chunks are
+    "2026", "Accessed", and "April" — which poisons the mechanical
+    term-frequency labeler and produces garbage theme names.
+    """
+    # Layer 1: chop at ## Sources heading
     match = _SOURCES_HEADER_RE.search(text)
     if match:
-        return text[: match.start()].rstrip()
-    return text
+        text = text[: match.start()].rstrip()
+
+    # Layer 2: strip inline citation dates
+    text = _CITATION_DATE_RE.sub("", text)
+
+    # Layer 3: strip numbered citation lines
+    text = _NUMBERED_CITATION_RE.sub("", text)
+
+    # Layer 4: strip bare URL lines
+    text = _BARE_URL_RE.sub("", text)
+
+    return text.strip()
 
 
 _LABEL_SYSTEM_PROMPT = """\
@@ -175,12 +215,18 @@ class ThemeDiscovery:
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         self._llm_client = llm_client
 
-    def discover(
+    async def discover(
         self,
         chunks: list[dict[str, Any]],
         n_themes: int = 5,
     ) -> list[DiscoveredTheme]:
-        """Discover themes by clustering chunk embeddings."""
+        """Discover themes by clustering chunk embeddings.
+
+        Async because ``_llm_label`` calls the LLM client (which is
+        async). The pipeline already runs in an async context so this
+        naturally awaits. The CLI ``tag`` command wraps the call in
+        ``asyncio.run()`` at the top level.
+        """
         if not chunks:
             return []
 
@@ -190,7 +236,7 @@ class ThemeDiscovery:
         if actual_k < 2:
             cleaned = [_strip_sources(c["text"]) for c in chunks]
             fallback = _label_cluster(cleaned)
-            label = self._llm_label(cleaned, fallback)
+            label = await self._llm_label(cleaned, fallback)
             return [
                 DiscoveredTheme(
                     label=label,
@@ -212,7 +258,7 @@ class ThemeDiscovery:
             cluster_chunks = clusters[cluster_id]
             cleaned = [_strip_sources(c["text"]) for c in cluster_chunks]
             fallback = _label_cluster(cleaned)
-            label = self._llm_label(cleaned, fallback)
+            label = await self._llm_label(cleaned, fallback)
             strength = _evidence_strength(len(cluster_chunks), len(chunks))
             queries = _generate_queries(cleaned, label)
 
@@ -228,11 +274,15 @@ class ThemeDiscovery:
 
         return themes
 
-    def _llm_label(self, cleaned_texts: list[str], fallback: str) -> str:
+    async def _llm_label(self, cleaned_texts: list[str], fallback: str) -> str:
         """Ask the LLM for a short strategic label for this cluster.
 
-        Returns `fallback` (mechanical label) if no LLM client is configured
-        or the call fails.
+        Returns ``fallback`` (mechanical label) if no LLM client is
+        configured or the call fails. Now ``async`` so it can be
+        called from inside a running event loop (the pipeline's async
+        context) without triggering the ``asyncio.run()`` RuntimeError
+        that was silently falling back to the mechanical labeler in
+        every pipeline run since Phase A.
         """
         if self._llm_client is None or not cleaned_texts:
             return fallback
@@ -250,19 +300,11 @@ class ThemeDiscovery:
         )
 
         try:
-            response = asyncio.run(
-                self._llm_client.complete(
-                    system_prompt=_LABEL_SYSTEM_PROMPT,
-                    user_prompt=user_prompt,
-                    max_tokens=30,
-                ),
+            response = await self._llm_client.complete(
+                system_prompt=_LABEL_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                max_tokens=30,
             )
-        except RuntimeError:
-            _log.warning(
-                "ThemeDiscovery._llm_label called inside a running event loop; "
-                "falling back to mechanical label",
-            )
-            return fallback
         except Exception:
             _log.exception("ThemeDiscovery._llm_label LLM call failed")
             return fallback

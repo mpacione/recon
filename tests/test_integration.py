@@ -275,13 +275,13 @@ class TestEnrichmentPipelineIntegration:
 
 
 class TestThemeToTagIntegration:
-    def test_discovered_themes_can_tag_profiles(self, tmp_path: Path) -> None:
+    async def test_discovered_themes_can_tag_profiles(self, tmp_path: Path) -> None:
         ws, manager = _build_indexed_workspace(tmp_path)
 
         all_chunks = _build_chunks_with_embeddings(ws)
 
         discovery = ThemeDiscovery()
-        themes = discovery.discover(all_chunks, n_themes=3)
+        themes = await discovery.discover(all_chunks, n_themes=3)
 
         assert len(themes) > 0
         for theme in themes:
@@ -293,12 +293,12 @@ class TestThemeToTagIntegration:
 
         assert len(assignments) > 0
 
-    def test_tag_apply_writes_to_frontmatter(self, tmp_path: Path) -> None:
+    async def test_tag_apply_writes_to_frontmatter(self, tmp_path: Path) -> None:
         ws, manager = _build_indexed_workspace(tmp_path)
 
         all_chunks = _build_chunks_with_embeddings(ws)
         discovery = ThemeDiscovery()
-        themes = discovery.discover(all_chunks, n_themes=2)
+        themes = await discovery.discover(all_chunks, n_themes=2)
 
         tagger = Tagger(index=manager, workspace=ws)
         assignments = tagger.tag(themes=themes, threshold=0.0, top_n=10)
@@ -310,12 +310,12 @@ class TestThemeToTagIntegration:
             profile = ws.read_profile(slug)
             assert "themes" in frontmatter.load(str(profile["_path"])).metadata
 
-    def test_themes_to_tag_end_to_end_preserves_competitor_names(self, tmp_path: Path) -> None:
+    async def test_themes_to_tag_end_to_end_preserves_competitor_names(self, tmp_path: Path) -> None:
         ws, manager = _build_indexed_workspace(tmp_path)
 
         all_chunks = _build_chunks_with_embeddings(ws)
         discovery = ThemeDiscovery()
-        themes = discovery.discover(all_chunks, n_themes=2)
+        themes = await discovery.discover(all_chunks, n_themes=2)
         tagger = Tagger(index=manager, workspace=ws)
         assignments = tagger.tag(themes=themes, threshold=0.0, top_n=10)
 

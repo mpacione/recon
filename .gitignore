@@ -35,3 +35,4 @@ scratch/
 .coverage
 logs_llm/
 vectors.db
+new-project/

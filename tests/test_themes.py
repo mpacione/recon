@@ -50,70 +50,70 @@ def _make_chunks_with_embeddings(n: int = 20) -> list[dict]:
 
 
 class TestThemeDiscovery:
-    def test_discovers_themes_from_clusters(self) -> None:
+    async def test_discovers_themes_from_clusters(self) -> None:
         chunks = _make_chunks_with_embeddings(30)
 
         discovery = ThemeDiscovery()
-        themes = discovery.discover(chunks, n_themes=3)
+        themes = await discovery.discover(chunks, n_themes=3)
 
         assert len(themes) == 3
         assert all(isinstance(t, DiscoveredTheme) for t in themes)
 
-    def test_each_theme_has_label(self) -> None:
+    async def test_each_theme_has_label(self) -> None:
         chunks = _make_chunks_with_embeddings(30)
 
         discovery = ThemeDiscovery()
-        themes = discovery.discover(chunks, n_themes=3)
+        themes = await discovery.discover(chunks, n_themes=3)
 
         for theme in themes:
             assert len(theme.label) > 0
 
-    def test_each_theme_has_evidence_chunks(self) -> None:
+    async def test_each_theme_has_evidence_chunks(self) -> None:
         chunks = _make_chunks_with_embeddings(30)
 
         discovery = ThemeDiscovery()
-        themes = discovery.discover(chunks, n_themes=3)
+        themes = await discovery.discover(chunks, n_themes=3)
 
         for theme in themes:
             assert len(theme.evidence_chunks) > 0
 
-    def test_each_theme_has_evidence_strength(self) -> None:
+    async def test_each_theme_has_evidence_strength(self) -> None:
         chunks = _make_chunks_with_embeddings(30)
 
         discovery = ThemeDiscovery()
-        themes = discovery.discover(chunks, n_themes=3)
+        themes = await discovery.discover(chunks, n_themes=3)
 
         for theme in themes:
             assert theme.evidence_strength in ("strong", "moderate", "weak")
 
-    def test_themes_ranked_by_evidence(self) -> None:
+    async def test_themes_ranked_by_evidence(self) -> None:
         chunks = _make_chunks_with_embeddings(30)
 
         discovery = ThemeDiscovery()
-        themes = discovery.discover(chunks, n_themes=3)
+        themes = await discovery.discover(chunks, n_themes=3)
 
         sizes = [len(t.evidence_chunks) for t in themes]
         assert sizes == sorted(sizes, reverse=True)
 
-    def test_handles_fewer_chunks_than_themes(self) -> None:
+    async def test_handles_fewer_chunks_than_themes(self) -> None:
         chunks = _make_chunks_with_embeddings(2)
 
         discovery = ThemeDiscovery()
-        themes = discovery.discover(chunks, n_themes=5)
+        themes = await discovery.discover(chunks, n_themes=5)
 
         assert len(themes) <= 2
 
-    def test_empty_chunks(self) -> None:
+    async def test_empty_chunks(self) -> None:
         discovery = ThemeDiscovery()
-        themes = discovery.discover([], n_themes=3)
+        themes = await discovery.discover([], n_themes=3)
 
         assert themes == []
 
-    def test_generates_retrieval_queries(self) -> None:
+    async def test_generates_retrieval_queries(self) -> None:
         chunks = _make_chunks_with_embeddings(30)
 
         discovery = ThemeDiscovery()
-        themes = discovery.discover(chunks, n_themes=3)
+        themes = await discovery.discover(chunks, n_themes=3)
 
         for theme in themes:
             assert len(theme.suggested_queries) > 0
@@ -183,33 +183,33 @@ class TestLLMLabeling:
         )
         return client
 
-    def test_uses_llm_label_when_client_provided(self) -> None:
+    async def test_uses_llm_label_when_client_provided(self) -> None:
         chunks = _make_chunks_with_embeddings(30)
         llm = self._mock_llm("Platform Consolidation")
 
         discovery = ThemeDiscovery(llm_client=llm)
-        themes = discovery.discover(chunks, n_themes=3)
+        themes = await discovery.discover(chunks, n_themes=3)
 
         assert llm.complete.call_count == 3
         assert all(t.label == "Platform Consolidation" for t in themes)
 
-    def test_falls_back_to_mechanical_on_llm_error(self) -> None:
+    async def test_falls_back_to_mechanical_on_llm_error(self) -> None:
         chunks = _make_chunks_with_embeddings(30)
         llm = AsyncMock()
         llm.complete = AsyncMock(side_effect=RuntimeError("API down"))
 
         discovery = ThemeDiscovery(llm_client=llm)
-        themes = discovery.discover(chunks, n_themes=3)
+        themes = await discovery.discover(chunks, n_themes=3)
 
         assert len(themes) == 3
         for theme in themes:
             assert theme.label != "Platform Consolidation"
             assert len(theme.label) > 0
 
-    def test_no_llm_calls_when_client_absent(self) -> None:
+    async def test_no_llm_calls_when_client_absent(self) -> None:
         chunks = _make_chunks_with_embeddings(30)
 
         discovery = ThemeDiscovery()
-        themes = discovery.discover(chunks, n_themes=3)
+        themes = await discovery.discover(chunks, n_themes=3)
 
         assert len(themes) == 3

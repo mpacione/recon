@@ -857,8 +857,10 @@ def tag(dry_run, threshold, top_n, n_themes, workspace_dir):
     llm_for_labels, _label_err = _try_create_client(model="claude-haiku-4-5")
     if _label_err:
         click.echo(f"Note: using mechanical theme labels ({_label_err})")
+    import asyncio
+
     discovery = ThemeDiscovery(llm_client=llm_for_labels)
-    themes = discovery.discover(all_chunks_with_embeddings, n_themes=n_themes)
+    themes = asyncio.run(discovery.discover(all_chunks_with_embeddings, n_themes=n_themes))
 
     click.echo(f"Discovered {len(themes)} themes:")
     for t in themes:

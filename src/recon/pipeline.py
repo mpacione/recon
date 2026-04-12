@@ -515,8 +515,15 @@ class Pipeline:
             self.discovered_themes = []
             return
 
-        discovery = ThemeDiscovery()  # mechanical labels inside pipeline; avoid nested event loop
-        themes = discovery.discover(chunks, n_themes=self.config.theme_count)
+        # Thread the LLM client so ThemeDiscovery can generate real
+        # strategic labels instead of falling back to the mechanical
+        # term-frequency labeler. The previous code constructed
+        # ThemeDiscovery() with no llm_client to "avoid nested event
+        # loop" — but that just meant _llm_label always returned the
+        # fallback. Now that discover() and _llm_label() are async,
+        # they run naturally inside the pipeline's event loop.
+        discovery = ThemeDiscovery(llm_client=self.llm_client)
+        themes = await discovery.discover(chunks, n_themes=self.config.theme_count)
 
         if self.theme_curation_callback is not None:
             try:

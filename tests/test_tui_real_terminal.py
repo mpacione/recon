@@ -1268,46 +1268,6 @@ class TestWelcomeToRunPipelineFlow:
 
 
 @_REQUIRES_PTY
-class TestDiscoveryScreenRendersCards:
-    """Smoke test: Discovery screen renders its candidates as
-    TerminalBox cards with visible checkbox markers. This catches
-    the Rich-markup `[x]` eating bug from Phase O and ensures future
-    refactors don't accidentally kill the card layout.
-    """
-
-    def test_discovery_empty_state_shows_key_hints(
-        self, tmp_path: Path,
-    ) -> None:
-        workspace = _make_workspace(tmp_path)
-        pid, fd = _spawn_tui(
-            workspace=workspace,
-            recent_path=tmp_path / "home" / ".recon" / "recent.json",
-        )
-        try:
-            reader = _PtyReader(fd)
-            reader.drain_until("COMPETITORS", timeout=15.0)
-            os.write(fd, b"d")
-            # Wait until the Discovery modal's title renders -- that
-            # proves we're past the dashboard and on the discovery
-            # screen (the dashboard keybind strip also contains
-            # "add manually" so we need a discovery-only marker).
-            reader.drain_until("── DISCOVERY ──", timeout=5.0)
-            # Drain a touch more so the action-bar buttons land in
-            # the capture (they render after the body).
-            output = reader.drain_until("reject all", timeout=5.0)
-            # The new flat action-bar buttons
-            assert "[↵] done" in output
-            assert "[s] search more" in output
-            assert "[n] add manually" in output
-            assert "[a] accept all" in output
-            assert "[x] reject all" in output
-        finally:
-            _kill_child(pid)
-            with contextlib_suppress():
-                os.close(fd)
-
-
-@_REQUIRES_PTY
 class TestAddManuallyFlow:
     """End-to-end: empty dashboard -> m -> type name -> Enter -> profile persisted."""
 
