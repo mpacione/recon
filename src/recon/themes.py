@@ -171,20 +171,39 @@ def _clean_label(raw: str, fallback: str) -> str:
     return line
 
 
-def build_workspace_chunks(workspace: Workspace) -> list[dict[str, Any]]:
-    """Build chunks with deterministic pseudo-embeddings for theme discovery.
+def _embed_texts(texts: list[str]) -> list[list[float]]:
+    """Embed texts using fastembed (local, no API calls).
 
-    The embeddings are not semantically meaningful -- they are a
-    hash-seeded RNG vector per chunk. Good enough to give K-means a
-    stable grouping that matches the CLI's ``recon tag`` behaviour, and
-    shared so that the pipeline and the CLI use the exact same code
-    path.
+    Falls back to hash-seeded random vectors if fastembed is
+    unavailable.
+    """
+    try:
+        from fastembed import TextEmbedding
+
+        model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+        return [emb.tolist() for emb in model.embed(texts)]
+    except Exception:
+        _log.warning("fastembed unavailable, falling back to random embeddings")
+        result = []
+        for text in texts:
+            rng = np.random.default_rng(hash(text) % (2**31))
+            result.append(rng.random(64).tolist())
+        return result
+
+
+def build_workspace_chunks(workspace: Workspace) -> list[dict[str, Any]]:
+    """Build chunks with real semantic embeddings for theme discovery.
+
+    Uses fastembed (local ONNX model, no API cost) to generate
+    meaningful embeddings so K-means produces topically coherent
+    clusters. Falls back to hash-seeded random vectors if fastembed
+    is unavailable.
     """
     from recon.index import chunk_markdown
 
     profiles = workspace.list_profiles()
 
-    all_chunks: list[dict[str, Any]] = []
+    raw_chunks: list[tuple[Any, dict[str, Any]]] = []
     for profile_meta in profiles:
         full = workspace.read_profile(profile_meta["_slug"])
         if not full or not full.get("_content", "").strip():
@@ -198,13 +217,23 @@ def build_workspace_chunks(workspace: Workspace) -> list[dict[str, Any]]:
             },
         )
         for chunk in chunks:
-            rng = np.random.default_rng(hash(chunk.text) % (2**31))
-            embedding = rng.random(64).tolist()
-            all_chunks.append({
-                "text": chunk.text,
-                "embedding": embedding,
-                "metadata": chunk.metadata,
-            })
+            raw_chunks.append((chunk, {
+                k: v for k, v in profile_meta.items() if not k.startswith("_")
+            }))
+
+    if not raw_chunks:
+        return []
+
+    texts = [_strip_sources(chunk.text) for chunk, _meta in raw_chunks]
+    embeddings = _embed_texts(texts)
+
+    all_chunks: list[dict[str, Any]] = []
+    for (chunk, _meta), embedding in zip(raw_chunks, embeddings, strict=True):
+        all_chunks.append({
+            "text": chunk.text,
+            "embedding": embedding,
+            "metadata": chunk.metadata,
+        })
 
     return all_chunks
 

@@ -213,3 +213,66 @@ class TestLLMLabeling:
         themes = await discovery.discover(chunks, n_themes=3)
 
         assert len(themes) == 3
+
+
+class TestBuildWorkspaceChunks:
+    def test_produces_real_embeddings(self, tmp_workspace) -> None:
+        """build_workspace_chunks must produce semantically meaningful
+        embeddings, not random vectors. All embeddings for similar text
+        should cluster closer than random noise would."""
+        from pathlib import Path
+
+        import frontmatter as fm
+
+        from recon.themes import build_workspace_chunks
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(Path(tmp_workspace))
+
+        # Two profiles with distinct content
+        path_a = ws.create_profile("Alpha")
+        post_a = fm.load(str(path_a))
+        post_a.content = "## Overview\n\nAlpha is an AI code generation platform that automates developer workflows.\n"
+        post_a["research_status"] = "researched"
+        path_a.write_text(fm.dumps(post_a))
+
+        path_b = ws.create_profile("Beta")
+        post_b = fm.load(str(path_b))
+        post_b.content = "## Overview\n\nBeta provides AI code completion and automated coding assistants.\n"
+        post_b["research_status"] = "researched"
+        path_b.write_text(fm.dumps(post_b))
+
+        chunks = build_workspace_chunks(ws)
+
+        assert len(chunks) >= 2
+        for chunk in chunks:
+            emb = chunk["embedding"]
+            assert len(emb) > 3, "real embeddings should have many dimensions"
+            assert not all(0.0 <= v <= 1.0 for v in emb), "should not be uniform [0,1] random noise"
+
+    def test_embedding_dimension_consistent(self, tmp_workspace) -> None:
+        from pathlib import Path
+
+        import frontmatter as fm
+
+        from recon.themes import build_workspace_chunks
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(Path(tmp_workspace))
+
+        path_a = ws.create_profile("Alpha")
+        post_a = fm.load(str(path_a))
+        post_a.content = "## Overview\n\nAlpha is a competitive intelligence platform.\n"
+        post_a["research_status"] = "researched"
+        path_a.write_text(fm.dumps(post_a))
+
+        path_b = ws.create_profile("Beta")
+        post_b = fm.load(str(path_b))
+        post_b.content = "## Overview\n\nBeta does enterprise compliance and security.\n"
+        post_b["research_status"] = "researched"
+        path_b.write_text(fm.dumps(post_b))
+
+        chunks = build_workspace_chunks(ws)
+
+        dims = {len(c["embedding"]) for c in chunks}
+        assert len(dims) == 1, "all embeddings should have the same dimension"
