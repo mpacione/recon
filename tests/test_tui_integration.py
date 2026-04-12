@@ -803,6 +803,136 @@ class TestNewProjectFullFlow:
             assert (new_path / "recon.yaml").exists()
             assert (new_path / ".env").exists()
 
+    async def test_wizard_completion_does_not_stall_pipeline_launch(
+        self, tmp_path: Path, monkeypatch,
+    ) -> None:
+        """Phase Q regression: launching a pipeline immediately after
+        completing the wizard must NOT stall. Before Phase Q, the
+        wizard completion handler did a ``switch_mode("run")`` dance
+        that instantiated the run mode early and consumed its one-shot
+        ``on_mount`` before any pipeline had been queued. A later
+        ``launch_pipeline`` call would silently no-op.
+
+        This test skips the full wizard UI drive (which has 12+ Tab
+        stops) and dispatches the wizard completion via
+        ``_handle_wizard_result`` directly -- the same entry point the
+        real wizard dismiss calls. Then it drives dashboard → r →
+        FULL_PIPELINE and asserts the pipeline transitioned past
+        Idle. Uses a fake LLM client to avoid hitting the real API.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from recon.llm import LLMResponse
+        from recon.tui.screens.planner import Operation, RunPlannerScreen
+        from recon.tui.screens.run import RunScreen
+        from recon.tui.screens.wizard import WizardResult
+        from recon.workspace import Workspace
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+        # Minimal valid schema the wizard produces
+        wizard_schema = {
+            "domain": "Dev Tools",
+            "identity": {
+                "company_name": "AcmeCo",
+                "products": ["X"],
+                "decision_context": ["build-vs-buy"],
+            },
+            "rating_scales": {
+                "c": {
+                    "name": "Cap",
+                    "values": ["1", "2"],
+                    "never_use": ["emoji"],
+                },
+            },
+            "sections": [
+                {
+                    "key": "overview",
+                    "title": "Overview",
+                    "description": "x",
+                    "evidence_types": ["factual"],
+                    "allowed_formats": ["prose"],
+                    "preferred_format": "prose",
+                },
+            ],
+        }
+        new_path = tmp_path / "wizard-to-pipeline"
+
+        fake_response = LLMResponse(
+            text="## Overview\n\nFake.\n",
+            input_tokens=100,
+            output_tokens=50,
+            model="claude-sonnet-4-5",
+            stop_reason="end_turn",
+        )
+        fake_client = AsyncMock()
+        fake_client.complete = AsyncMock(return_value=fake_response)
+        fake_client.total_input_tokens = 0
+        fake_client.total_output_tokens = 0
+
+        app = ReconApp()
+        with patch(
+            "recon.client_factory.create_llm_client",
+            return_value=fake_client,
+        ):
+            async with app.run_test(size=(140, 50)) as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, WelcomeScreen)
+
+                # Dispatch wizard completion directly (skips the Tab
+                # chain but runs the same handler path as a real
+                # dismiss). This is what ``WizardScreen.dismiss``
+                # ultimately triggers.
+                result = WizardResult(
+                    schema=wizard_schema,
+                    output_dir=new_path,
+                    api_key="sk-ant-test",
+                )
+                app._handle_wizard_result(result)
+                for _ in range(5):
+                    await pilot.pause()
+
+                # We should land on the dashboard for the new workspace
+                assert isinstance(app.screen, DashboardScreen)
+                assert app.workspace_path == new_path
+
+                # Create a profile so the dashboard has something to
+                # run on
+                ws = Workspace.open(new_path)
+                ws.create_profile("Alpha Corp")
+                dashboard = app.screen
+                from recon.tui.models.dashboard import build_dashboard_data
+                dashboard.refresh_data(build_dashboard_data(ws))
+                for _ in range(3):
+                    await pilot.pause()
+
+                # Now launch the pipeline -- Phase Q ensures the
+                # run mode is still uninstantiated at this point,
+                # so launch_pipeline will queue and switch cleanly.
+                dashboard.action_run()
+                for _ in range(3):
+                    await pilot.pause()
+                assert isinstance(app.screen, RunPlannerScreen)
+                app.screen.dismiss(Operation.UPDATE_ALL)
+                for _ in range(5):
+                    await pilot.pause()
+
+                # Run mode must be active
+                assert app.current_mode == "run"
+                assert isinstance(app.screen, RunScreen)
+
+                # And the pipeline must transition out of Idle
+                run = app.screen
+                for _ in range(40):
+                    await pilot.pause()
+                    if run.current_phase != "idle":
+                        break
+                assert run.current_phase != "idle", (
+                    "pipeline stalled at Idle after wizard completion "
+                    "-- Phase Q regression: the cached RunScreen's "
+                    "on_mount probably fired too early again"
+                )
+
 
 class TestRunScreenPipelineGate:
     async def test_pipeline_gate_end_to_end(self) -> None:
