@@ -185,32 +185,9 @@ def build_pipeline_fn(
                     if progress > screen.progress:
                         screen.progress = progress
 
-            async def curate_themes(themes: list) -> list:
-                """Push ThemeCurationScreen as a gate and return the user's choices."""
-                from recon.themes import DiscoveredTheme
-                from recon.tui.models.curation import ThemeCurationModel
-                from recon.tui.screens.curation import ThemeCurationScreen
-
-                if not themes:
-                    return []
-                try:
-                    model = ThemeCurationModel.from_themes(themes)
-                    curated = await screen.app.push_screen_wait(
-                        ThemeCurationScreen(model=model),
-                    )
-                except Exception:  # noqa: BLE001 -- fall back to auto-accept on any error
-                    _log.exception("theme curation gate failed; keeping all themes")
-                    return themes
-                if not isinstance(curated, list):
-                    return themes
-                # Re-attach full DiscoveredTheme objects when the curation
-                # screen returned labels or partial objects
-                if curated and isinstance(curated[0], DiscoveredTheme):
-                    return curated
-                kept_labels = {
-                    c.label if hasattr(c, "label") else str(c) for c in curated
-                }
-                return [t for t in themes if t.label in kept_labels]
+            # Themes auto-synthesize without a curation gate. All
+            # discovered themes flow directly to synthesis. Users can
+            # review and edit themes post-run from the dashboard.
 
             cancel_event = asyncio.Event()
             pause_event = asyncio.Event()
@@ -224,7 +201,6 @@ def build_pipeline_fn(
                 llm_client=client,
                 config=config,
                 progress_callback=on_progress,
-                theme_curation_callback=curate_themes,
                 cancel_event=cancel_event,
                 pause_event=pause_event,
             )

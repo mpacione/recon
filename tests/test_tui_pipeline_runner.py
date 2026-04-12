@@ -201,9 +201,12 @@ class TestBuildPipelineFn:
 
             assert any("not implemented" in m.lower() or "not yet" in m.lower() for m in notifications)
 
-    async def test_pipeline_fn_wires_theme_curation_callback(
+    async def test_pipeline_fn_auto_accepts_themes_without_gate(
         self, tmp_path: Path, monkeypatch
     ) -> None:
+        """Themes auto-synthesize without a curation gate. The pipeline
+        should run with theme_curation_callback=None so discovered themes
+        flow directly to synthesis without pausing for user input."""
         ws_dir = _setup_workspace(tmp_path / "ws")
         from recon.workspace import Workspace
 
@@ -230,9 +233,9 @@ class TestBuildPipelineFn:
                 await pilot.pause()
 
         assert len(captured_callback) == 1
-        assert captured_callback[0] is not None, (
-            "TUI pipeline_fn must pass a theme_curation_callback so the "
-            "curation gate fires during the THEMES stage"
+        assert captured_callback[0] is None, (
+            "Themes should auto-synthesize without a curation gate. "
+            "The callback should be None so the pipeline keeps all themes."
         )
 
     async def test_pipeline_fn_calls_pipeline_execute_with_progress(
