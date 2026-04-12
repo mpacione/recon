@@ -245,13 +245,24 @@ class ReconApp(App):
             get_bus().unsubscribe(self._event_subscriber)
 
     def on_welcome_screen_workspace_selected(self, event: WelcomeScreen.WorkspaceSelected) -> None:
-        """Handle the user picking a workspace from the welcome screen.
+        """Handle the user picking a workspace from the welcome screen."""
+        _log.info("WorkspaceSelected path=%s", event.path)
+        self._workspace_path = Path(event.path)
+        self._record_recent_project(self._workspace_path)
+        self.refresh_workspace_context()
+        self._rebuild_dashboard_mode()
+        _log.info("workspace loaded, dashboard mode active")
 
-        Rebuilds the dashboard mode with a fresh factory that captures
-        the new workspace path. Textual refuses to remove the active
-        mode, so we temporarily switch to a dedicated ``_loading``
-        holding mode, remove+re-add dashboard, then switch back to
-        dashboard.
+    def _rebuild_dashboard_mode(self) -> None:
+        """Re-register the dashboard mode with a factory that captures
+        the current ``self._workspace_path``.
+
+        Shared by the workspace-selected and wizard-completed handlers
+        because both need to switch the dashboard from "welcome state"
+        to "loaded workspace state" without touching the run mode.
+        Textual refuses to remove the active mode, so we briefly
+        switch to a dedicated ``_loading`` holding mode, rebuild
+        dashboard, then switch back to dashboard.
 
         The previous implementation used ``switch_mode("run")`` as the
         holding mode, which had a subtle side effect: the early
@@ -260,23 +271,17 @@ class ReconApp(App):
         later ``launch_pipeline()`` call through the normal flow then
         hit a stale one-shot lifecycle and the pipeline silently
         refused to start. Using a dedicated ``_loading`` mode avoids
-        touching the run mode at all.
+        touching the run mode at all -- its cached instance stays
+        uninstantiated until the user actually wants a pipeline.
         """
         from textual.screen import Screen
 
-        _log.info("WorkspaceSelected path=%s", event.path)
-        self._workspace_path = Path(event.path)
-        self._record_recent_project(self._workspace_path)
-        self.refresh_workspace_context()
-        # Holding mode: a blank Screen so Textual lets us rebuild the
-        # dashboard. Register it lazily the first time we need it.
         if "_loading" not in self._modes:
             self.add_mode("_loading", Screen)
         self.switch_mode("_loading")
         self.remove_mode("dashboard")
         self.add_mode("dashboard", self._make_dashboard_screen)
         self.switch_mode("dashboard")
-        _log.info("workspace loaded, dashboard mode active")
 
     def launch_pipeline(self, pipeline_fn) -> None:  # noqa: ANN001 -- PipelineFn from run.py
         """Start a pipeline run and activate the run mode.
@@ -370,10 +375,7 @@ class ReconApp(App):
         self._workspace_path = result.output_dir
         self._record_recent_project(result.output_dir)
         self.refresh_workspace_context()
-        self.switch_mode("run")
-        self.remove_mode("dashboard")
-        self.add_mode("dashboard", self._make_dashboard_screen)
-        self.switch_mode("dashboard")
+        self._rebuild_dashboard_mode()
         _log.info("switched to dashboard mode after wizard")
 
     def action_help(self) -> None:

@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed -- TUI audit Phase Q (wizard completion had the same bug)
+
+Continuing the Phase P audit: if "implicit handshake via mutable app
+state" is the bug class, then anywhere the codebase does the same
+``switch_mode("run") → remove_mode → add_mode → switch_mode("dashboard")``
+dance would trip the same cached-RunScreen trap. Grepping for
+``switch_mode`` turned up **one more instance** -- the wizard
+completion handler had the exact same 4-line dance at the end of
+``_create_workspace_from_wizard``.
+
+So: a user who creates a new workspace via the welcome → new →
+wizard → confirm flow would hit the same pipeline stall on their
+first launch, for the same reason. The Phase P fix only touched
+the workspace-selected handler, not the wizard-completed one.
+
+#### Fix
+
+Extracted ``ReconApp._rebuild_dashboard_mode`` helper that both
+handlers now call. The helper does the ``_loading`` holding-mode
+dance in one place, so the dashboard can be rebuilt without
+touching the run mode. Both entry points now flow through the same
+code path:
+
+```
+on_welcome_screen_workspace_selected -> _rebuild_dashboard_mode()
+_create_workspace_from_wizard       -> _rebuild_dashboard_mode()
+```
+
+Run mode stays uninstantiated until the user actually wants to
+launch a pipeline, regardless of which entry point they came in
+through.
+
+This also DRYs up the handler code: both 3-line dances collapsed
+to a single ``self._rebuild_dashboard_mode()`` call.
+
+723 still passing. Lint clean.
+
 ### Fixed -- TUI audit Phase P (cached-screen lifecycle + bug class analysis)
 
 The user reported: "when I try to run the pipeline, this happens.
