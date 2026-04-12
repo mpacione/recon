@@ -228,6 +228,9 @@ def build_pipeline_fn(
                 screen.progress = 1.0
                 screen.add_activity("Pipeline complete")
 
+                output_files = _collect_output_files(ws.root)
+                screen.set_run_summary(output_files)
+
             total_cost = await store.get_run_total_cost(run_id)
             screen.cost_usd = float(total_cost)
         except Exception as exc:  # noqa: BLE001 -- surface any pipeline failure to the user
@@ -245,3 +248,37 @@ def build_pipeline_fn(
                 )
 
     return pipeline_fn
+
+
+def _collect_output_files(workspace_root: Path) -> list[dict[str, str]]:
+    """Collect output file paths from a completed pipeline run.
+
+    Returns a list of {label, path} dicts for files the user would
+    want to open: executive summary, theme files, distilled files.
+    """
+    output_files: list[dict[str, str]] = []
+
+    summary_path = workspace_root / "executive_summary.md"
+    if summary_path.exists():
+        output_files.append({
+            "label": "Executive Summary",
+            "path": str(summary_path),
+        })
+
+    themes_dir = workspace_root / "themes"
+    if themes_dir.is_dir():
+        for theme_file in sorted(themes_dir.glob("*.md")):
+            output_files.append({
+                "label": f"Theme: {theme_file.stem.replace('_', ' ').title()}",
+                "path": str(theme_file),
+            })
+
+    distilled_dir = workspace_root / "themes" / "distilled"
+    if distilled_dir.is_dir():
+        for dist_file in sorted(distilled_dir.glob("*.md")):
+            output_files.append({
+                "label": f"Distilled: {dist_file.stem.replace('_', ' ').title()}",
+                "path": str(dist_file),
+            })
+
+    return output_files

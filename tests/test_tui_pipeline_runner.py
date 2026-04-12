@@ -201,6 +201,40 @@ class TestBuildPipelineFn:
 
             assert any("not implemented" in m.lower() or "not yet" in m.lower() for m in notifications)
 
+    def test_collect_output_files_finds_theme_and_summary(
+        self, tmp_path: Path
+    ) -> None:
+        from recon.tui.pipeline_runner import _collect_output_files
+
+        ws_root = tmp_path / "ws"
+        ws_root.mkdir()
+        (ws_root / "executive_summary.md").write_text("# Summary")
+        themes_dir = ws_root / "themes"
+        themes_dir.mkdir()
+        (themes_dir / "platform_consolidation.md").write_text("# Theme")
+        (themes_dir / "open_source_moats.md").write_text("# Theme")
+        distilled = themes_dir / "distilled"
+        distilled.mkdir()
+        (distilled / "platform_consolidation.md").write_text("# Distilled")
+
+        files = _collect_output_files(ws_root)
+
+        labels = [f["label"] for f in files]
+        assert "Executive Summary" in labels
+        assert any("Platform Consolidation" in l for l in labels)
+        assert any("Open Source Moats" in l for l in labels)
+        assert any("Distilled" in l for l in labels)
+
+    def test_collect_output_files_empty_workspace(self, tmp_path: Path) -> None:
+        from recon.tui.pipeline_runner import _collect_output_files
+
+        ws_root = tmp_path / "empty"
+        ws_root.mkdir()
+
+        files = _collect_output_files(ws_root)
+
+        assert files == []
+
     async def test_pipeline_fn_auto_accepts_themes_without_gate(
         self, tmp_path: Path, monkeypatch
     ) -> None:

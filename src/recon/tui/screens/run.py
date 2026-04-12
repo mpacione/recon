@@ -69,6 +69,7 @@ class RunScreen(ReconScreen):
         super().__init__()
         self._activity: list[str] = []
         self._pipeline_fn: PipelineFn | None = None
+        self._run_summary: list[dict[str, str]] = []
 
     def on_mount(self) -> None:
         """First-time setup. Consuming the pending pipeline happens
@@ -276,3 +277,31 @@ class RunScreen(ReconScreen):
 
     def _format_cost(self) -> str:
         return f"[#efe5c0]Cost:[/] ${self.cost_usd:.2f}"
+
+    def set_run_summary(self, output_files: list[dict[str, str]]) -> None:
+        """Display a post-run summary with output file paths."""
+        self._run_summary = output_files
+        self._render_run_summary()
+
+    def _render_run_summary(self) -> None:
+        if not self._run_summary:
+            return
+
+        lines = [
+            "",
+            "[bold #e0a044]── RUN COMPLETE ──[/]",
+            "",
+            "[#efe5c0]Output files:[/]",
+        ]
+        for i, entry in enumerate(self._run_summary):
+            lines.append(
+                f"  [#a89984]{i + 1}.[/] [#efe5c0]{entry['label']}[/]  "
+                f"[#3a3a3a]{entry['path']}[/]"
+            )
+
+        lines.append("")
+        lines.append(
+            "[#a89984]press [/][#e0a044]b[/][#a89984] to return to dashboard[/]"
+        )
+
+        self.add_activity("\n".join(lines))
