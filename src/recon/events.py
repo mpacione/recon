@@ -153,6 +153,38 @@ class ThemesDiscovered(Event):
     theme_count: int = 0
 
 
+@dataclass(frozen=True)
+class EnrichmentStarted(Event):
+    competitor_name: str = ""
+    pass_name: str = ""
+
+
+@dataclass(frozen=True)
+class EnrichmentCompleted(Event):
+    competitor_name: str = ""
+    pass_name: str = ""
+
+
+@dataclass(frozen=True)
+class SynthesisStarted(Event):
+    theme_label: str = ""
+
+
+@dataclass(frozen=True)
+class SynthesisCompleted(Event):
+    theme_label: str = ""
+
+
+@dataclass(frozen=True)
+class DeliveryStarted(Event):
+    theme_label: str = ""
+
+
+@dataclass(frozen=True)
+class DeliveryCompleted(Event):
+    theme_label: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Bus
 # ---------------------------------------------------------------------------

@@ -253,3 +253,44 @@ class TestEnrichmentOrchestrator:
         assert len(cost_events) == 2
         assert all(e["input"] == 200 for e in cost_events)
         assert all(e["output"] == 100 for e in cost_events)
+
+    async def test_publishes_enrichment_started_and_completed_events(
+        self, tmp_workspace: Path
+    ) -> None:
+        import frontmatter as fm
+
+        from recon.events import EnrichmentCompleted, EnrichmentStarted, get_bus
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        path = ws.create_profile("Alpha")
+        post = fm.load(str(path))
+        post.content = "## Overview\nContent.\n"
+        path.write_text(fm.dumps(post))
+
+        llm = _mock_llm("Enriched.")
+
+        events: list[object] = []
+
+        def capture(event: object) -> None:
+            if isinstance(event, (EnrichmentStarted, EnrichmentCompleted)):
+                events.append(event)
+
+        bus = get_bus()
+        bus.subscribe(capture)
+
+        orchestrator = EnrichmentOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            enrichment_pass=EnrichmentPass.CLEANUP,
+            max_workers=1,
+        )
+        await orchestrator.enrich_all()
+
+        bus.unsubscribe(capture)
+
+        assert len(events) == 2
+        assert isinstance(events[0], EnrichmentStarted)
+        assert events[0].pass_name == "cleanup"
+        assert isinstance(events[1], EnrichmentCompleted)
+        assert events[1].competitor_name == "Alpha"

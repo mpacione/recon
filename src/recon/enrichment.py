@@ -153,8 +153,13 @@ class EnrichmentOrchestrator:
 
     async def _enrich_one(self, profile_meta: dict[str, Any]) -> dict[str, Any]:
         """Enrich a single profile."""
+        from recon.events import EnrichmentCompleted, EnrichmentStarted, publish
+
         slug = profile_meta["_slug"]
         name = profile_meta["name"]
+        pass_name = self.enrichment_pass.value
+
+        publish(EnrichmentStarted(competitor_name=name, pass_name=pass_name))
 
         full = self.workspace.read_profile(slug)
         if full is None:
@@ -178,6 +183,8 @@ class EnrichmentOrchestrator:
                 await self.cost_callback(response.input_tokens, response.output_tokens)
             except Exception:
                 _log.exception("cost_callback raised")
+
+        publish(EnrichmentCompleted(competitor_name=name, pass_name=pass_name))
 
         return {
             "competitor": name,

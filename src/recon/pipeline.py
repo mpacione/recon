@@ -583,7 +583,11 @@ class Pipeline:
         manager = self._open_index_manager()
         syntheses: list[SynthesisResult] = []
 
+        from recon.events import SynthesisCompleted, SynthesisStarted
+        from recon.events import publish as _publish
+
         for theme in self.discovered_themes:
+            _publish(SynthesisStarted(theme_label=theme.label))
             chunks = self._retrieve_for_theme(manager, theme)
             try:
                 result = await engine.synthesize(
@@ -604,6 +608,7 @@ class Pipeline:
                 result.total_input_tokens,
                 result.total_output_tokens,
             )
+            _publish(SynthesisCompleted(theme_label=theme.label))
 
         self.syntheses = syntheses
 
@@ -616,10 +621,14 @@ class Pipeline:
         distilled_dir = self.workspace.root / "themes" / "distilled"
         distilled_dir.mkdir(parents=True, exist_ok=True)
 
+        from recon.events import DeliveryCompleted, DeliveryStarted
+        from recon.events import publish as _publish
+
         distiller = Distiller(llm_client=self.llm_client)
         distilled_payloads: list[dict[str, Any]] = []
 
         for synthesis in self.syntheses:
+            _publish(DeliveryStarted(theme_label=synthesis.theme))
             try:
                 distilled = await distiller.distill(synthesis)
             except Exception:
@@ -634,6 +643,7 @@ class Pipeline:
             await self._record_tokens(
                 run_id, cost_tracker, distilled.input_tokens, distilled.output_tokens,
             )
+            _publish(DeliveryCompleted(theme_label=synthesis.theme))
 
         if not distilled_payloads:
             return

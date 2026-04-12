@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from recon.events import (
     CostRecorded,
+    DeliveryCompleted,
+    DeliveryStarted,
+    EnrichmentCompleted,
+    EnrichmentStarted,
     EventBus,
     ProfileCreated,
     RunCancelled,
@@ -14,6 +18,8 @@ from recon.events import (
     RunStarted,
     SectionFailed,
     SectionResearched,
+    SynthesisCompleted,
+    SynthesisStarted,
     ThemesDiscovered,
     WorkspaceOpened,
     event_to_dict,
@@ -160,6 +166,31 @@ class TestEventTypes:
     def test_themes_discovered(self) -> None:
         e = ThemesDiscovered(theme_count=5)
         assert e.theme_count == 5
+
+    def test_enrichment_started(self) -> None:
+        e = EnrichmentStarted(competitor_name="Alpha", pass_name="cleanup")
+        assert e.competitor_name == "Alpha"
+        assert e.pass_name == "cleanup"
+
+    def test_enrichment_completed(self) -> None:
+        e = EnrichmentCompleted(competitor_name="Alpha", pass_name="cleanup")
+        assert e.competitor_name == "Alpha"
+
+    def test_synthesis_started(self) -> None:
+        e = SynthesisStarted(theme_label="Platform Lock-in")
+        assert e.theme_label == "Platform Lock-in"
+
+    def test_synthesis_completed(self) -> None:
+        e = SynthesisCompleted(theme_label="Platform Lock-in")
+        assert e.theme_label == "Platform Lock-in"
+
+    def test_delivery_started(self) -> None:
+        e = DeliveryStarted(theme_label="Platform Lock-in")
+        assert e.theme_label == "Platform Lock-in"
+
+    def test_delivery_completed(self) -> None:
+        e = DeliveryCompleted(theme_label="Platform Lock-in")
+        assert e.theme_label == "Platform Lock-in"
 
 
 class TestEventToDict:
