@@ -438,41 +438,65 @@ class ReconApp(App):
 
         keys = load_api_keys(workspace_root=self._workspace_path)
 
-        # Try Gemini first
+        # Build both agents where keys are available
         google_key = keys.get("google_ai")
+        api_key = keys.get("anthropic") or os.environ.get("ANTHROPIC_API_KEY")
+
+        gemini_agent = None
+        anthropic_agent = None
+
         if google_key:
             try:
                 from recon.gemini_discovery import GeminiDiscoveryAgent
 
-                agent = GeminiDiscoveryAgent(api_key=google_key, domain=domain)
-
-                async def gemini_search(state):  # noqa: ANN001
-                    return await agent.search(state)
-
-                screen.set_search_fn(gemini_search)
-                _log.info("discovery wired to Gemini + Google Search grounding")
-                return
+                gemini_agent = GeminiDiscoveryAgent(api_key=google_key, domain=domain)
             except Exception:
-                _log.exception("failed to wire Gemini discovery, falling back")
+                _log.exception("failed to create Gemini agent")
 
-        # Fall back to Anthropic
-        api_key = keys.get("anthropic") or os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
+        if api_key:
+            from recon.client_factory import create_llm_client
+            from recon.discovery import DiscoveryAgent
+
+            os.environ["ANTHROPIC_API_KEY"] = api_key
+            client = create_llm_client()
+            anthropic_agent = DiscoveryAgent(llm_client=client, domain=domain)
+
+        if gemini_agent is None and anthropic_agent is None:
             _log.warning("no API keys available for discovery search")
             return
 
-        from recon.client_factory import create_llm_client
-        from recon.discovery import DiscoveryAgent
+        async def search_with_fallback(state):  # noqa: ANN001
+            """Try Gemini first, fall back to Anthropic on any error."""
+            if gemini_agent is not None:
+                try:
+                    result = await gemini_agent.search(state)
+                    if result:
+                        return result
+                except Exception as exc:
+                    error_msg = str(exc)
+                    if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                        short = "Gemini rate limit hit"
+                    elif "403" in error_msg or "PERMISSION" in error_msg:
+                        short = "Gemini API key invalid or restricted"
+                    else:
+                        short = "Gemini search failed"
+                    _log.warning("%s, falling back to Anthropic: %s", short, exc)
+                    if anthropic_agent is not None:
+                        screen.app.notify(
+                            f"{short} — trying Anthropic instead",
+                            severity="warning",
+                            timeout=5,
+                        )
 
-        os.environ["ANTHROPIC_API_KEY"] = api_key
-        client = create_llm_client()
-        agent = DiscoveryAgent(llm_client=client, domain=domain)
+            if anthropic_agent is not None:
+                return await anthropic_agent.search(state)
 
-        async def anthropic_search(state):  # noqa: ANN001
-            return await agent.search(state)
+            return []
 
-        screen.set_search_fn(anthropic_search)
-        _log.info("discovery wired to Anthropic + web_search")
+        screen.set_search_fn(search_with_fallback)
+        primary = "Gemini" if gemini_agent else "Anthropic"
+        fallback = " (Anthropic fallback)" if gemini_agent and anthropic_agent else ""
+        _log.info("discovery wired to %s%s", primary, fallback)
 
     def _handle_v2_discovery_result(self, result: object | None) -> None:
         """After discovery, create profiles and push template screen."""
