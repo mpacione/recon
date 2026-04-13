@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 _log = get_logger(__name__)
 
-_GEMINI_MODEL = "gemini-2.0-flash"
+_GEMINI_MODEL = "gemini-2.5-flash"
 
 _SYSTEM_INSTRUCTION = """\
 You are a competitive intelligence research agent. Your task is to discover \
