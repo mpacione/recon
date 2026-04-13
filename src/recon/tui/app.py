@@ -392,6 +392,190 @@ class ReconApp(App):
         self.refresh_workspace_context()
         self._rebuild_dashboard_mode()
 
+        # v2 flow: auto-start discovery after workspace creation
+        self._start_v2_discovery()
+
+    def _start_v2_discovery(self) -> None:
+        """Push discovery screen to start finding competitors."""
+        from recon.discovery import DiscoveryState
+        from recon.tui.screens.discovery import DiscoveryScreen
+        from recon.workspace import Workspace
+
+        if self._workspace_path is None:
+            return
+
+        try:
+            ws = Workspace.open(self._workspace_path)
+            domain = ws.schema.domain if ws.schema else "unknown"
+        except Exception:
+            domain = "unknown"
+
+        state = DiscoveryState()
+        screen = DiscoveryScreen(state=state, domain=domain)
+
+        # Wire up the search function if API key is available
+        self._wire_discovery_search(screen, domain)
+
+        self.push_screen(screen, self._handle_v2_discovery_result)
+
+    def _wire_discovery_search(self, screen, domain: str) -> None:  # noqa: ANN001
+        """Wire the LLM search function into the discovery screen."""
+        import os
+
+        from recon.api_keys import load_api_keys
+
+        if self._workspace_path is None:
+            return
+
+        keys = load_api_keys(workspace_root=self._workspace_path)
+        api_key = keys.get("anthropic") or os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            return
+
+        from recon.client_factory import create_llm_client
+        from recon.discovery import DiscoveryAgent
+
+        client = create_llm_client(api_key=api_key)
+        agent = DiscoveryAgent(llm_client=client, domain=domain)
+
+        async def search_fn(state):  # noqa: ANN001
+            return await agent.search(state)
+
+        screen.set_search_fn(search_fn)
+
+    def _handle_v2_discovery_result(self, result: object | None) -> None:
+        """After discovery, create profiles and push template screen."""
+        from recon.discovery import DiscoveryCandidate
+        from recon.workspace import Workspace
+
+        if self._workspace_path is None:
+            return
+
+        if not isinstance(result, list):
+            _log.info("discovery cancelled")
+            return
+
+        accepted = [c for c in result if isinstance(c, DiscoveryCandidate)]
+        if not accepted:
+            _log.info("no candidates accepted")
+            return
+
+        # Create profiles for accepted candidates
+        ws = Workspace.open(self._workspace_path)
+        for candidate in accepted:
+            try:
+                ws.create_profile(candidate.name)
+            except Exception:
+                _log.exception("failed to create profile for %s", candidate.name)
+
+        self.refresh_workspace_context()
+
+        # Push template screen
+        self._start_v2_template(len(accepted))
+
+    def _start_v2_template(self, competitor_count: int) -> None:
+        """Push the template screen for section selection."""
+        from recon.schema_designer import SECTION_POOL
+        from recon.tui.screens.template import TemplateScreen
+        from recon.workspace import Workspace
+
+        if self._workspace_path is None:
+            return
+
+        try:
+            ws = Workspace.open(self._workspace_path)
+            domain = ws.schema.domain if ws.schema else "unknown"
+        except Exception:
+            domain = "unknown"
+
+        # Use default selections for now (Phase a LLM selection is wired
+        # but requires an async call — for now use sensible defaults)
+        always_on = {"overview", "pricing_business", "market_position", "head_to_head"}
+        sections = [
+            {**s, "selected": s["key"] in always_on}
+            for s in SECTION_POOL[:10]
+        ]
+
+        self.push_screen(
+            TemplateScreen(sections=sections, domain=domain),
+            lambda result: self._handle_v2_template_result(result, competitor_count),
+        )
+
+    def _handle_v2_template_result(self, result: object | None, competitor_count: int) -> None:
+        """After template, push cost confirmation screen."""
+        from recon.tui.screens.template import TemplateResult
+
+        if not isinstance(result, TemplateResult):
+            _log.info("template cancelled")
+            return
+
+        selected = [s for s in result.sections if s.get("selected")]
+        if not selected:
+            self.notify("No sections selected", severity="warning")
+            return
+
+        # Update schema with selected sections
+        self._update_schema_sections(selected)
+
+        # Push confirm screen
+        from recon.tui.screens.confirm import ConfirmScreen
+
+        self.push_screen(
+            ConfirmScreen(
+                competitor_count=competitor_count,
+                section_count=len(selected),
+            ),
+            self._handle_v2_confirm_result,
+        )
+
+    def _update_schema_sections(self, sections: list[dict]) -> None:
+        """Update the workspace's recon.yaml with the selected sections."""
+        import yaml
+
+        if self._workspace_path is None:
+            return
+
+        schema_path = self._workspace_path / "recon.yaml"
+        if not schema_path.exists():
+            return
+
+        try:
+            schema_dict = yaml.safe_load(schema_path.read_text()) or {}
+            schema_dict["sections"] = [
+                {
+                    "key": s["key"],
+                    "title": s["title"],
+                    "description": s.get("description", ""),
+                    "allowed_formats": ["prose"],
+                    "preferred_format": "prose",
+                }
+                for s in sections
+            ]
+            schema_path.write_text(
+                yaml.dump(schema_dict, default_flow_style=False, sort_keys=False)
+            )
+        except Exception:
+            _log.exception("failed to update schema sections")
+
+    def _handle_v2_confirm_result(self, result: object | None) -> None:
+        """After confirmation, launch the pipeline."""
+        from recon.tui.screens.confirm import ConfirmResult
+
+        if not isinstance(result, ConfirmResult):
+            _log.info("confirm cancelled")
+            return
+
+        # Build pipeline function with the chosen model and workers
+        from recon.tui.pipeline_runner import Operation, build_pipeline_fn
+
+        pipeline_fn = build_pipeline_fn(
+            workspace_path=self._workspace_path,
+            operation=Operation.FULL_PIPELINE,
+            model_name=result.model_name,
+            worker_count=result.workers,
+        )
+        self.launch_pipeline(pipeline_fn)
+
     # Keep the old wizard handler for backward compatibility (CLI --wizard flag)
     def _handle_wizard_result(self, result: object | None) -> None:
         from recon.tui.screens.wizard import WizardResult

@@ -68,7 +68,9 @@ class TestTuiLaunchSmoke:
                 await pilot.pause()
 
                 assert app.is_running
-                assert isinstance(app.screen, DashboardScreen)
+                # v2 flow: describe → auto-pushes discovery
+                assert isinstance(app.screen, (DashboardScreen, DescribeScreen)) or \
+                    type(app.screen).__name__ == "DiscoveryScreen"
 
         await asyncio.wait_for(_launch(), timeout=_LAUNCH_TIMEOUT * 2)
 
