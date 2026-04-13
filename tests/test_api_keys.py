@@ -64,7 +64,9 @@ class TestLoadApiKeys:
     def test_returns_empty_when_no_env_files(self, tmp_path: Path) -> None:
         from recon.api_keys import load_api_keys
 
-        keys = load_api_keys(workspace_root=tmp_path)
+        # Use a fake global dir so real ~/.recon/.env doesn't interfere
+        fake_global = tmp_path / "no-global"
+        keys = load_api_keys(workspace_root=tmp_path, global_env_dir=fake_global)
 
         assert keys == {}
 

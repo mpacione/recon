@@ -169,24 +169,21 @@ class TestDiscoveryScreen:
             # Inputs should be torn down anyway
             assert not app.screen.query("#manual-name")
 
-    async def test_cursor_navigation_and_space_toggle(self) -> None:
+    async def test_enter_on_datatable_toggles_candidate(self) -> None:
+        """Enter on a DataTable row triggers on_data_table_row_selected
+        which toggles the candidate's accepted state."""
         state = _make_state(_make_candidates(3))
         app = _DiscoveryTestApp(state=state)
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            screen = app.screen
-            assert isinstance(screen, DiscoveryScreen)
-            assert screen.cursor_index == 0
-            assert state.all_candidates[0].accepted
-            await pilot.press("space")
+            table = app.screen.query_one("#discovery-table", DataTable)
+            table.focus()
             await pilot.pause()
-            # Space toggles the row at the DataTable cursor position
-            # via action_toggle_current, which reads the table cursor.
-            # The exact acceptance state depends on how the DataTable
-            # dispatches the space key vs the screen binding. Verify
-            # the state changed in some way.
-            toggled = sum(1 for c in state.all_candidates if not c.accepted)
-            assert toggled >= 1
+            assert state.all_candidates[0].accepted
+            # Enter selects the row, triggering toggle
+            await pilot.press("enter")
+            await pilot.pause()
+            assert not state.all_candidates[0].accepted
 
     async def test_datatable_cursor_navigation(self) -> None:
         """Arrow keys navigate the DataTable rows. The DataTable

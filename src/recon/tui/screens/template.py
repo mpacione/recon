@@ -31,9 +31,6 @@ class TemplateScreen(ModalScreen[TemplateResult]):
 
     BINDINGS = [
         Binding("escape", "cancel", "Back", show=False),
-        Binding("space", "toggle_current", "Toggle", show=False),
-        Binding("up", "cursor_up", "Up", show=False),
-        Binding("down", "cursor_down", "Down", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -48,8 +45,23 @@ class TemplateScreen(ModalScreen[TemplateResult]):
         padding: 1 2;
         overflow-y: auto;
     }
-    .section-row {
-        height: 1;
+    .section-toggle {
+        height: 3;
+        width: 100%;
+        background: transparent;
+        color: #a89984;
+        border: none;
+        text-align: left;
+        padding: 0 1;
+        min-width: 0;
+    }
+    .section-toggle:hover {
+        background: #1d1d1d;
+        color: #efe5c0;
+    }
+    .section-toggle:focus {
+        background: #1d1d1d;
+        color: #e0a044;
     }
     .button-row {
         height: 3;
@@ -59,21 +71,12 @@ class TemplateScreen(ModalScreen[TemplateResult]):
     .button-row Button {
         margin: 0 1 0 0;
     }
-    .section-row-selected {
-        height: 1;
-        color: #efe5c0;
-    }
-    .section-row-deselected {
-        height: 1;
-        color: #a89984;
-    }
     """
 
     def __init__(self, sections: list[dict[str, Any]], domain: str) -> None:
         super().__init__()
         self._sections = [dict(s) for s in sections]
         self._domain = domain
-        self._cursor = 0
 
     def compose(self) -> ComposeResult:
         with Vertical(id="template-container"):
@@ -85,15 +88,15 @@ class TemplateScreen(ModalScreen[TemplateResult]):
             yield Static("")
 
             for i, section in enumerate(self._sections):
-                marker = "[x]" if section.get("selected") else "[ ]"
-                color = "#efe5c0" if section.get("selected") else "#a89984"
-                cursor = ">" if i == self._cursor else " "
-                yield Static(
-                    f"[#e0a044]{cursor}[/] [{color}]{marker} "
-                    f"{section['title']}[/]"
-                    f"  [#3a3a3a]{section.get('description', '')}[/]",
-                    id=f"section-row-{i}",
-                    classes="section-row",
+                marker = "x" if section.get("selected") else " "
+                label = (
+                    f"\\[{marker}] {section['title']}  "
+                    f"{section.get('description', '')}"
+                )
+                yield Button(
+                    label,
+                    id=f"btn-section-{i}",
+                    classes="section-toggle",
                 )
 
             yield Static("")
@@ -112,11 +115,6 @@ class TemplateScreen(ModalScreen[TemplateResult]):
             with Horizontal(classes="button-row"):
                 yield Button("Proceed", id="btn-proceed", variant="primary")
                 yield Button("Back", id="btn-back")
-            yield Static(
-                "[#a89984]space[/] [#e0a044]toggle sections[/] · "
-                "[#a89984]↑↓[/] [#e0a044]navigate[/] · "
-                "[#a89984]enter in field[/] [#e0a044]add section[/]",
-            )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
@@ -124,6 +122,27 @@ class TemplateScreen(ModalScreen[TemplateResult]):
             self.action_submit()
         elif button_id == "btn-back":
             self.action_cancel()
+        elif button_id.startswith("btn-section-"):
+            try:
+                index = int(button_id.removeprefix("btn-section-"))
+                self._toggle_section(index)
+            except ValueError:
+                pass
+
+    def _toggle_section(self, index: int) -> None:
+        if 0 <= index < len(self._sections):
+            self._sections[index]["selected"] = not self._sections[index].get("selected", True)
+            # Update button label
+            try:
+                btn = self.query_one(f"#btn-section-{index}", Button)
+                section = self._sections[index]
+                marker = "x" if section.get("selected") else " "
+                btn.label = (
+                    f"\\[{marker}] {section['title']}  "
+                    f"{section.get('description', '')}"
+                )
+            except Exception:
+                pass
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Enter in the custom section field adds the section."""
@@ -151,36 +170,6 @@ class TemplateScreen(ModalScreen[TemplateResult]):
             pass
 
         self.dismiss(TemplateResult(sections=list(self._sections)))
-
-    def action_toggle_current(self) -> None:
-        if 0 <= self._cursor < len(self._sections):
-            self._sections[self._cursor]["selected"] = not self._sections[self._cursor].get("selected", True)
-            self._refresh_rows()
-
-    def action_cursor_up(self) -> None:
-        if self._sections:
-            self._cursor = (self._cursor - 1) % len(self._sections)
-            self._refresh_rows()
-
-    def action_cursor_down(self) -> None:
-        if self._sections:
-            self._cursor = (self._cursor + 1) % len(self._sections)
-            self._refresh_rows()
-
-    def _refresh_rows(self) -> None:
-        for i, section in enumerate(self._sections):
-            try:
-                row = self.query_one(f"#section-row-{i}", Static)
-                marker = "[x]" if section.get("selected") else "[ ]"
-                color = "#efe5c0" if section.get("selected") else "#a89984"
-                cursor = ">" if i == self._cursor else " "
-                row.update(
-                    f"[#e0a044]{cursor}[/] [{color}]{marker} "
-                    f"{section['title']}[/]"
-                    f"  [#3a3a3a]{section.get('description', '')}[/]"
-                )
-            except Exception:
-                pass
 
     def _add_custom_section(self, description: str) -> None:
         """Add a custom section from user prompt."""

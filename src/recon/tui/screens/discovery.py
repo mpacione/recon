@@ -32,15 +32,12 @@ class DiscoveryScreen(ReconScreen):
     """Full-screen competitor discovery with button-driven actions."""
 
     BINDINGS = [
-        Binding("space", "toggle_current", "Toggle", show=False),
         Binding("escape", "cancel", "Back", show=False),
-        Binding("delete", "toggle_current", "Toggle", show=False),
-        Binding("backspace", "toggle_current", "Toggle", show=False),
     ]
 
     keybind_hints = (
-        "[#e0a044]space[/] toggle · "
         "[#e0a044]↑↓[/] navigate · "
+        "[#e0a044]enter[/] toggle · "
         "[#e0a044]esc[/] back"
     )
 
@@ -157,27 +154,6 @@ class DiscoveryScreen(ReconScreen):
             self._state.toggle(index)
             self._populate_table()
             self._update_summary()
-
-    def action_cursor_up(self) -> None:
-        count = len(self._state.all_candidates)
-        if count > 0:
-            self._cursor_index = (self._cursor_index - 1) % count
-
-    def action_cursor_down(self) -> None:
-        count = len(self._state.all_candidates)
-        if count > 0:
-            self._cursor_index = (self._cursor_index + 1) % count
-
-    def action_toggle_current(self) -> None:
-        try:
-            table = self.query_one("#discovery-table", DataTable)
-            index = table.cursor_row
-        except Exception:
-            index = self._cursor_index
-        candidates = self._state.all_candidates
-        if candidates and 0 <= index < len(candidates):
-            self._state.toggle(index)
-            self._refresh_display()
 
     def action_cancel(self) -> None:
         self.dismiss(self._state.accepted_candidates)
