@@ -435,7 +435,8 @@ class ReconApp(App):
         from recon.client_factory import create_llm_client
         from recon.discovery import DiscoveryAgent
 
-        client = create_llm_client(api_key=api_key)
+        os.environ["ANTHROPIC_API_KEY"] = api_key
+        client = create_llm_client()
         agent = DiscoveryAgent(llm_client=client, domain=domain)
 
         async def search_fn(state):  # noqa: ANN001
