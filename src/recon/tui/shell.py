@@ -162,9 +162,13 @@ class ReconHeaderBar(Static):
             "error": "#cc241d",
             "cancelled": "#cc241d",
         }.get(ctx.run_state, "#a89984")
-        state_label = f"[{state_color}]{ctx.run_state}[/]"
-        if ctx.run_phase and ctx.run_phase != ctx.run_state:
-            state_label += f" [{state_color}]·[/] [{state_color}]{ctx.run_phase}[/]"
+        # Hide "idle" state label — it's the default and adds no info
+        if ctx.run_state == "idle":
+            state_label = ""
+        else:
+            state_label = f"[{state_color}]{ctx.run_state}[/]"
+            if ctx.run_phase and ctx.run_phase != ctx.run_state:
+                state_label += f" [{state_color}]·[/] [{state_color}]{ctx.run_phase}[/]"
 
         return (
             f"[bold #e0a044]recon[/] [#a89984]│[/] "

@@ -239,12 +239,23 @@ class StageMonitor(Static):
 
         lines: list[str] = []
 
+        # ETA calculation
+        eta_str = ""
+        if done > 0 and s.started_at is not None:
+            elapsed_secs = time.monotonic() - s.started_at
+            remaining = total - done
+            secs_per_task = elapsed_secs / done
+            eta_secs = int(secs_per_task * remaining)
+            eta_min, eta_sec = divmod(eta_secs, 60)
+            eta_str = f"  [#a89984]~{eta_min}:{eta_sec:02d} remaining[/]"
+
         # Header
         lines.append(
             f"[bold #e0a044]── {stage} ──[/]  "
             f"[#a89984]{elapsed}[/]  "
             f"[#e0a044]{cost}[/]  "
             f"[#a89984]Workers:[/] [#e0a044]{active_count}[/]"
+            f"{eta_str}"
         )
 
         # Global progress bar

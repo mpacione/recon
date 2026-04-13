@@ -543,12 +543,18 @@ class ReconApp(App):
         except Exception:
             domain = "unknown"
 
-        # Use default selections for now (Phase a LLM selection is wired
-        # but requires an async call — for now use sensible defaults)
-        always_on = {"overview", "pricing_business", "market_position", "head_to_head"}
+        # Default 5-6 sections on, rest off. The LLM selection (Phase a)
+        # would be smarter, but this gives a reasonable starting point.
+        always_on = {
+            "overview",
+            "pricing_business",
+            "developer_experience",
+            "community_ecosystem",
+            "customer_segments",
+        }
         sections = [
             {**s, "selected": s["key"] in always_on}
-            for s in SECTION_POOL[:10]
+            for s in SECTION_POOL
         ]
 
         self.push_screen(

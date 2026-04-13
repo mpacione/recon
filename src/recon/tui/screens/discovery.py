@@ -146,7 +146,7 @@ class DiscoveryScreen(ReconScreen):
             elif self._state.round_count > 0:
                 progress.update(
                     f"[bold #e0a044]── SEARCH ──[/] "
-                    f"[#98971a]{self._state.round_count} rounds complete[/]"
+                    f"[#98971a]{self._state.round_count} round{'s' if self._state.round_count != 1 else ''} complete[/]"
                 )
             else:
                 progress.update(
@@ -226,7 +226,7 @@ class DiscoveryScreen(ReconScreen):
         if self._state.round_count > 0:
             return Static(
                 f"[bold #e0a044]── SEARCH ──[/] "
-                f"[#98971a]{self._state.round_count} rounds complete[/]",
+                f"[#98971a]{self._state.round_count} round{'s' if self._state.round_count != 1 else ''} complete[/]",
                 id="search-progress",
             )
         return Static(
