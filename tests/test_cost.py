@@ -146,3 +146,69 @@ class TestCostTracker:
         assert tracker.total_input_tokens == 0
         assert tracker.total_output_tokens == 0
         assert tracker.call_count == 0
+
+
+class TestModelRegistry:
+    def test_get_pricing_sonnet(self) -> None:
+        from recon.cost import get_model_pricing
+
+        pricing = get_model_pricing("sonnet")
+
+        assert pricing.input_price_per_million == 3.0
+        assert pricing.output_price_per_million == 15.0
+        assert "sonnet" in pricing.model_id
+
+    def test_get_pricing_opus(self) -> None:
+        from recon.cost import get_model_pricing
+
+        pricing = get_model_pricing("opus")
+
+        assert pricing.input_price_per_million == 15.0
+        assert pricing.output_price_per_million == 75.0
+
+    def test_get_pricing_haiku(self) -> None:
+        from recon.cost import get_model_pricing
+
+        pricing = get_model_pricing("haiku")
+
+        assert pricing.input_price_per_million == 0.80
+        assert pricing.output_price_per_million == 4.0
+
+    def test_list_available_models(self) -> None:
+        from recon.cost import list_available_models
+
+        models = list_available_models()
+
+        assert len(models) >= 3
+        names = [m["name"] for m in models]
+        assert "sonnet" in names
+        assert "opus" in names
+        assert "haiku" in names
+
+    def test_each_model_has_description(self) -> None:
+        from recon.cost import list_available_models
+
+        for model in list_available_models():
+            assert "description" in model
+            assert len(model["description"]) > 0
+
+    def test_estimate_full_run_cost_varies_by_model(self) -> None:
+        from recon.cost import estimate_full_run, get_model_pricing
+
+        sonnet = estimate_full_run(
+            pricing=get_model_pricing("sonnet"),
+            section_count=5,
+            competitor_count=10,
+        )
+        opus = estimate_full_run(
+            pricing=get_model_pricing("opus"),
+            section_count=5,
+            competitor_count=10,
+        )
+        haiku = estimate_full_run(
+            pricing=get_model_pricing("haiku"),
+            section_count=5,
+            competitor_count=10,
+        )
+
+        assert opus > sonnet > haiku > 0
