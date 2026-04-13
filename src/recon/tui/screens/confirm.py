@@ -16,6 +16,7 @@ from textual.widgets import Button, Static
 from recon.cost import estimate_full_run, get_model_pricing, list_available_models
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
+from recon.tui.widgets import RadioItem
 
 _log = get_logger(__name__)
 
@@ -112,12 +113,11 @@ class ConfirmScreen(ReconScreen):
             yield Static(self._render_cost_breakdown(), id="cost-breakdown")
             yield Static("")
             yield Static("[bold #e0a044]── MODEL ──[/]")
-            yield Static("")
             for i, model in enumerate(self._models):
-                yield Button(
-                    self._model_label(i),
-                    id=f"btn-model-{i}",
-                    classes="model-btn",
+                yield RadioItem(
+                    label=self._model_label(i),
+                    selected=(i == self._selected_model),
+                    index=i,
                 )
             yield Static("")
             yield Static("[bold #e0a044]── WORKERS ──[/]")
@@ -169,7 +169,6 @@ class ConfirmScreen(ReconScreen):
 
     def _model_label(self, index: int) -> str:
         model = self._models[index]
-        marker = "●" if index == self._selected_model else "○"
         name = str(model["name"]).capitalize()
         inp = model["input_price_per_million"]
         out = model["output_price_per_million"]
@@ -179,7 +178,7 @@ class ConfirmScreen(ReconScreen):
             competitor_count=self._competitor_count,
         )
         desc = str(model.get("description", ""))
-        return f"{marker} {name:8s}  ${inp}/{out} per M tokens  ~${model_total:.2f}  {desc}"
+        return f"{name:8s}  ${inp}/{out} per M tokens  ~${model_total:.2f}  {desc}"
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
@@ -193,22 +192,12 @@ class ConfirmScreen(ReconScreen):
         elif button_id == "btn-more-workers":
             self._workers = min(20, self._workers + 1)
             self._refresh_workers()
-        elif button_id.startswith("btn-model-"):
-            try:
-                index = int(button_id.removeprefix("btn-model-"))
-                self._selected_model = index
-                self._refresh_models()
-                self._refresh_cost()
-            except ValueError:
-                pass
 
-    def _refresh_models(self) -> None:
-        for i in range(len(self._models)):
-            try:
-                btn = self.query_one(f"#btn-model-{i}", Button)
-                btn.label = self._model_label(i)
-            except Exception:
-                pass
+    def on_radio_item_selected(self, event: RadioItem.Selected) -> None:
+        self._selected_model = event.index
+        for item in self.query(RadioItem):
+            item.set_selected(item._index == event.index)
+        self._refresh_cost()
 
     def _refresh_workers(self) -> None:
         try:

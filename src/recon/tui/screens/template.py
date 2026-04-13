@@ -17,6 +17,7 @@ from textual.widgets import Button, Input, Static
 
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
+from recon.tui.widgets import ChecklistItem
 
 _log = get_logger(__name__)
 
@@ -44,24 +45,6 @@ class TemplateScreen(ReconScreen):
         height: auto;
         padding: 1 2;
         overflow-y: auto;
-    }
-    .section-toggle {
-        height: 3;
-        width: 100%;
-        background: transparent;
-        color: #a89984;
-        border: none;
-        text-align: left;
-        padding: 0 1;
-        min-width: 0;
-    }
-    .section-toggle:hover {
-        background: #1d1d1d;
-        color: #efe5c0;
-    }
-    .section-toggle:focus {
-        background: #1d1d1d;
-        color: #e0a044;
     }
     .button-row {
         height: 3;
@@ -92,15 +75,11 @@ class TemplateScreen(ReconScreen):
             yield Static("")
 
             for i, section in enumerate(self._sections):
-                marker = "x" if section.get("selected") else " "
-                label = (
-                    f"\\[{marker}] {section['title']}  "
-                    f"{section.get('description', '')}"
-                )
-                yield Button(
-                    label,
-                    id=f"btn-section-{i}",
-                    classes="section-toggle",
+                yield ChecklistItem(
+                    label=section["title"],
+                    description=section.get("description", ""),
+                    selected=section.get("selected", False),
+                    index=i,
                 )
 
             yield Static("")
@@ -126,27 +105,10 @@ class TemplateScreen(ReconScreen):
             self.action_submit()
         elif button_id == "btn-back":
             self.action_cancel()
-        elif button_id.startswith("btn-section-"):
-            try:
-                index = int(button_id.removeprefix("btn-section-"))
-                self._toggle_section(index)
-            except ValueError:
-                pass
 
-    def _toggle_section(self, index: int) -> None:
-        if 0 <= index < len(self._sections):
-            self._sections[index]["selected"] = not self._sections[index].get("selected", True)
-            # Update button label
-            try:
-                btn = self.query_one(f"#btn-section-{index}", Button)
-                section = self._sections[index]
-                marker = "x" if section.get("selected") else " "
-                btn.label = (
-                    f"\\[{marker}] {section['title']}  "
-                    f"{section.get('description', '')}"
-                )
-            except Exception:
-                pass
+    def on_checklist_item_toggled(self, event: ChecklistItem.Toggled) -> None:
+        if 0 <= event.index < len(self._sections):
+            self._sections[event.index]["selected"] = event.selected
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Enter in the custom section field adds the section."""

@@ -13,8 +13,123 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from textual.message import Message
+from textual.widgets import Static
+
 from recon.tui.models.curation import ThemeCurationModel  # noqa: TCH001
 from recon.tui.models.monitor import RunMonitorModel, WorkerStatus  # noqa: TCH001
+
+
+# ---------------------------------------------------------------------------
+# Shared selection widgets
+# ---------------------------------------------------------------------------
+
+
+class ChecklistItem(Static):
+    """Compact 1-line toggleable checkbox row.
+
+    Click to toggle. Amber [x] when selected, dim [ ] when not.
+    Emits a ``Toggled`` message on click.
+    """
+
+    class Toggled(Message):
+        def __init__(self, index: int, selected: bool) -> None:
+            super().__init__()
+            self.index = index
+            self.selected = selected
+
+    DEFAULT_CSS = """
+    ChecklistItem {
+        height: 1;
+        width: 100%;
+        padding: 0 1;
+    }
+    ChecklistItem:hover {
+        background: #1d1d1d;
+    }
+    """
+
+    def __init__(
+        self,
+        label: str,
+        description: str = "",
+        selected: bool = False,
+        index: int = 0,
+    ) -> None:
+        self._label = label
+        self._description = description
+        self._selected = selected
+        self._index = index
+        super().__init__()
+
+    def render(self) -> str:
+        marker = "[#e0a044]\\[x][/]" if self._selected else "[#3a3a3a]\\[ ][/]"
+        desc = f"  [#3a3a3a]{self._description}[/]" if self._description else ""
+        color = "#efe5c0" if self._selected else "#a89984"
+        return f"{marker} [{color}]{self._label}[/]{desc}"
+
+    @property
+    def selected(self) -> bool:
+        return self._selected
+
+    def toggle(self) -> None:
+        self._selected = not self._selected
+        self.refresh()
+
+    def on_click(self) -> None:
+        self.toggle()
+        self.post_message(self.Toggled(self._index, self._selected))
+
+
+class RadioItem(Static):
+    """Compact 1-line radio option row.
+
+    Click to select. Amber bullet when selected, dim circle when not.
+    Emits a ``Selected`` message on click.
+    """
+
+    class Selected(Message):
+        def __init__(self, index: int) -> None:
+            super().__init__()
+            self.index = index
+
+    DEFAULT_CSS = """
+    RadioItem {
+        height: 1;
+        width: 100%;
+        padding: 0 1;
+    }
+    RadioItem:hover {
+        background: #1d1d1d;
+    }
+    """
+
+    def __init__(
+        self,
+        label: str,
+        selected: bool = False,
+        index: int = 0,
+    ) -> None:
+        self._label = label
+        self._selected = selected
+        self._index = index
+        super().__init__()
+
+    def render(self) -> str:
+        marker = "[#e0a044]\u25cf[/]" if self._selected else "[#3a3a3a]\u25cb[/]"
+        color = "#efe5c0" if self._selected else "#a89984"
+        return f"{marker} [{color}]{self._label}[/]"
+
+    @property
+    def selected(self) -> bool:
+        return self._selected
+
+    def set_selected(self, value: bool) -> None:
+        self._selected = value
+        self.refresh()
+
+    def on_click(self) -> None:
+        self.post_message(self.Selected(self._index))
 
 
 def humanize_path(path: Path | str, max_width: int = 64) -> str:

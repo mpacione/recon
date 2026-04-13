@@ -37,15 +37,16 @@ class TestTemplateScreen:
             assert isinstance(app.screen, TemplateScreen)
 
     async def test_shows_section_list(self) -> None:
-        from textual.widgets import Button
+        from recon.tui.widgets import ChecklistItem
 
         app = _TemplateTestApp()
         async with app.run_test(size=(100, 40)) as pilot:
             await pilot.pause()
-            buttons = app.screen.query(Button)
-            all_labels = " ".join(str(b.label) for b in buttons)
-            assert "Overview" in all_labels
-            assert "Pricing" in all_labels
+            items = app.screen.query(ChecklistItem)
+            assert len(items) >= 2
+            labels = [item._label for item in items]
+            assert "Overview" in labels
+            assert "Pricing" in labels
 
     async def test_result_contains_selected_sections(self) -> None:
         from recon.tui.screens.template import TemplateResult, TemplateScreen
