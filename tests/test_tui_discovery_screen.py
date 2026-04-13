@@ -198,6 +198,8 @@ class TestDiscoveryScreen:
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             table = app.screen.query_one("#discovery-table", DataTable)
+            table.focus()
+            await pilot.pause()
             assert table.cursor_row == 0
             await pilot.press("down")
             assert table.cursor_row == 1
