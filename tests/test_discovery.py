@@ -276,3 +276,49 @@ class TestDiscoveryState:
 
         assert len(state.all_candidates) == 2
         assert state.round_count == 2
+
+
+class TestDiscoveryStateRemove:
+    def test_remove_candidate_by_index(self) -> None:
+        state = DiscoveryState()
+        state.add_round([
+            DiscoveryCandidate(
+                name="Alpha", url="https://alpha.com", blurb="a",
+                provenance="web", suggested_tier=CompetitorTier.ESTABLISHED,
+            ),
+            DiscoveryCandidate(
+                name="Beta", url="https://beta.com", blurb="b",
+                provenance="web", suggested_tier=CompetitorTier.EMERGING,
+            ),
+            DiscoveryCandidate(
+                name="Gamma", url="https://gamma.com", blurb="g",
+                provenance="web", suggested_tier=CompetitorTier.EMERGING,
+            ),
+        ])
+
+        state.remove(1)
+
+        assert len(state.all_candidates) == 2
+        names = [c.name for c in state.all_candidates]
+        assert "Beta" not in names
+
+    def test_remove_frees_domain_for_readd(self) -> None:
+        state = DiscoveryState()
+        state.add_round([
+            DiscoveryCandidate(
+                name="Alpha", url="https://alpha.com", blurb="a",
+                provenance="web", suggested_tier=CompetitorTier.ESTABLISHED,
+            ),
+        ])
+
+        state.remove(0)
+
+        state.add_round([
+            DiscoveryCandidate(
+                name="Alpha v2", url="https://alpha.com", blurb="a2",
+                provenance="web", suggested_tier=CompetitorTier.ESTABLISHED,
+            ),
+        ])
+
+        assert len(state.all_candidates) == 1
+        assert state.all_candidates[0].name == "Alpha v2"

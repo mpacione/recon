@@ -92,6 +92,15 @@ class DiscoveryState:
         for c in self._candidates:
             c.accepted = False
 
+    def remove(self, index: int) -> None:
+        """Remove a candidate entirely by index."""
+        if index < 0 or index >= len(self._candidates):
+            msg = f"Index {index} out of range (0-{len(self._candidates) - 1})"
+            raise IndexError(msg)
+        removed = self._candidates.pop(index)
+        domain = _extract_domain(removed.url)
+        self._seen_domains.discard(domain)
+
     def add_manual(self, name: str, url: str, blurb: str) -> None:
         candidate = DiscoveryCandidate(
             name=name,

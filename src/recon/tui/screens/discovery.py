@@ -20,6 +20,7 @@ from textual.widgets import Button, DataTable, Input, Static
 
 from recon.discovery import DiscoveryCandidate, DiscoveryState  # noqa: TCH001
 from recon.logging import get_logger
+from recon.tui.shell import ReconScreen
 
 _log = get_logger(__name__)
 
@@ -39,6 +40,8 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         Binding("s", "search_more", "Search more", show=False),
         Binding("n", "add_manually", "Add manually", show=False),
         Binding("d", "done", "Done", show=False),
+        Binding("delete", "remove_current", "Remove", show=False),
+        Binding("backspace", "remove_current", "Remove", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -200,6 +203,20 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
     def action_reject_all(self) -> None:
         self._state.reject_all()
         self._refresh_display()
+
+    def action_remove_current(self) -> None:
+        """Remove the candidate at the cursor entirely (not just reject)."""
+        try:
+            table = self.query_one("#discovery-table", DataTable)
+            index = table.cursor_row
+        except Exception:
+            return
+        candidates = self._state.all_candidates
+        if candidates and 0 <= index < len(candidates):
+            removed = candidates[index]
+            self._state.remove(index)
+            self.app.notify(f"Removed: {removed.name}", title="Discovery")
+            self._refresh_display()
 
     def action_search_more(self) -> None:
         if self._search_fn is None:
