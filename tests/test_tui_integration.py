@@ -760,10 +760,10 @@ class TestDashboardBrowserFlow:
 
 
 class TestNewProjectFullFlow:
-    async def test_welcome_new_project_wizard_to_dashboard(self, tmp_path: Path) -> None:
-        from textual.widgets import Input
+    async def test_welcome_new_project_describe_to_dashboard(self, tmp_path: Path) -> None:
+        from textual.widgets import TextArea
 
-        from recon.tui.screens.wizard import WizardScreen
+        from recon.tui.screens.describe import DescribeScreen
 
         app = ReconApp()
         async with app.run_test(size=(120, 50)) as pilot:
@@ -776,23 +776,14 @@ class TestNewProjectFullFlow:
             )
             await pilot.pause()
             await pilot.pause()
-            assert isinstance(app.screen, WizardScreen)
+            assert isinstance(app.screen, DescribeScreen)
             assert app.is_running
 
-            app.screen.query_one("#input-company", Input).value = "Acme Corp"
-            app.screen.query_one("#input-products", Input).value = "Acme CI"
-            app.screen.query_one("#input-domain", Input).value = "CI/CD Tools"
-            app.screen.query_one("#btn-continue", Button).press()
+            area = app.screen.query_one("#describe-area", TextArea)
+            area.load_text("Acme Corp makes CI/CD tools for developers")
             await pilot.pause()
 
-            app.screen.query_one("#btn-continue", Button).press()
-            await pilot.pause()
-
-            app.screen.query_one("#btn-continue", Button).press()
-            await pilot.pause()
-
-            app.screen.query_one("#input-api-key", Input).value = "sk-ant-test"
-            app.screen.query_one("#btn-confirm", Button).press()
+            app.screen.action_submit()
             await pilot.pause()
             await pilot.pause()
             await pilot.pause()
@@ -801,7 +792,6 @@ class TestNewProjectFullFlow:
             assert isinstance(app.screen, DashboardScreen)
             assert app.workspace_path == new_path
             assert (new_path / "recon.yaml").exists()
-            assert (new_path / ".env").exists()
 
     async def test_wizard_completion_does_not_stall_pipeline_launch(
         self, tmp_path: Path, monkeypatch,

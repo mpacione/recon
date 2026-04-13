@@ -12,12 +12,12 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path  # noqa: TCH003 -- used at runtime
 
-from textual.widgets import Button, Input
+from textual.widgets import Button, Input, TextArea
 
 from recon.tui.app import ReconApp
 from recon.tui.screens.dashboard import DashboardScreen
+from recon.tui.screens.describe import DescribeScreen
 from recon.tui.screens.welcome import WelcomeScreen
-from recon.tui.screens.wizard import WizardScreen
 
 _LAUNCH_TIMEOUT = 5.0
 
@@ -33,7 +33,7 @@ class TestTuiLaunchSmoke:
 
         await asyncio.wait_for(_launch(), timeout=_LAUNCH_TIMEOUT)
 
-    async def test_welcome_to_wizard_does_not_hang(self, tmp_path: Path) -> None:
+    async def test_welcome_to_describe_does_not_hang(self, tmp_path: Path) -> None:
         app = ReconApp()
         async def _launch() -> None:
             async with app.run_test(size=(120, 50)) as pilot:
@@ -43,11 +43,11 @@ class TestTuiLaunchSmoke:
                 )
                 await pilot.pause()
                 await pilot.pause()
-                assert isinstance(app.screen, WizardScreen)
+                assert isinstance(app.screen, DescribeScreen)
 
         await asyncio.wait_for(_launch(), timeout=_LAUNCH_TIMEOUT)
 
-    async def test_full_wizard_to_dashboard_flow(self, tmp_path: Path) -> None:
+    async def test_full_describe_to_dashboard_flow(self, tmp_path: Path) -> None:
         app = ReconApp()
         async def _launch() -> None:
             async with app.run_test(size=(120, 50)) as pilot:
@@ -58,19 +58,11 @@ class TestTuiLaunchSmoke:
                 await pilot.pause()
                 await pilot.pause()
 
-                app.screen.query_one("#input-company", Input).value = "SmokeCo"
-                app.screen.query_one("#input-products", Input).value = "SmokeCI"
-                app.screen.query_one("#input-domain", Input).value = "Testing"
-                app.screen.query_one("#btn-continue", Button).press()
+                area = app.screen.query_one("#describe-area", TextArea)
+                area.load_text("SmokeCo makes CI/CD testing tools")
                 await pilot.pause()
 
-                app.screen.query_one("#btn-continue", Button).press()
-                await pilot.pause()
-                app.screen.query_one("#btn-continue", Button).press()
-                await pilot.pause()
-
-                app.screen.query_one("#input-api-key", Input).value = "sk-ant-smoke"
-                app.screen.query_one("#btn-confirm", Button).press()
+                app.screen.action_submit()
                 await pilot.pause()
                 await pilot.pause()
                 await pilot.pause()
@@ -81,6 +73,8 @@ class TestTuiLaunchSmoke:
         await asyncio.wait_for(_launch(), timeout=_LAUNCH_TIMEOUT * 2)
 
     async def test_initial_wizard_dir_mode(self, tmp_path: Path) -> None:
+        from recon.tui.screens.wizard import WizardScreen
+
         app = ReconApp(initial_wizard_dir=tmp_path / "auto-wizard")
         async def _launch() -> None:
             async with app.run_test(size=(120, 50)) as pilot:
@@ -179,6 +173,7 @@ class TestCliImports:
         from recon.tui.screens.browser import CompetitorBrowserScreen
         from recon.tui.screens.curation import ThemeCurationScreen
         from recon.tui.screens.dashboard import DashboardScreen
+        from recon.tui.screens.describe import DescribeScreen
         from recon.tui.screens.discovery import DiscoveryScreen
         from recon.tui.screens.planner import RunPlannerScreen
         from recon.tui.screens.run import RunScreen
@@ -188,7 +183,7 @@ class TestCliImports:
 
         screens = [
             CompetitorBrowserScreen, ThemeCurationScreen, DashboardScreen,
-            DiscoveryScreen, RunPlannerScreen, RunScreen,
+            DescribeScreen, DiscoveryScreen, RunPlannerScreen, RunScreen,
             CompetitorSelectorScreen, WelcomeScreen, WizardScreen,
         ]
         assert all(s is not None for s in screens)

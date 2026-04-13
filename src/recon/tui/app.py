@@ -329,14 +329,70 @@ class ReconApp(App):
 
     def on_welcome_screen_new_project_requested(self, event: WelcomeScreen.NewProjectRequested) -> None:
         _log.info("NewProjectRequested path=%s", event.path)
-        from recon.tui.screens.wizard import WizardScreen
+        from recon.tui.screens.describe import DescribeScreen
 
         output_dir = Path(event.path)
         self.push_screen(
-            WizardScreen(output_dir=output_dir),
-            self._handle_wizard_result,
+            DescribeScreen(output_dir=output_dir),
+            self._handle_describe_result,
         )
 
+    def _handle_describe_result(self, result: object | None) -> None:
+        from recon.tui.screens.describe import DescribeResult
+
+        _log.info("describe dismissed result=%s", type(result).__name__ if result else "None")
+        if not isinstance(result, DescribeResult):
+            _log.info("describe cancelled")
+            return
+
+        self._create_workspace_from_description(result)
+
+    def _create_workspace_from_description(self, result: object) -> None:
+        import yaml
+
+        from recon.tui.screens.describe import DescribeResult
+        from recon.workspace import Workspace
+
+        if not isinstance(result, DescribeResult):
+            return
+
+        _log.info("creating workspace at %s from description", result.output_dir)
+        try:
+            result.output_dir.mkdir(parents=True, exist_ok=True)
+
+            competitors_dir = result.output_dir / "competitors"
+            if competitors_dir.exists():
+                existing = list(competitors_dir.glob("*.md"))
+                if existing:
+                    _log.info("cleaning %d existing profiles", len(existing))
+                    for p in existing:
+                        p.unlink()
+
+            # Parse description into structured schema fields
+            schema_dict = _description_to_schema(result.description)
+
+            (result.output_dir / "recon.yaml").write_text(
+                yaml.dump(schema_dict, default_flow_style=False, sort_keys=False)
+            )
+
+            # Save API keys to .env
+            for key_name, key_value in result.api_keys.items():
+                from recon.api_keys import save_api_key
+                save_api_key(key_name, key_value, workspace_root=result.output_dir)
+
+            Workspace.init(root=result.output_dir)
+            _log.info("workspace created from description")
+        except Exception as exc:
+            _log.exception("failed to create workspace from description")
+            self.notify(f"Failed to create workspace: {exc}", severity="error")
+            return
+
+        self._workspace_path = result.output_dir
+        self._record_recent_project(result.output_dir)
+        self.refresh_workspace_context()
+        self._rebuild_dashboard_mode()
+
+    # Keep the old wizard handler for backward compatibility (CLI --wizard flag)
     def _handle_wizard_result(self, result: object | None) -> None:
         from recon.tui.screens.wizard import WizardResult
 
@@ -403,3 +459,54 @@ class ReconApp(App):
 
     def action_help(self) -> None:
         self.notify("Q=Quit  ?=Help", title="Keybinds")
+
+
+def _description_to_schema(description: str) -> dict:
+    """Parse a freeform description into a minimal schema dict.
+
+    Extracts company_name (first capitalized phrase or first sentence
+    subject), domain (the space described), and products (anything
+    that looks like a product mention). Returns a schema with
+    default sections — the Template screen (Phase 2.3) will refine
+    these later via LLM.
+    """
+    import re
+
+    words = description.strip().split()
+    company_name = ""
+    domain = description.strip()
+    products: list[str] = []
+
+    # Heuristic: first 1-3 capitalized words are likely the company name
+    caps: list[str] = []
+    for word in words:
+        cleaned = re.sub(r"[^a-zA-Z0-9]", "", word)
+        if cleaned and cleaned[0].isupper():
+            caps.append(word.rstrip(".,;:"))
+        else:
+            break
+    if caps:
+        company_name = " ".join(caps)
+
+    # Heuristic: text after "in" or "competing in" is the domain
+    domain_match = re.search(
+        r"(?:competing\s+in|in\s+(?:the\s+)?|for\s+(?:the\s+)?)"
+        r"([^.]+?)(?:\.|$)",
+        description,
+        re.IGNORECASE,
+    )
+    if domain_match:
+        domain = domain_match.group(1).strip()
+
+    if not company_name:
+        company_name = words[0] if words else "My Company"
+
+    from recon.workspace import _make_default_schema
+
+    schema = _make_default_schema(
+        company_name=company_name,
+        products=products,
+        domain=domain,
+    )
+
+    return schema
