@@ -56,12 +56,14 @@ class DiscoveryScreen(ReconScreen):
         height: auto;
         margin: 1 0 0 0;
     }
-    .discovery-actions {
+    #discovery-actions {
+        dock: bottom;
         height: 3;
-        margin: 1 0;
+        padding: 0 2;
         layout: horizontal;
+        background: #1a1a1a;
     }
-    .discovery-actions Button {
+    #discovery-actions Button {
         height: 3;
         min-width: 0;
         margin: 0 1 0 0;
@@ -196,20 +198,19 @@ class DiscoveryScreen(ReconScreen):
             yield self._build_search_progress()
             yield self._build_summary()
 
-            # Action buttons — visible, near the content
-            with Horizontal(classes="discovery-actions"):
-                yield Button(
-                    "Done — proceed to next step",
-                    id="btn-done", variant="primary",
-                )
-                yield Button("Search More", id="btn-search-more")
-                yield Button("Add Manually", id="btn-add-manual")
-                yield Button("Accept All", id="btn-accept-all")
-                yield Button("Reject All", id="btn-reject-all")
-
             with Vertical(id="discovery-candidates"):
                 yield from self._build_candidate_list()
             yield from self._build_roster_summary()
+
+        with Horizontal(id="discovery-actions"):
+            yield Button(
+                "Done — proceed to next step",
+                id="btn-done", variant="primary",
+            )
+            yield Button("Search More", id="btn-search-more")
+            yield Button("Add Manually", id="btn-add-manual")
+            yield Button("Accept All", id="btn-accept-all")
+            yield Button("Reject All", id="btn-reject-all")
 
     def _build_search_progress(self) -> Static:
         if self._is_searching:

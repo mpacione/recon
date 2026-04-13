@@ -42,16 +42,17 @@ class TemplateScreen(ReconScreen):
     }
     #template-container {
         width: 100%;
-        height: auto;
         padding: 1 2;
         overflow-y: auto;
     }
-    .button-row {
+    #template-actions {
+        dock: bottom;
         height: 3;
-        margin: 1 0 0 0;
+        padding: 0 2;
         layout: horizontal;
+        background: #1a1a1a;
     }
-    .button-row Button {
+    #template-actions Button {
         margin: 0 1 0 0;
     }
     """
@@ -94,10 +95,10 @@ class TemplateScreen(ReconScreen):
                 placeholder="Describe a custom section...",
                 id="custom-section-input",
             )
-            yield Static("")
-            with Horizontal(classes="button-row"):
-                yield Button("Proceed", id="btn-proceed", variant="primary")
-                yield Button("Back", id="btn-back")
+
+        with Horizontal(id="template-actions"):
+            yield Button("Proceed", id="btn-proceed", variant="primary")
+            yield Button("Back", id="btn-back")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""

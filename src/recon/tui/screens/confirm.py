@@ -63,12 +63,14 @@ class ConfirmScreen(ReconScreen):
         background: #1d1d1d;
         color: #e0a044;
     }
-    .confirm-actions {
+    #confirm-actions {
+        dock: bottom;
         height: 3;
-        margin: 1 0 0 0;
+        padding: 0 2;
         layout: horizontal;
+        background: #1a1a1a;
     }
-    .confirm-actions Button {
+    #confirm-actions Button {
         margin: 0 1 0 0;
     }
     .worker-row {
@@ -128,14 +130,14 @@ class ConfirmScreen(ReconScreen):
                     id="worker-count",
                 )
                 yield Button("+", id="btn-more-workers")
-            yield Static("")
-            with Horizontal(classes="confirm-actions"):
-                yield Button(
-                    "Start Research",
-                    id="btn-start",
-                    variant="primary",
-                )
-                yield Button("Back", id="btn-back")
+
+        with Horizontal(id="confirm-actions"):
+            yield Button(
+                "Start Research",
+                id="btn-start",
+                variant="primary",
+            )
+            yield Button("Back", id="btn-back")
 
     def _render_cost_breakdown(self) -> str:
         pricing = get_model_pricing(self._current_model_name)
