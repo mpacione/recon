@@ -419,7 +419,16 @@ class ReconApp(App):
         self.push_screen(screen, self._handle_v2_discovery_result)
 
     def _wire_discovery_search(self, screen, domain: str) -> None:  # noqa: ANN001
-        """Wire the LLM search function into the discovery screen."""
+        """Wire the best available search backend into the discovery screen.
+
+        Priority:
+        1. Gemini with Google Search grounding (if Google AI key available)
+        2. Anthropic with web_search tool (if Anthropic key available)
+        3. No search (manual add only)
+
+        Gemini is preferred because Google Search grounding produces
+        better competitor discovery results than Anthropic's web_search.
+        """
         import os
 
         from recon.api_keys import load_api_keys
@@ -428,8 +437,28 @@ class ReconApp(App):
             return
 
         keys = load_api_keys(workspace_root=self._workspace_path)
+
+        # Try Gemini first
+        google_key = keys.get("google_ai")
+        if google_key:
+            try:
+                from recon.gemini_discovery import GeminiDiscoveryAgent
+
+                agent = GeminiDiscoveryAgent(api_key=google_key, domain=domain)
+
+                async def gemini_search(state):  # noqa: ANN001
+                    return await agent.search(state)
+
+                screen.set_search_fn(gemini_search)
+                _log.info("discovery wired to Gemini + Google Search grounding")
+                return
+            except Exception:
+                _log.exception("failed to wire Gemini discovery, falling back")
+
+        # Fall back to Anthropic
         api_key = keys.get("anthropic") or os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
+            _log.warning("no API keys available for discovery search")
             return
 
         from recon.client_factory import create_llm_client
@@ -439,10 +468,11 @@ class ReconApp(App):
         client = create_llm_client()
         agent = DiscoveryAgent(llm_client=client, domain=domain)
 
-        async def search_fn(state):  # noqa: ANN001
+        async def anthropic_search(state):  # noqa: ANN001
             return await agent.search(state)
 
-        screen.set_search_fn(search_fn)
+        screen.set_search_fn(anthropic_search)
+        _log.info("discovery wired to Anthropic + web_search")
 
     def _handle_v2_discovery_result(self, result: object | None) -> None:
         """After discovery, create profiles and push template screen."""
