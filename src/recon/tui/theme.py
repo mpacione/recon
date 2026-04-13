@@ -21,6 +21,11 @@ RECON_CSS = """
 Screen {
     background: #000000;
     color: #efe5c0;
+    scrollbar-background: #1a1a1a;
+    scrollbar-color: #3a3a3a;
+    scrollbar-color-hover: #e0a044;
+    scrollbar-color-active: #e0a044;
+    scrollbar-size-vertical: 1;
 }
 
 Header {

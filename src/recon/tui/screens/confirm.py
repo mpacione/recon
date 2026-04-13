@@ -10,12 +10,12 @@ from dataclasses import dataclass
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.screen import ModalScreen
-from textual.widgets import Static
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Button, Static
 
 from recon.cost import estimate_full_run, get_model_pricing, list_available_models
 from recon.logging import get_logger
+from recon.tui.shell import ReconScreen
 
 _log = get_logger(__name__)
 
@@ -26,28 +26,57 @@ class ConfirmResult:
     workers: int
 
 
-class ConfirmScreen(ModalScreen[ConfirmResult]):
-    """Cost confirmation with model choice and worker count."""
+class ConfirmScreen(ReconScreen):
+    """Full-screen cost confirmation with model choice and worker count."""
 
     BINDINGS = [
         Binding("escape", "cancel", "Back", show=False),
-        Binding("enter", "submit", "Start", show=False, priority=True),
-        Binding("up", "prev_model", "Previous model", show=False),
-        Binding("down", "next_model", "Next model", show=False),
-        Binding("left", "fewer_workers", "Fewer workers", show=False),
-        Binding("right", "more_workers", "More workers", show=False),
     ]
+
+    keybind_hints = "[#e0a044]esc[/] back"
 
     DEFAULT_CSS = """
     ConfirmScreen {
-        align: center middle;
+        background: #000000;
     }
     #confirm-container {
-        width: 75;
-        max-height: 30;
-        background: #1d1d1d;
-        border: round #3a3a3a;
+        width: 100%;
+        height: auto;
         padding: 1 2;
+    }
+    .model-btn {
+        height: 3;
+        width: 100%;
+        background: transparent;
+        color: #a89984;
+        border: none;
+        text-align: left;
+        padding: 0 1;
+        min-width: 0;
+    }
+    .model-btn:hover {
+        background: #1d1d1d;
+        color: #efe5c0;
+    }
+    .model-btn:focus {
+        background: #1d1d1d;
+        color: #e0a044;
+    }
+    .confirm-actions {
+        height: 3;
+        margin: 1 0 0 0;
+        layout: horizontal;
+    }
+    .confirm-actions Button {
+        margin: 0 1 0 0;
+    }
+    .worker-row {
+        height: 3;
+        layout: horizontal;
+    }
+    .worker-row Button {
+        min-width: 5;
+        margin: 0 1 0 0;
     }
     """
 
@@ -74,76 +103,124 @@ class ConfirmScreen(ModalScreen[ConfirmResult]):
     def _current_model_name(self) -> str:
         return str(self._model_names[self._selected_model])
 
-    def compose(self) -> ComposeResult:
+    def compose_body(self) -> ComposeResult:
         with Vertical(id="confirm-container"):
-            yield Static(self._render_content(), id="confirm-body")
+            yield Static(self._render_cost_breakdown(), id="cost-breakdown")
+            yield Static("")
+            yield Static("[bold #e0a044]── MODEL ──[/]")
+            yield Static("")
+            for i, model in enumerate(self._models):
+                yield Button(
+                    self._model_label(i),
+                    id=f"btn-model-{i}",
+                    classes="model-btn",
+                )
+            yield Static("")
+            yield Static("[bold #e0a044]── WORKERS ──[/]")
+            with Horizontal(classes="worker-row"):
+                yield Button("-", id="btn-fewer-workers")
+                yield Static(
+                    f"  [#e0a044]{self._workers}[/]  ",
+                    id="worker-count",
+                )
+                yield Button("+", id="btn-more-workers")
+            yield Static("")
+            with Horizontal(classes="confirm-actions"):
+                yield Button(
+                    "Start Research",
+                    id="btn-start",
+                    variant="primary",
+                )
+                yield Button("Back", id="btn-back")
 
-    def _render_content(self) -> str:
-        model_name = self._current_model_name
-        pricing = get_model_pricing(model_name)
-
+    def _render_cost_breakdown(self) -> str:
+        pricing = get_model_pricing(self._current_model_name)
         total = estimate_full_run(
             pricing=pricing,
             section_count=self._section_count,
             competitor_count=self._competitor_count,
         )
-
         section_calls = self._section_count * self._competitor_count
         research_cost = pricing.calculate_cost(2000, 800) * section_calls
         enrich_cost = pricing.calculate_cost(2000, 800) * self._competitor_count * 3
         themes_cost = pricing.calculate_cost(3000, 1500) * 5
         summary_cost = pricing.calculate_cost(3000, 1500) * 6
 
-        lines = [
-            "[bold #e0a044]── READY TO RESEARCH ──[/]",
-            "",
+        return (
+            f"[bold #e0a044]── READY TO RESEARCH ──[/]\n\n"
             f"[#efe5c0]This will research {self._competitor_count} competitors "
-            f"across {self._section_count} sections each.[/]",
-            "",
+            f"across {self._section_count} sections each.[/]\n\n"
             f"  [#a89984]Research:[/]     [#efe5c0]{section_calls} section calls[/]"
-            f"          [#e0a044]~${research_cost:.2f}[/]",
+            f"          [#e0a044]~${research_cost:.2f}[/]\n"
             f"  [#a89984]Enrichment:[/]   [#efe5c0]{self._competitor_count} profiles x 3 passes[/]"
-            f"    [#e0a044]~${enrich_cost:.2f}[/]",
+            f"    [#e0a044]~${enrich_cost:.2f}[/]\n"
             f"  [#a89984]Themes:[/]       [#efe5c0]5 themes[/]"
-            f"                  [#e0a044]~${themes_cost:.2f}[/]",
+            f"                  [#e0a044]~${themes_cost:.2f}[/]\n"
             f"  [#a89984]Summaries:[/]    [#efe5c0]5 themes + 1 executive[/]"
-            f"    [#e0a044]~${summary_cost:.2f}[/]",
-            f"                                     {'─' * 14}",
+            f"    [#e0a044]~${summary_cost:.2f}[/]\n"
+            f"                                     {'─' * 14}\n"
             f"  [#efe5c0]Estimated total:[/]"
-            f"                    [bold #e0a044]~${total:.2f}[/]",
-            "",
-            "[bold #e0a044]── MODEL ──[/]",
-            "",
-        ]
+            f"                    [bold #e0a044]~${total:.2f}[/]"
+        )
 
-        for i, model in enumerate(self._models):
-            marker = "●" if i == self._selected_model else "○"
-            name = str(model["name"]).capitalize()
-            inp = model["input_price_per_million"]
-            out = model["output_price_per_million"]
-            model_total = estimate_full_run(
-                pricing=get_model_pricing(str(model["name"])),
-                section_count=self._section_count,
-                competitor_count=self._competitor_count,
+    def _model_label(self, index: int) -> str:
+        model = self._models[index]
+        marker = "●" if index == self._selected_model else "○"
+        name = str(model["name"]).capitalize()
+        inp = model["input_price_per_million"]
+        out = model["output_price_per_million"]
+        model_total = estimate_full_run(
+            pricing=get_model_pricing(str(model["name"])),
+            section_count=self._section_count,
+            competitor_count=self._competitor_count,
+        )
+        desc = str(model.get("description", ""))
+        return f"{marker} {name:8s}  ${inp}/{out} per M tokens  ~${model_total:.2f}  {desc}"
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        if button_id == "btn-start":
+            self.action_submit()
+        elif button_id == "btn-back":
+            self.action_cancel()
+        elif button_id == "btn-fewer-workers":
+            self._workers = max(1, self._workers - 1)
+            self._refresh_workers()
+        elif button_id == "btn-more-workers":
+            self._workers = min(20, self._workers + 1)
+            self._refresh_workers()
+        elif button_id.startswith("btn-model-"):
+            try:
+                index = int(button_id.removeprefix("btn-model-"))
+                self._selected_model = index
+                self._refresh_models()
+                self._refresh_cost()
+            except ValueError:
+                pass
+
+    def _refresh_models(self) -> None:
+        for i in range(len(self._models)):
+            try:
+                btn = self.query_one(f"#btn-model-{i}", Button)
+                btn.label = self._model_label(i)
+            except Exception:
+                pass
+
+    def _refresh_workers(self) -> None:
+        try:
+            self.query_one("#worker-count", Static).update(
+                f"  [#e0a044]{self._workers}[/]  "
             )
-            desc = str(model.get("description", ""))
-            selected_color = "#efe5c0" if i == self._selected_model else "#a89984"
-            lines.append(
-                f"  [{selected_color}]{marker} {name:8s}  "
-                f"${inp}/{out} per M tokens  "
-                f"~${model_total:.2f}  {desc}[/]"
+        except Exception:
+            pass
+
+    def _refresh_cost(self) -> None:
+        try:
+            self.query_one("#cost-breakdown", Static).update(
+                self._render_cost_breakdown()
             )
-
-        lines.extend([
-            "",
-            f"[#a89984]Workers:[/] [#e0a044][{self._workers}][/]  "
-            f"[#3a3a3a]← → to adjust[/]",
-            "",
-            "[#a89984]enter[/] [#e0a044]start research[/] · "
-            "[#a89984]esc[/] [#e0a044]go back[/]",
-        ])
-
-        return "\n".join(lines)
+        except Exception:
+            pass
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -154,25 +231,3 @@ class ConfirmScreen(ModalScreen[ConfirmResult]):
             workers=self._workers,
         ))
 
-    def action_prev_model(self) -> None:
-        self._selected_model = (self._selected_model - 1) % len(self._models)
-        self._refresh()
-
-    def action_next_model(self) -> None:
-        self._selected_model = (self._selected_model + 1) % len(self._models)
-        self._refresh()
-
-    def action_fewer_workers(self) -> None:
-        self._workers = max(1, self._workers - 1)
-        self._refresh()
-
-    def action_more_workers(self) -> None:
-        self._workers = min(20, self._workers + 1)
-        self._refresh()
-
-    def _refresh(self) -> None:
-        try:
-            body = self.query_one("#confirm-body", Static)
-            body.update(self._render_content())
-        except Exception:
-            pass

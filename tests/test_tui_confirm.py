@@ -44,12 +44,14 @@ class TestConfirmScreen:
             assert "Research" in all_text or "research" in all_text
 
     async def test_shows_model_options(self) -> None:
+        from textual.widgets import Button
+
         app = _ConfirmTestApp()
         async with app.run_test(size=(100, 40)) as pilot:
             await pilot.pause()
-            statics = app.screen.query(Static)
-            all_text = " ".join(str(s.render()) for s in statics)
-            assert "Sonnet" in all_text or "sonnet" in all_text
+            buttons = app.screen.query(Button)
+            all_labels = " ".join(str(b.label) for b in buttons)
+            assert "Sonnet" in all_labels or "sonnet" in all_labels
 
     async def test_result_contains_model_and_workers(self) -> None:
         from recon.tui.screens.confirm import ConfirmResult, ConfirmScreen

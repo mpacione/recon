@@ -56,6 +56,9 @@ _LEFT_COL_WIDTH = 32
 _WORKER_ACTIVITY_LINES = 3
 
 
+_SPINNER_FRAMES = ["|", "/", "-", "\\"]
+
+
 @dataclass
 class WorkerCard:
     """Tracks one active worker's current task and recent activity."""
@@ -66,6 +69,14 @@ class WorkerCard:
     cost: float = 0.0
     activity: list[str] = field(default_factory=list)
     idle: bool = True
+    started_at: float = 0.0
+
+    @property
+    def elapsed_str(self) -> str:
+        if self.idle or self.started_at == 0.0:
+            return ""
+        seconds = int(time.monotonic() - self.started_at)
+        return f"{seconds}s"
 
     def add_activity(self, line: str) -> None:
         self.activity.append(line)
@@ -202,7 +213,8 @@ class StageMonitor(Static):
                 w.competitor = competitor
                 w.task = task
                 w.cost = 0.0
-                w.activity = [f"Starting {task}..."]
+                w.started_at = time.monotonic()
+                w.activity = [f"Calling API..."]
                 return
 
     def _release_worker(self, competitor: str, task: str) -> None:
@@ -289,19 +301,29 @@ class StageMonitor(Static):
         lines: list[str] = []
         lines.append("[#a89984]WORKERS[/]")
 
+        # Spinner frame for active workers (ticks with the 1s interval)
+        spinner_idx = int(time.monotonic() * 4) % len(_SPINNER_FRAMES)
+        frame = _SPINNER_FRAMES[spinner_idx]
+
         for w in self._workers:
             if w.idle:
                 lines.append(
                     f"[#3a3a3a]\\[W{w.worker_id}] idle[/]"
                 )
             else:
+                elapsed = w.elapsed_str
                 lines.append(
                     f"[#e0a044]\\[W{w.worker_id}][/] "
                     f"[#efe5c0]{w.competitor}[/] [#3a3a3a]·[/] "
-                    f"[#a89984]{w.task}[/]"
+                    f"[#a89984]{w.task}[/]  "
+                    f"[#3a3a3a]{elapsed}[/]"
                 )
-                for activity_line in w.activity[-2:]:
-                    lines.append(f"  [#3a3a3a]{activity_line}[/]")
+                # Show last activity line + spinner
+                if w.activity:
+                    last = w.activity[-1]
+                    lines.append(
+                        f"  [#3a3a3a]{last}[/]  [#e0a044]{frame}[/]"
+                    )
 
         return lines
 

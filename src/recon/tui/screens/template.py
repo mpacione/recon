@@ -13,10 +13,10 @@ from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Static
 
 from recon.logging import get_logger
+from recon.tui.shell import ReconScreen
 
 _log = get_logger(__name__)
 
@@ -26,22 +26,22 @@ class TemplateResult:
     sections: list[dict[str, Any]]
 
 
-class TemplateScreen(ModalScreen[TemplateResult]):
-    """Research template with toggleable sections and custom prompt."""
+class TemplateScreen(ReconScreen):
+    """Full-screen research template with toggleable sections."""
 
     BINDINGS = [
         Binding("escape", "cancel", "Back", show=False),
     ]
 
+    keybind_hints = "[#e0a044]esc[/] back"
+
     DEFAULT_CSS = """
     TemplateScreen {
-        align: center middle;
+        background: #000000;
     }
     #template-container {
-        width: 85;
-        max-height: 38;
-        background: #1d1d1d;
-        border: round #3a3a3a;
+        width: 100%;
+        height: auto;
         padding: 1 2;
         overflow-y: auto;
     }
@@ -78,7 +78,7 @@ class TemplateScreen(ModalScreen[TemplateResult]):
         self._sections = [dict(s) for s in sections]
         self._domain = domain
 
-    def compose(self) -> ComposeResult:
+    def compose_body(self) -> ComposeResult:
         with Vertical(id="template-container"):
             yield Static(
                 "[bold #e0a044]── RESEARCH TEMPLATE ──[/]\n\n"
