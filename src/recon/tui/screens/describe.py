@@ -1,8 +1,8 @@
 """DescribeScreen for recon TUI (Screen 2).
 
-Single freeform description field + API key status. Replaces the
-4-step wizard. The user describes their company or space in 1-2
-sentences and the system parses out structured fields.
+Single freeform description field + API key management. Replaces the
+4-step wizard. Uses buttons and tab navigation so keybinds don't
+conflict with text input.
 """
 
 from __future__ import annotations
@@ -12,9 +12,9 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Input, Static, TextArea
+from textual.widgets import Button, Input, Static, TextArea
 
 from recon.api_keys import load_api_keys, mask_api_key, save_api_key
 from recon.logging import get_logger
@@ -30,11 +30,14 @@ class DescribeResult:
 
 
 class DescribeScreen(ModalScreen[DescribeResult]):
-    """Single-screen project setup. Replaces the 4-step wizard."""
+    """Single-screen project setup. Replaces the 4-step wizard.
+
+    Uses buttons + tab navigation. No single-letter keybinds since
+    the screen has text input fields.
+    """
 
     BINDINGS = [
         Binding("escape", "cancel", "Back", show=False),
-        Binding("enter", "submit", "Continue", show=False, priority=True),
     ]
 
     DEFAULT_CSS = """
@@ -43,10 +46,11 @@ class DescribeScreen(ModalScreen[DescribeResult]):
     }
     #describe-container {
         width: 80;
-        max-height: 30;
+        max-height: 38;
         background: #1d1d1d;
         border: round #3a3a3a;
         padding: 1 2;
+        overflow-y: auto;
     }
     #describe-area {
         height: 4;
@@ -60,17 +64,27 @@ class DescribeScreen(ModalScreen[DescribeResult]):
         height: 1;
         margin: 0 0;
     }
+    .api-key-input {
+        height: 3;
+        margin: 0 0;
+    }
+    .button-row {
+        height: 3;
+        margin: 1 0 0 0;
+        layout: horizontal;
+    }
+    .button-row Button {
+        margin: 0 1 0 0;
+    }
     """
 
     def __init__(self, output_dir: Path) -> None:
         super().__init__()
         self._output_dir = output_dir
+        self._editing_keys = False
 
     def compose(self) -> ComposeResult:
         keys = load_api_keys(workspace_root=self._output_dir)
-
-        anthropic_status = self._key_status("anthropic", keys)
-        google_status = self._key_status("google_ai", keys)
 
         with Vertical(id="describe-container"):
             yield Static(
@@ -83,30 +97,117 @@ class DescribeScreen(ModalScreen[DescribeResult]):
             yield Static("")
             yield Static(
                 "[bold #e0a044]── API KEYS ──[/] "
-                "[#a89984]stored in .env (persists across sessions)[/]"
+                "[#a89984]stored in .env (persists across sessions)[/]",
+                id="api-keys-header",
             )
             yield Static("")
+
+            # API key status (non-editing state)
             yield Static(
-                f"  [#a89984]Anthropic[/]   {anthropic_status}",
-                classes="api-key-row",
-            )
-            yield Static(
-                f"  [#a89984]Google AI[/]   {google_status}",
-                classes="api-key-row",
-            )
-            yield Static("")
-            yield Static(
-                "[#a89984]enter[/] [#e0a044]continue[/] · "
-                "[#a89984]a[/] [#e0a044]edit API keys[/] · "
-                "[#a89984]esc[/] [#e0a044]back[/]",
+                self._render_key_status(keys),
+                id="api-key-status",
             )
 
-    def _key_status(self, key_name: str, keys: dict[str, str]) -> str:
-        value = keys.get(key_name)
+            # API key edit fields (hidden initially)
+            yield Input(
+                placeholder="Anthropic API key (sk-ant-...)",
+                id="input-anthropic-key",
+                password=True,
+                classes="api-key-input",
+            )
+            yield Input(
+                placeholder="Google AI API key (optional)",
+                id="input-google-key",
+                password=True,
+                classes="api-key-input",
+            )
+
+            yield Static("")
+            with Horizontal(classes="button-row"):
+                yield Button("Continue", id="btn-continue", variant="primary")
+                yield Button("Edit API Keys", id="btn-edit-keys")
+                yield Button("Back", id="btn-back")
+
+    def on_mount(self) -> None:
+        # Hide key inputs initially, show status
+        self._set_key_edit_mode(False)
+        # Pre-fill key inputs if keys already saved
+        keys = load_api_keys(workspace_root=self._output_dir)
+        if keys.get("anthropic"):
+            try:
+                self.query_one("#input-anthropic-key", Input).value = keys["anthropic"]
+            except Exception:
+                pass
+        if keys.get("google_ai"):
+            try:
+                self.query_one("#input-google-key", Input).value = keys["google_ai"]
+            except Exception:
+                pass
+
+    def _render_key_status(self, keys: dict[str, str]) -> str:
+        anthropic = self._key_line("Anthropic", keys.get("anthropic"))
+        google = self._key_line("Google AI", keys.get("google_ai"))
+        return f"{anthropic}\n{google}"
+
+    def _key_line(self, label: str, value: str | None) -> str:
         if value:
             masked = mask_api_key(value)
-            return f"[#efe5c0]{masked}[/]  [#98971a]\\u2713  saved[/]"
-        return "[#3a3a3a]·······························[/]  [#a89984]not set[/]"
+            return f"  [#a89984]{label:12s}[/] [#efe5c0]{masked}[/]  [#98971a]saved[/]"
+        return f"  [#a89984]{label:12s}[/] [#3a3a3a]{'·' * 25}[/]  [#a89984]not set[/]"
+
+    def _set_key_edit_mode(self, editing: bool) -> None:
+        self._editing_keys = editing
+        try:
+            status = self.query_one("#api-key-status", Static)
+            anthropic_input = self.query_one("#input-anthropic-key", Input)
+            google_input = self.query_one("#input-google-key", Input)
+            edit_btn = self.query_one("#btn-edit-keys", Button)
+
+            status.display = not editing
+            anthropic_input.display = editing
+            google_input.display = editing
+            edit_btn.label = "Save Keys" if editing else "Edit API Keys"
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        if button_id == "btn-continue":
+            self.action_submit()
+        elif button_id == "btn-edit-keys":
+            if self._editing_keys:
+                self._save_keys()
+                self._set_key_edit_mode(False)
+            else:
+                self._set_key_edit_mode(True)
+                try:
+                    self.query_one("#input-anthropic-key", Input).focus()
+                except Exception:
+                    pass
+        elif button_id == "btn-back":
+            self.action_cancel()
+
+    def _save_keys(self) -> None:
+        try:
+            anthropic_val = self.query_one("#input-anthropic-key", Input).value.strip()
+            google_val = self.query_one("#input-google-key", Input).value.strip()
+
+            self._output_dir.mkdir(parents=True, exist_ok=True)
+
+            if anthropic_val:
+                save_api_key("anthropic", anthropic_val, workspace_root=self._output_dir)
+            if google_val:
+                save_api_key("google_ai", google_val, workspace_root=self._output_dir)
+
+            # Refresh status display
+            keys = load_api_keys(workspace_root=self._output_dir)
+            self.query_one("#api-key-status", Static).update(
+                self._render_key_status(keys)
+            )
+            self.app.notify("API keys saved", severity="information")
+        except Exception as exc:
+            _log.exception("failed to save API keys")
+            self.app.notify(f"Failed to save keys: {exc}", severity="error")
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -121,6 +222,10 @@ class DescribeScreen(ModalScreen[DescribeResult]):
         if not description:
             self.app.notify("Please describe your space first.", severity="warning")
             return
+
+        # Save any pending key edits
+        if self._editing_keys:
+            self._save_keys()
 
         keys = load_api_keys(workspace_root=self._output_dir)
 

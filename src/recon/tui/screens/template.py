@@ -9,11 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Input, Static
+from textual.widgets import Button, Input, Static
 
 from recon.logging import get_logger
 
@@ -30,7 +31,6 @@ class TemplateScreen(ModalScreen[TemplateResult]):
 
     BINDINGS = [
         Binding("escape", "cancel", "Back", show=False),
-        Binding("enter", "submit", "Proceed", show=False, priority=True),
         Binding("space", "toggle_current", "Toggle", show=False),
         Binding("up", "cursor_up", "Up", show=False),
         Binding("down", "cursor_down", "Down", show=False),
@@ -42,7 +42,7 @@ class TemplateScreen(ModalScreen[TemplateResult]):
     }
     #template-container {
         width: 85;
-        max-height: 35;
+        max-height: 38;
         background: #1d1d1d;
         border: round #3a3a3a;
         padding: 1 2;
@@ -50,6 +50,14 @@ class TemplateScreen(ModalScreen[TemplateResult]):
     }
     .section-row {
         height: 1;
+    }
+    .button-row {
+        height: 3;
+        margin: 1 0 0 0;
+        layout: horizontal;
+    }
+    .button-row Button {
+        margin: 0 1 0 0;
     }
     .section-row-selected {
         height: 1;
@@ -101,12 +109,32 @@ class TemplateScreen(ModalScreen[TemplateResult]):
                 id="custom-section-input",
             )
             yield Static("")
+            with Horizontal(classes="button-row"):
+                yield Button("Proceed", id="btn-proceed", variant="primary")
+                yield Button("Back", id="btn-back")
             yield Static(
-                "[#a89984]space[/] [#e0a044]toggle[/] · "
+                "[#a89984]space[/] [#e0a044]toggle sections[/] · "
                 "[#a89984]↑↓[/] [#e0a044]navigate[/] · "
-                "[#a89984]enter[/] [#e0a044]proceed[/] · "
-                "[#a89984]esc[/] [#e0a044]back[/]",
+                "[#a89984]enter in field[/] [#e0a044]add section[/]",
             )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        if button_id == "btn-proceed":
+            self.action_submit()
+        elif button_id == "btn-back":
+            self.action_cancel()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Enter in the custom section field adds the section."""
+        if event.input.id == "custom-section-input":
+            text = event.input.value.strip()
+            if text:
+                self._add_custom_section(text)
+                event.input.value = ""
+                self.app.notify(f"Added section", severity="information")
+                # Recompose to show the new section
+                self._schedule_recompose()
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -169,3 +197,7 @@ class TemplateScreen(ModalScreen[TemplateResult]):
             "selected": True,
         })
         _log.info("added custom section key=%s title=%s", key, title)
+
+    @work
+    async def _schedule_recompose(self) -> None:
+        await self.recompose()
