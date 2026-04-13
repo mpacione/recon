@@ -25,7 +25,7 @@ _log = get_logger(__name__)
 
 SearchFn = Callable[[DiscoveryState | None], Coroutine[Any, Any, list[DiscoveryCandidate]]]
 
-_SPINNER_FRAMES = ["|", "/", "-", "\\"]
+_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 
 class DiscoveryScreen(ReconScreen):

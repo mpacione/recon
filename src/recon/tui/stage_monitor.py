@@ -56,7 +56,7 @@ _LEFT_COL_WIDTH = 32
 _WORKER_ACTIVITY_LINES = 3
 
 
-_SPINNER_FRAMES = ["|", "/", "-", "\\"]
+_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 
 @dataclass
