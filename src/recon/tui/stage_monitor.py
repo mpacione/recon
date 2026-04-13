@@ -277,7 +277,9 @@ class StageMonitor(Static):
         lines.append("[#a89984]COMPETITORS[/]")
 
         for cs in self._state.competitors.values():
-            name = cs.name[:24]
+            from recon.tui.widgets import truncate_name
+
+            name = truncate_name(cs.name, 24)
             frac = f"{cs.completed}/{cs.total}"
             pct = f"{cs.progress_fraction * 100:.0f}%"
 

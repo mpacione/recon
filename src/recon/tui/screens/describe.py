@@ -13,11 +13,11 @@ from pathlib import Path
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Static, TextArea
 
 from recon.api_keys import load_api_keys, mask_api_key, save_api_key
 from recon.logging import get_logger
+from recon.tui.shell import ReconScreen
 
 _log = get_logger(__name__)
 
@@ -29,8 +29,8 @@ class DescribeResult:
     api_keys: dict[str, str]
 
 
-class DescribeScreen(ModalScreen[DescribeResult]):
-    """Single-screen project setup. Replaces the 4-step wizard.
+class DescribeScreen(ReconScreen):
+    """Full-screen project setup. Replaces the 4-step wizard.
 
     Uses buttons + tab navigation. No single-letter keybinds since
     the screen has text input fields.
@@ -40,15 +40,19 @@ class DescribeScreen(ModalScreen[DescribeResult]):
         Binding("escape", "cancel", "Back", show=False),
     ]
 
+    show_log_pane = False
+    show_activity_feed = False
+    show_run_status_bar = False
+
+    keybind_hints = "[#e0a044]esc[/] back"
+
     DEFAULT_CSS = """
     DescribeScreen {
-        align: center middle;
+        background: #000000;
     }
     #describe-container {
-        width: 80;
-        max-height: 38;
-        background: #1d1d1d;
-        border: round #3a3a3a;
+        width: 100%;
+        height: auto;
         padding: 1 2;
         overflow-y: auto;
     }
@@ -83,7 +87,7 @@ class DescribeScreen(ModalScreen[DescribeResult]):
         self._output_dir = output_dir
         self._editing_keys = False
 
-    def compose(self) -> ComposeResult:
+    def compose_body(self) -> ComposeResult:
         keys = load_api_keys(workspace_root=self._output_dir)
 
         with Vertical(id="describe-container"):

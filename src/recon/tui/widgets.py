@@ -132,6 +132,26 @@ class RadioItem(Static):
         self.post_message(self.Selected(self._index))
 
 
+def truncate_name(name: str, max_width: int = 24) -> str:
+    """Truncate a competitor name smartly.
+
+    Drops parenthetical suffixes first ("Amazon Q Developer (formerly
+    CodeWhisperer)" → "Amazon Q Developer"), then truncates with
+    ellipsis if still too long.
+    """
+    import re
+
+    if len(name) <= max_width:
+        return name
+
+    # Drop parenthetical suffix first
+    short = re.sub(r"\s*\(.*\)\s*$", "", name)
+    if len(short) <= max_width:
+        return short
+
+    return short[: max_width - 1] + "\u2026"
+
+
 def humanize_path(path: Path | str, max_width: int = 64) -> str:
     """Render ``path`` as a short, terminal-friendly string.
 

@@ -75,11 +75,17 @@ class ConfirmScreen(ReconScreen):
     }
     .worker-row {
         height: 3;
+        width: 30;
         layout: horizontal;
     }
     .worker-row Button {
+        width: 5;
         min-width: 5;
-        margin: 0 1 0 0;
+        margin: 0 0 0 0;
+    }
+    #worker-count {
+        width: 5;
+        text-align: center;
     }
     """
 
