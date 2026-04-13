@@ -118,7 +118,7 @@ class DiscoveryScreen(ReconScreen):
             self._do_search()
 
         # Spinner tick during search
-        self.set_interval(0.15, self._spinner_tick, name="spinner")
+        self.set_interval(0.25, self._spinner_tick, name="spinner")
 
     def _spinner_tick(self) -> None:
         if self._is_searching:
@@ -133,7 +133,7 @@ class DiscoveryScreen(ReconScreen):
                 progress.update(
                     f"[bold #e0a044]── SEARCH ──[/] "
                     f"[#a89984]round {self._state.round_count + 1}[/]\n"
-                    f"[#e0a044]{frame}[/]  [#a89984]searching for competitors...[/]"
+                    f"[#a89984]searching for competitors...[/]  [#e0a044]{frame}[/]"
                 )
             elif self._state.round_count > 0:
                 progress.update(
@@ -213,7 +213,7 @@ class DiscoveryScreen(ReconScreen):
             return Static(
                 f"[bold #e0a044]── SEARCH ──[/] "
                 f"[#a89984]round {self._state.round_count + 1}[/]\n"
-                f"[#e0a044]{frame}[/]  [#a89984]searching for competitors...[/]",
+                f"[#a89984]searching for competitors...[/]  [#e0a044]{frame}[/]",
                 id="search-progress",
             )
         if self._state.round_count > 0:
