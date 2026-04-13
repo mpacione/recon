@@ -357,6 +357,7 @@ class DiscoveryScreen(ReconScreen):
 
         self._update_search_status()
         await self.recompose()
+        self._populate_table()
 
     def _refresh_display(self) -> None:
         try:
