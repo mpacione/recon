@@ -131,18 +131,10 @@ class DescribeScreen(ModalScreen[DescribeResult]):
     def on_mount(self) -> None:
         # Hide key inputs initially, show status
         self._set_key_edit_mode(False)
-        # Pre-fill key inputs if keys already saved
-        keys = load_api_keys(workspace_root=self._output_dir)
-        if keys.get("anthropic"):
-            try:
-                self.query_one("#input-anthropic-key", Input).value = keys["anthropic"]
-            except Exception:
-                pass
-        if keys.get("google_ai"):
-            try:
-                self.query_one("#input-google-key", Input).value = keys["google_ai"]
-            except Exception:
-                pass
+        # Do NOT pre-fill password inputs — loading masked keys into
+        # editable fields risks overwriting good keys with stale values.
+        # The status display shows whether keys are saved.
+        # When the user clicks Edit API Keys, they enter fresh values.
 
     def _render_key_status(self, keys: dict[str, str]) -> str:
         anthropic = self._key_line("Anthropic", keys.get("anthropic"))
@@ -223,10 +215,13 @@ class DescribeScreen(ModalScreen[DescribeResult]):
             self.app.notify("Please describe your space first.", severity="warning")
             return
 
-        # Save any pending key edits
+        # Only save keys if user explicitly edited them via the button
+        # Do NOT auto-save on Continue — prevents overwriting good keys
+        # with stale pre-filled values
         if self._editing_keys:
             self._save_keys()
 
+        # Load keys from disk (global + workspace), not from input fields
         keys = load_api_keys(workspace_root=self._output_dir)
 
         self.dismiss(
