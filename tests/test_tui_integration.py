@@ -72,7 +72,7 @@ class TestDashboardDiscoveryFlow:
                     suggested_tier=CompetitorTier.ESTABLISHED,
                 ),
             ])
-            app.screen.query_one("#btn-done", Button).press()
+            app.screen.action_done()
             await pilot.pause()
 
             ws_after = Workspace.open(tmp_workspace)
@@ -295,7 +295,7 @@ class TestPlannerAddNewFlow:
                         suggested_tier=CompetitorTier.ESTABLISHED,
                     ),
                 ])
-                app.screen.query_one("#btn-done", Button).press()
+                app.screen.action_done()
                 await pilot.pause()
                 await pilot.pause()
                 await pilot.pause()

@@ -14,8 +14,7 @@ from typing import Any
 from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
+from textual.containers import Vertical
 from textual.widgets import Button, DataTable, Input, Static
 
 from recon.discovery import DiscoveryCandidate, DiscoveryState  # noqa: TCH001
@@ -27,8 +26,13 @@ _log = get_logger(__name__)
 SearchFn = Callable[[DiscoveryState | None], Coroutine[Any, Any, list[DiscoveryCandidate]]]
 
 
-class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
-    """Interactive competitor discovery with accumulating roster."""
+class DiscoveryScreen(ReconScreen):
+    """Full-screen competitor discovery with accumulating roster.
+
+    v2: promoted from ModalScreen to ReconScreen so it gets the
+    persistent chrome (header bar, activity feed, keybind hints).
+    Uses dismiss() for the callback pattern with push_screen.
+    """
 
     BINDINGS = [
         Binding("up", "cursor_up", "Up", show=False),
@@ -44,16 +48,20 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         Binding("backspace", "remove_current", "Remove", show=False),
     ]
 
+    keybind_hints = (
+        "[#e0a044]space[/] toggle · [#e0a044]del[/] remove · "
+        "[#e0a044]s[/] search · [#e0a044]n[/] add · "
+        "[#e0a044]a[/] accept all · [#e0a044]enter[/] done"
+    )
+
     DEFAULT_CSS = """
     DiscoveryScreen {
-        align: center middle;
+        background: #000000;
     }
     #discovery-container {
-        width: 100;
+        width: 100%;
         height: auto;
-        max-height: 90%;
         padding: 1 2;
-        border: round #3a3a3a;
         background: #000000;
         overflow-y: auto;
     }
@@ -231,27 +239,38 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
     def action_add_manually(self) -> None:
         self._show_manual_inputs()
 
-    def compose(self) -> ComposeResult:
+    def compose_body(self) -> ComposeResult:
         with Vertical(id="discovery-container"):
             yield Static(
-                f"[bold #e0a044]── DISCOVERY ──[/] [#a89984]·[/] "
-                f"[#efe5c0]{self._domain}[/]",
+                f"[bold #e0a044]── COMPETITOR DISCOVERY ──[/] "
+                f"[#a89984]·[/] [#efe5c0]{self._domain}[/]",
                 id="discovery-title",
             )
+            yield self._build_search_progress()
             yield self._build_summary()
             with Vertical(id="discovery-candidates"):
                 yield from self._build_candidate_list()
             yield from self._build_roster_summary()
-            # Button labels go through Rich markup parsing, so any
-            # `[s]`/`[x]` pattern gets eaten as an unknown tag.
-            # Escape the open bracket with a backslash so the label
-            # renders as a literal key hint.
-            with Horizontal(classes="discovery-actions"):
-                yield Button("\\[↵] done", id="btn-done", variant="primary")
-                yield Button("\\[s] search more", id="btn-search-more")
-                yield Button("\\[n] add manually", id="btn-add-manual")
-                yield Button("\\[a] accept all", id="btn-accept-all")
-                yield Button("\\[x] reject all", id="btn-reject-all")
+
+    def _build_search_progress(self) -> Static:
+        """Render search progress above the candidates table."""
+        if self._is_searching:
+            return Static(
+                f"[bold #e0a044]── SEARCH ──[/] [#a89984]round {self._state.round_count + 1}[/]\n"
+                f"[#e0a044]████████████████████████████░░░░░░░░░░░░[/]  [#a89984]searching...[/]",
+                id="search-progress",
+            )
+        if self._state.round_count > 0:
+            return Static(
+                f"[bold #e0a044]── SEARCH ──[/] [#a89984]{self._state.round_count} rounds complete[/]\n"
+                f"[#a89984]Press [#e0a044]s[/] to search more[/]",
+                id="search-progress",
+            )
+        return Static(
+            "[bold #e0a044]── SEARCH ──[/]\n"
+            "[#a89984]Press [#e0a044]s[/] to start searching or [#e0a044]n[/] to add manually[/]",
+            id="search-progress",
+        )
 
     def _build_summary(self) -> Static:
         accepted = len(self._state.accepted_candidates)

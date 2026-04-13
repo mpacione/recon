@@ -89,7 +89,7 @@ class TestDiscoveryScreen:
         app = _DiscoveryTestApp(state=state)
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            app.screen.query_one("#btn-done", Button).press()
+            app.screen.action_done()
             await pilot.pause()
             assert app.dismissed_result is not None
             assert len(app.dismissed_result) == 2
@@ -101,19 +101,18 @@ class TestDiscoveryScreen:
             empty_msg = app.screen.query_one("#discovery-empty", Static)
             assert empty_msg is not None
 
-    async def test_has_search_more_button(self) -> None:
+    async def test_has_search_more_action(self) -> None:
         app = _DiscoveryTestApp(state=_make_state(_make_candidates(3)))
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            btn = app.screen.query_one("#btn-search-more", Button)
-            assert btn is not None
+            # v2: actions via keybinds, not buttons
+            assert hasattr(app.screen, "action_search_more")
 
-    async def test_has_add_manually_button(self) -> None:
+    async def test_has_add_manually_action(self) -> None:
         app = _DiscoveryTestApp(state=_make_state(_make_candidates(3)))
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
-            btn = app.screen.query_one("#btn-add-manual", Button)
-            assert btn is not None
+            assert hasattr(app.screen, "action_add_manually")
 
     async def test_add_manually_button_mounts_inputs_and_adds_candidate(self) -> None:
         from textual.widgets import Input
@@ -124,7 +123,7 @@ class TestDiscoveryScreen:
             await pilot.pause()
             initial_count = len(state.all_candidates)
 
-            app.screen.query_one("#btn-add-manual", Button).press()
+            app.screen.action_add_manually()
             await pilot.pause()
 
             # Both inputs should be visible now
@@ -157,7 +156,7 @@ class TestDiscoveryScreen:
             await pilot.pause()
             initial_count = len(state.all_candidates)
 
-            app.screen.query_one("#btn-add-manual", Button).press()
+            app.screen.action_add_manually()
             await pilot.pause()
 
             name_input = app.screen.query_one("#manual-name", Input)
@@ -226,7 +225,7 @@ class TestDiscoveryScreen:
             screen = app.screen
             assert isinstance(screen, DiscoveryScreen)
             screen.set_search_fn(mock_search)
-            app.screen.query_one("#btn-search-more", Button).press()
+            app.screen.action_search_more()
             await pilot.pause()
             await pilot.pause()
             assert len(state.all_candidates) == 3
