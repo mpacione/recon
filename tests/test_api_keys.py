@@ -122,6 +122,30 @@ class TestSaveApiKey:
         keys = load_api_keys(workspace_root=tmp_path)
         assert keys["anthropic"] == "sk-ant-new"
 
+    def test_saves_to_global_env_for_future_projects(self, tmp_path: Path) -> None:
+        from recon.api_keys import load_api_keys, save_api_key
+
+        workspace = tmp_path / "project1"
+        workspace.mkdir()
+        global_dir = tmp_path / "global"
+
+        save_api_key(
+            "anthropic", "sk-ant-global123",
+            workspace_root=workspace,
+            global_env_dir=global_dir,
+        )
+
+        # Key should be in workspace .env
+        keys_ws = load_api_keys(workspace_root=workspace)
+        assert keys_ws["anthropic"] == "sk-ant-global123"
+
+        # Key should ALSO be in global .env
+        assert (global_dir / ".env").exists()
+        new_project = tmp_path / "project2"
+        new_project.mkdir()
+        keys_new = load_api_keys(workspace_root=new_project, global_env_dir=global_dir)
+        assert keys_new["anthropic"] == "sk-ant-global123"
+
 
 class TestMaskApiKey:
     def test_masks_middle_of_key(self) -> None:

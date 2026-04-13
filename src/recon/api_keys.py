@@ -74,20 +74,33 @@ def save_api_key(
     key_name: str,
     key_value: str,
     workspace_root: Path,
+    global_env_dir: Path | None = None,
 ) -> None:
-    """Save an API key to the workspace .env file.
+    """Save an API key to BOTH workspace .env and global ~/.recon/.env.
 
-    Preserves existing keys. Creates the .env file if it doesn't exist.
+    Writing to both means the key is available for this project AND
+    automatically picked up by future new projects without re-entry.
+    Preserves existing keys. Creates .env files if they don't exist.
     """
     env_var = _REVERSE_KEY_MAP.get(key_name)
     if env_var is None:
         msg = f"Unknown key name: {key_name}. Must be one of: {list(_REVERSE_KEY_MAP)}"
         raise ValueError(msg)
 
-    env_path = workspace_root / ".env"
-    existing = _parse_env_file(env_path)
-    existing[env_var] = key_value
+    # Save to workspace .env
+    _write_key_to_env(env_var, key_value, workspace_root / ".env")
 
+    # Also save to global ~/.recon/.env for future projects
+    global_dir = global_env_dir or _DEFAULT_GLOBAL_DIR
+    global_dir.mkdir(parents=True, exist_ok=True)
+    _write_key_to_env(env_var, key_value, global_dir / ".env")
+
+
+def _write_key_to_env(env_var: str, value: str, env_path: Path) -> None:
+    """Write a single key to an .env file, preserving other keys."""
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = _parse_env_file(env_path)
+    existing[env_var] = value
     lines = [f"{k}={v}\n" for k, v in sorted(existing.items())]
     env_path.write_text("".join(lines))
 
