@@ -79,6 +79,10 @@ class DiscoveryScreen(ReconScreen):
     }
     """
 
+    show_log_pane = False
+    show_activity_feed = False
+    show_run_status_bar = False
+
     def __init__(self, state: DiscoveryState, domain: str) -> None:
         super().__init__()
         self._state = state

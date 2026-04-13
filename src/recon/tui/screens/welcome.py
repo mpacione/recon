@@ -177,6 +177,10 @@ class WelcomeScreen(ReconScreen):
         Binding("9", "open_recent(8)", "recent 9", show=False),
     ]
 
+    show_log_pane = False
+    show_activity_feed = False
+    show_run_status_bar = False
+
     keybind_hints = (
         "[#e0a044]n[/] new · [#e0a044]o[/] open · [#e0a044]1-9[/] recent · "
         "[#e0a044]q[/] quit · [#e0a044]?[/] help"

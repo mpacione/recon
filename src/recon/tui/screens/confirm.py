@@ -80,6 +80,10 @@ class ConfirmScreen(ReconScreen):
     }
     """
 
+    show_log_pane = False
+    show_activity_feed = False
+    show_run_status_bar = False
+
     def __init__(
         self,
         competitor_count: int,

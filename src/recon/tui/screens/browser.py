@@ -42,6 +42,10 @@ class CompetitorBrowserScreen(ReconScreen):
     }
     """
 
+    show_log_pane = False
+    show_activity_feed = False
+    show_run_status_bar = False
+
     BINDINGS = [
         Binding("b", "back", "back"),
         Binding("escape", "back", "back"),

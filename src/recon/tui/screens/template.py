@@ -73,6 +73,10 @@ class TemplateScreen(ReconScreen):
     }
     """
 
+    show_log_pane = False
+    show_activity_feed = False
+    show_run_status_bar = False
+
     def __init__(self, sections: list[dict[str, Any]], domain: str) -> None:
         super().__init__()
         self._sections = [dict(s) for s in sections]
