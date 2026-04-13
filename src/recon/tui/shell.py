@@ -559,6 +559,12 @@ class ReconScreen(Screen):
     ReconScreen {
         background: #000000;
     }
+    #flow-breadcrumb {
+        height: 1;
+        padding: 0 2;
+        background: #0d0d0d;
+        color: #a89984;
+    }
     #recon-body {
         height: 1fr;
         padding: 1 2;
@@ -573,10 +579,26 @@ class ReconScreen(Screen):
 
     keybind_hints: str = "[#a89984]q quit · ? help[/]"
 
+    # Flow step for breadcrumb. None = not part of the v2 flow.
+    flow_step: int | None = None
+
+    _FLOW_STEPS = [
+        ("describe", "Describe"),
+        ("discovery", "Discovery"),
+        ("template", "Template"),
+        ("confirm", "Confirm"),
+        ("run", "Run"),
+        ("results", "Results"),
+    ]
+
     def compose(self) -> ComposeResult:
         # Header is reactive: pulls live context from the app on mount
         ctx = self._current_workspace_context()
         yield ReconHeaderBar(ctx)
+
+        # Breadcrumb for v2 flow screens
+        if self.flow_step is not None:
+            yield Static(self._render_breadcrumb(), id="flow-breadcrumb")
 
         with Vertical(id="recon-body"):
             yield from self.compose_body()
@@ -598,6 +620,19 @@ class ReconScreen(Screen):
     def compose_body(self) -> ComposeResult:
         """Override in subclasses to render the screen's actual content."""
         yield Static("")
+
+    def _render_breadcrumb(self) -> str:
+        parts: list[str] = []
+        for i, (_key, label) in enumerate(self._FLOW_STEPS):
+            if i < self.flow_step:
+                parts.append(f"[#98971a]{label}[/]")
+            elif i == self.flow_step:
+                parts.append(f"[bold #e0a044]{label}[/]")
+            else:
+                parts.append(f"[#3a3a3a]{label}[/]")
+        step_num = (self.flow_step or 0) + 1
+        total = len(self._FLOW_STEPS)
+        return f"[#a89984]Step {step_num}/{total}[/]  " + " [#3a3a3a]→[/] ".join(parts)
 
     def _current_workspace_context(self) -> WorkspaceContext:
         ctx = getattr(self.app, "workspace_context", None)

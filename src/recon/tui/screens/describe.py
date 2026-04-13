@@ -43,6 +43,7 @@ class DescribeScreen(ReconScreen):
     show_log_pane = False
     show_activity_feed = False
     show_run_status_bar = False
+    flow_step = 0
 
     keybind_hints = "[#e0a044]esc[/] back"
 

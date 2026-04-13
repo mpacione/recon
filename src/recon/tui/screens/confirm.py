@@ -30,6 +30,8 @@ class ConfirmResult:
 class ConfirmScreen(ReconScreen):
     """Full-screen cost confirmation with model choice and worker count."""
 
+    flow_step = 3
+
     BINDINGS = [
         Binding("escape", "cancel", "Back", show=False),
     ]

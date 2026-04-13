@@ -31,6 +31,8 @@ PipelineFn = Callable[["RunScreen"], Coroutine[Any, Any, None]]
 class RunScreen(ReconScreen):
     """Live pipeline monitor with reactive state."""
 
+    flow_step = 4
+
     BINDINGS = [
         Binding("p", "pause", "pause/resume"),
         Binding("s", "stop", "stop"),

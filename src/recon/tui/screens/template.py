@@ -30,6 +30,8 @@ class TemplateResult:
 class TemplateScreen(ReconScreen):
     """Full-screen research template with toggleable sections."""
 
+    flow_step = 2
+
     BINDINGS = [
         Binding("escape", "cancel", "Back", show=False),
     ]

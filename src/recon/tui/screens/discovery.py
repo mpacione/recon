@@ -31,6 +31,8 @@ _SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇"
 class DiscoveryScreen(ReconScreen):
     """Full-screen competitor discovery with button-driven actions."""
 
+    flow_step = 1
+
     BINDINGS = [
         Binding("escape", "cancel", "Back", show=False),
     ]
