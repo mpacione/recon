@@ -20,12 +20,12 @@ class _RunTestApp(App):
 
 class TestRunScreen:
     async def test_mounts_with_monitor_heading(self) -> None:
-        from recon.tui.run_monitor import CompetitorGrid
+        from recon.tui.stage_monitor import StageMonitor
 
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)):
-            grid = app.query_one(CompetitorGrid)
-            content = str(grid.render())
+            monitor = app.query_one(StageMonitor)
+            content = str(monitor.render())
             assert "MONITOR" in content or "waiting" in content.lower()
 
     async def test_shows_idle_phase(self) -> None:

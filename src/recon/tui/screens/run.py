@@ -20,6 +20,7 @@ from textual.widgets import Static
 from recon.logging import get_logger
 from recon.tui.run_monitor import CompetitorGrid, WorkerPanel
 from recon.tui.shell import ReconScreen
+from recon.tui.stage_monitor import StageMonitor
 from recon.tui.widgets import format_progress_bar
 
 _log = get_logger(__name__)
@@ -58,6 +59,9 @@ class RunScreen(ReconScreen):
     #run-activity-section {
         height: auto;
         margin: 1 0;
+    }
+    .hidden-legacy {
+        display: none;
     }
     """
 
@@ -109,22 +113,21 @@ class RunScreen(ReconScreen):
 
 
     def compose_body(self) -> ComposeResult:
-        # Legacy phase/progress/cost Statics for backward compat with
-        # tests that query these by ID. The CompetitorGrid renders its
-        # own header with the same info, so these are supplementary.
-        yield Static(self._format_phase(), id="run-phase")
-        yield Static(self._format_progress(), id="run-progress")
-        yield Static(self._format_cost(), id="run-cost")
-        yield Static("")
-
-        # The new competitor grid — subscribes to the bus and renders
-        # per-competitor ASCII progress bars in real time.
-        self._grid = CompetitorGrid(
+        # v2: StageMonitor replaces the legacy phase/progress/cost
+        # statics and the CompetitorGrid+WorkerPanel combo with a
+        # two-column layout (competitor list + worker cards).
+        self._monitor = StageMonitor(
             competitor_names=self._competitor_names(),
             section_keys=self._section_keys(),
         )
-        yield self._grid
-        yield WorkerPanel(grid=self._grid)
+        yield self._monitor
+
+        # Legacy IDs kept as hidden placeholders so existing tests
+        # that query by ID don't crash. They're updated by watchers
+        # but not visible to the user.
+        yield Static(self._format_phase(), id="run-phase", classes="hidden-legacy")
+        yield Static(self._format_progress(), id="run-progress", classes="hidden-legacy")
+        yield Static(self._format_cost(), id="run-cost", classes="hidden-legacy")
 
     def _competitor_names(self) -> list[str]:
         """Pull competitor names from the workspace for grid init."""
