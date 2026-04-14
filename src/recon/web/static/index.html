@@ -85,9 +85,52 @@
   </template>
 
   <template id="screen-describe">
-    <section class="section">
+    <section class="section" x-data="describeScreen()" x-init="init()">
       <h2 class="section-divider">DESCRIBE YOUR SPACE</h2>
-      <p class="dim">Coming in Phase 5.</p>
+      <p class="dim">
+        Describe your company, product, or the competitive space you want to
+        research. A sentence or two is enough &mdash; we&rsquo;ll figure out the rest.
+      </p>
+
+      <form @submit.prevent="submit()" class="describe-form">
+        <label class="field">
+          <span class="field-label">Description</span>
+          <textarea
+            x-model="description"
+            x-ref="description"
+            rows="4"
+            placeholder="Bambu Lab makes consumer and prosumer 3D printers competing in desktop additive manufacturing"
+            required></textarea>
+        </label>
+
+        <fieldset class="api-keys">
+          <legend class="section-divider api-keys-legend">API KEYS</legend>
+          <p class="dim">Stored in <code>.env</code>, persists across sessions.</p>
+          <template x-for="provider in providers" :key="provider.name">
+            <label class="field field-row">
+              <span class="field-label" x-text="provider.label"></span>
+              <input
+                type="password"
+                x-model="provider.value"
+                :placeholder="provider.placeholder"
+                autocomplete="off">
+              <span class="field-status"
+                    :class="{ success: provider.saved, dim: !provider.saved }"
+                    x-text="provider.saved ? 'saved' : 'not set'"></span>
+            </label>
+          </template>
+        </fieldset>
+
+        <div class="actions">
+          <button type="submit" class="primary" :disabled="submitting">
+            <span x-show="!submitting">Continue</span>
+            <span x-show="submitting">Creating workspace&hellip;</span>
+          </button>
+          <button type="button" @click="back()">Back</button>
+        </div>
+
+        <p class="error" x-show="error" x-text="error"></p>
+      </form>
     </section>
   </template>
 

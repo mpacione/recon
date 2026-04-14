@@ -22,18 +22,28 @@ from sse_starlette.sse import EventSourceResponse
 from recon.web.events_bridge import EventBridge
 from recon.web.schemas import (
     CompetitorRow,
+    CreateWorkspaceRequest,
     DashboardResponse,
     HealthResponse,
     OutputFileModel,
     RecentProjectModel,
     RecentProjectsResponse,
     ResultsResponse,
+    SaveApiKeyRequest,
     SectionStatusModel,
     ThemeFileModel,
     WorkspaceResponse,
 )
 
 _STATIC_DIR = Path(__file__).parent / "static"
+
+# Default parent for newly-created workspaces when the request doesn't
+# pin one. Tests monkeypatch this to redirect into tmp_path.
+_DEFAULT_WORKSPACES_PARENT = Path.home() / "recon"
+
+# Provider names recognized by the api-keys endpoints. Mirrors
+# recon.api_keys._KEY_MAP keys (the lowercase aliases).
+_RECOGNIZED_API_KEY_NAMES: frozenset[str] = frozenset({"anthropic", "google_ai"})
 
 # Cap the executive-summary preview so the JSON payload stays small
 # even for runs that produced huge summaries. The full file is
@@ -192,6 +202,76 @@ def create_app() -> FastAPI:
         ws = _open_workspace(path)
         return _build_results_response(ws.root)
 
+    @app.post("/api/workspaces", response_model=WorkspaceResponse, status_code=201)
+    async def create_workspace(payload: CreateWorkspaceRequest) -> WorkspaceResponse:
+        """Create a workspace from a freeform description.
+
+        Description parsing in Phase 5 is heuristic-only (offline) so
+        the flow works without an API key. LLM-backed parsing arrives
+        with the discovery agent in a later phase.
+        """
+        from recon.workspace import Workspace
+
+        company_name = payload.company_name or _heuristic_company_name(payload.description)
+        domain = payload.domain or payload.description
+        slug = _slugify_for_path(company_name)
+
+        if payload.path:
+            target = Path(payload.path).expanduser()
+        else:
+            target = _DEFAULT_WORKSPACES_PARENT / slug
+
+        if (target / "recon.yaml").exists():
+            raise HTTPException(
+                status_code=409,
+                detail=f"workspace already exists at {target}",
+            )
+
+        ws = Workspace.init(
+            root=target,
+            domain=domain,
+            company_name=company_name,
+            products=payload.products,
+        )
+
+        return WorkspaceResponse(
+            path=str(ws.root),
+            domain=domain,
+            company_name=company_name,
+            products=list(payload.products),
+            competitor_count=0,
+            section_count=len(ws.schema.sections) if ws.schema else 0,
+            total_cost=0.0,
+            api_keys=_load_api_key_status(ws.root),
+        )
+
+    @app.get("/api/api-keys")
+    async def get_api_keys(path: str = Query(..., description="Workspace directory path")) -> dict[str, bool]:
+        """Return a presence map of saved provider keys for the workspace."""
+        ws = _open_workspace(path)
+        return _load_api_key_status(ws.root)
+
+    @app.post("/api/api-keys")
+    async def save_api_key_endpoint(payload: SaveApiKeyRequest) -> dict[str, bool]:
+        """Save a provider key to the workspace .env file.
+
+        Validates the provider name against the recognized set so we
+        don't write arbitrary attacker-controlled env vars.
+        """
+        if payload.name not in _RECOGNIZED_API_KEY_NAMES:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"unknown api key name: {payload.name!r}. "
+                    f"recognized: {sorted(_RECOGNIZED_API_KEY_NAMES)}"
+                ),
+            )
+        ws = _open_workspace(payload.path)
+        from recon.api_keys import save_api_key
+
+        save_api_key(payload.name, payload.value, ws.root)
+        return _load_api_key_status(ws.root)
+
     @app.get("/api/events")
     async def events() -> EventSourceResponse:
         """Server-Sent Events stream of every engine event.
@@ -299,21 +379,68 @@ def _safe_cost_summary(workspace) -> dict[str, float]:
 
 
 def _load_api_key_status(workspace_root: Path) -> dict[str, bool]:
-    """Best-effort api-key presence check.
+    """Presence map for every recognized provider.
 
-    Reads ``.env`` if the api-keys module exposes a loader; otherwise
-    returns an empty dict. The web UI tolerates missing data here so
-    Phase 1 doesn't depend on Phase 2's api_keys integration.
+    Always returns the full provider set (with False for missing) so
+    the UI can render the same shape every time.
     """
     try:
         from recon.api_keys import load_api_keys
     except ImportError:
-        return {}
+        return {name: False for name in sorted(_RECOGNIZED_API_KEY_NAMES)}
     try:
         keys = load_api_keys(workspace_root)
-        return {name: bool(value) for name, value in keys.items()}
     except Exception:
-        return {}
+        keys = {}
+    return {
+        name: bool(keys.get(name))
+        for name in sorted(_RECOGNIZED_API_KEY_NAMES)
+    }
+
+
+def _heuristic_company_name(description: str) -> str:
+    """Pull a likely company name out of a freeform description.
+
+    Heuristic: first run of capitalized words at the start of the
+    description. Falls back to the first word if no capitalized run
+    is found, and ultimately to "Unknown" so callers always get a
+    non-empty string.
+
+    Examples:
+        "Bambu Lab makes ..."           -> "Bambu Lab"
+        "Acme Corp makes widgets"       -> "Acme Corp"
+        "we build x"                    -> "we"            (best effort)
+        ""                              -> "Unknown"
+    """
+    if not description.strip():
+        return "Unknown"
+    tokens = description.split()
+    leading: list[str] = []
+    for token in tokens:
+        # Strip surrounding punctuation when checking case.
+        stripped = token.strip(",.;:()[]'\"")
+        if stripped and stripped[0].isupper():
+            leading.append(token.rstrip(",.;:()"))
+        else:
+            break
+    if leading:
+        return " ".join(leading)
+    return tokens[0]
+
+
+def _slugify_for_path(name: str) -> str:
+    """Filesystem-safe slug suitable for a directory name."""
+    out = []
+    for ch in name.lower():
+        if ch.isalnum():
+            out.append(ch)
+        elif ch in {" ", "-", "_"}:
+            out.append("-")
+    slug = "".join(out)
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    slug = slug.strip("-")
+    return slug or "workspace"
 
 
 def _build_results_response(workspace_root: Path) -> ResultsResponse:

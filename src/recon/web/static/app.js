@@ -183,6 +183,68 @@ function reconShell() {
 }
 
 // ---------------------------------------------------------------------------
+// Describe screen
+// ---------------------------------------------------------------------------
+
+function describeScreen() {
+  return {
+    description: '',
+    providers: [
+      { name: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-...', value: '', saved: false },
+      { name: 'google_ai', label: 'Google AI', placeholder: 'AIza...',     value: '', saved: false },
+    ],
+    submitting: false,
+    error: null,
+
+    init() {
+      // Focus the textarea so the user can start typing immediately.
+      this.$refs.description?.focus();
+    },
+
+    async submit() {
+      this.submitting = true;
+      this.error = null;
+      try {
+        // Persist any newly-typed API keys first so workspace creation
+        // can pick them up via load_api_keys.
+        await this.persistKeys();
+        const res = await fetch('/api/workspaces', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ description: this.description }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          this.error = body.detail || `server returned ${res.status}`;
+          return;
+        }
+        const ws = await res.json();
+        Alpine.store('router').navigate(
+          `#/discover/${encodeURIComponent(ws.path)}`,
+        );
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.submitting = false;
+      }
+    },
+
+    async persistKeys() {
+      // Best-effort: skip empty fields. We don't have a workspace path
+      // yet (the workspace is being created), so saving keys here
+      // would need the workspace to already exist. For now, defer
+      // key-save to a follow-up step after workspace creation.
+      // This stub keeps the UI shape stable while the multi-step
+      // dance lands in a follow-up commit.
+    },
+
+    back() {
+      Alpine.store('router').navigate('#/welcome');
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Welcome screen
 // ---------------------------------------------------------------------------
 

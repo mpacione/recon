@@ -113,3 +113,27 @@ class ResultsResponse(BaseModel):
     theme_files: list[ThemeFileModel] = Field(default_factory=list)
     output_files: list[OutputFileModel] = Field(default_factory=list)
     total_cost: float = 0.0
+
+
+# ---------------------------------------------------------------------------
+# POST /api/workspaces
+# ---------------------------------------------------------------------------
+
+
+class CreateWorkspaceRequest(BaseModel):
+    description: str = Field(..., min_length=1)
+    path: str | None = None  # If omitted, derived from company_name slug
+    company_name: str | None = None  # If omitted, heuristically extracted
+    domain: str | None = None  # If omitted, falls back to description
+    products: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# /api/api-keys
+# ---------------------------------------------------------------------------
+
+
+class SaveApiKeyRequest(BaseModel):
+    path: str
+    name: str  # Logical provider name: "anthropic" | "google_ai"
+    value: str = Field(..., min_length=1)
