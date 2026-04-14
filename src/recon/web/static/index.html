@@ -33,13 +33,25 @@
       <nav class="flow-progress" x-show="flowVisible" aria-label="flow progress">
         <span class="dim" x-text="flowStepLabel"></span>
         <template x-for="(step, idx) in flowSteps" :key="step.key">
-          <span class="flow-step"
-                :class="{
-                  'amber': flowIndex === idx,
-                  'success': flowIndex > idx,
-                  'dim': flowIndex < idx,
-                }"
-                x-text="(idx > 0 ? ' \u2192 ' : '') + (flowIndex === idx ? '[' + step.label + ']' : step.label)">
+          <span class="flow-step-wrap">
+            <span class="flow-sep" x-show="idx > 0" aria-hidden="true">&#8594;</span>
+            <span class="flow-step"
+                  :class="{
+                    'amber': flowIndex === idx,
+                    'flow-step-completed': flowIndex > idx,
+                    'flow-step-current': flowIndex === idx,
+                    'flow-step-future': flowIndex < idx,
+                    'dim': flowIndex < idx,
+                  }"
+                  :role="flowStepState(idx) === 'completed' ? 'link' : null"
+                  :tabindex="flowStepState(idx) === 'completed' ? 0 : null"
+                  :aria-current="flowIndex === idx ? 'step' : null"
+                  :aria-disabled="flowStepState(idx) === 'future' ? 'true' : null"
+                  @click="navigateFlowStep(idx)"
+                  @keydown.enter.prevent="navigateFlowStep(idx)"
+                  @keydown.space.prevent="navigateFlowStep(idx)"
+                  x-text="flowIndex === idx ? '[' + step.label + ']' : step.label">
+            </span>
           </span>
         </template>
       </nav>

@@ -219,11 +219,55 @@ h1, h2, h3, h4 {
   flex-wrap: wrap;
   gap: 0.25rem;
   margin-left: auto;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
+}
+
+.flow-step-wrap {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.flow-sep {
+  color: var(--recon-border);
+  font-family: var(--recon-font-mono);
 }
 
 .flow-step {
   white-space: nowrap;
+  border-radius: var(--recon-radius-sm);
+  padding: 0.05rem 0.1rem;
+  transition: color 120ms ease, text-decoration-color 120ms ease;
+}
+
+/* Completed steps — the nav affordance. Underline-on-hover mirrors
+ * cyberspace.online's plain-text link treatment; we keep the color
+ * (cream) from .success-like treatment via component style. */
+.flow-step-completed {
+  color: var(--recon-fg);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--recon-border);
+  text-underline-offset: 0.25em;
+}
+
+.flow-step-completed:hover,
+.flow-step-completed:focus-visible {
+  color: var(--recon-amber);
+  text-decoration-color: var(--recon-amber);
+  outline: none;
+}
+
+/* Future steps — dim and non-interactive. */
+.flow-step-future {
+  cursor: not-allowed;
+}
+
+/* Current step — amber bracketed label, not clickable. */
+.flow-step-current {
+  cursor: default;
 }
 
 /* -----------------------------------------------------------------

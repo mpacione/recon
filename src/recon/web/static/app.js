@@ -146,6 +146,39 @@ function reconShell() {
       return `Step ${idx + 1} of ${FLOW_STEPS.length}: `;
     },
 
+    // Workspace path travels through the hash on every flow screen
+    // after /describe. Used to compose nav targets when the user
+    // clicks back to a completed step.
+    get workspacePath() {
+      return Alpine.store('router').params.arg[0] || '';
+    },
+
+    flowStepState(idx) {
+      const current = this.flowIndex;
+      if (idx < current) return 'completed';
+      if (idx === current) return 'current';
+      return 'future';
+    },
+
+    flowStepHash(stepKey) {
+      // /describe is the workspace-creation entry point; all other
+      // steps hang workspace path off the hash.
+      if (stepKey === 'describe') return '#/describe';
+      const path = this.workspacePath;
+      if (!path) return null;
+      return `#/${stepKey}/${encodeURIComponent(path)}`;
+    },
+
+    navigateFlowStep(idx) {
+      const state = this.flowStepState(idx);
+      // Only completed steps navigate; current is a no-op, future is
+      // disabled entirely.
+      if (state !== 'completed') return;
+      const hash = this.flowStepHash(FLOW_STEPS[idx].key);
+      if (!hash) return;
+      Alpine.store('router').navigate(hash);
+    },
+
     get keybinds() {
       return SCREEN_KEYBINDS[this.activeScreen] || [];
     },
