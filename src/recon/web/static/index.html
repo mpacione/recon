@@ -8,29 +8,137 @@
   <script defer src="/static/app.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
-<body x-data="reconShell()">
+<body x-data="reconShell()" x-cloak>
   <div class="page">
     <header class="recon-header">
       <span class="recon-title">recon</span>
       <span class="recon-divider">|</span>
-      <span class="recon-subtitle">competitive intelligence</span>
+      <span class="recon-subtitle" x-text="headerSubtitle"></span>
+
+      <nav class="flow-progress" x-show="flowVisible" aria-label="flow progress">
+        <span class="dim" x-text="flowStepLabel"></span>
+        <template x-for="(step, idx) in flowSteps" :key="step.key">
+          <span class="flow-step"
+                :class="{
+                  'amber': flowIndex === idx,
+                  'success': flowIndex > idx,
+                  'dim': flowIndex < idx,
+                }"
+                x-text="(idx > 0 ? ' \u2192 ' : '') + (flowIndex === idx ? '[' + step.label + ']' : step.label)">
+          </span>
+        </template>
+      </nav>
     </header>
 
     <main class="recon-body">
-      <section class="section">
-        <h2 class="section-divider">SCAFFOLD</h2>
-        <p class="dim">
-          Phase 1 shell. The full SPA mounts here in subsequent phases.
-        </p>
-        <p>
-          Server is running. Health: <span x-text="health">checking...</span>
-        </p>
+      <!-- Loading state shown while no screen is registered yet. -->
+      <section class="section" x-show="!activeScreen">
+        <h2 class="section-divider">LOADING</h2>
+        <p class="dim">Initializing recon shell&hellip;</p>
       </section>
+
+      <!-- Active screen is mounted here by the router. Each screen is
+           a pre-defined <template> element above; the router copies
+           one into the slot whenever the hash changes. -->
+      <div id="screen-slot" x-ref="slot"></div>
     </main>
 
-    <footer class="keybinds">
-      <span class="dim">phase 1 scaffold</span>
+    <footer class="keybinds" aria-label="keybinds">
+      <template x-for="bind in keybinds" :key="bind.key">
+        <span class="keybind">
+          <kbd x-text="bind.key"></kbd>
+          <span x-text="bind.label"></span>
+        </span>
+      </template>
     </footer>
   </div>
+
+  <!-- ===========================================================
+       Screen templates. Each <template id="screen-<key>"> is the
+       body Alpine clones into #screen-slot when the route changes.
+       Per-screen JS modules register their own x-data factories
+       (e.g. welcomeScreen()) in app.js or screens/*.js.
+       =========================================================== -->
+
+  <template id="screen-welcome">
+    <section class="section" x-data="welcomeScreen()" x-init="init()">
+      <h2 class="section-divider">WELCOME</h2>
+      <p>Competitive intelligence research, automated.</p>
+      <p class="dim" x-show="loading">Loading recent projects&hellip;</p>
+      <p class="dim" x-show="!loading && projects.length === 0">
+        No recent projects. Press <kbd>n</kbd> to start a new one.
+      </p>
+      <ul class="recents" x-show="!loading && projects.length > 0">
+        <template x-for="(project, i) in projects" :key="project.path">
+          <li class="recent-item" @click="open(project)">
+            <span class="recent-index" x-text="(i + 1) + '.'"></span>
+            <span class="recent-name amber" x-text="project.name"></span>
+            <span class="dim recent-meta">
+              <span x-text="formatDate(project.last_opened)"></span>
+              &middot;
+              <span x-text="shortPath(project.path)"></span>
+            </span>
+          </li>
+        </template>
+      </ul>
+    </section>
+  </template>
+
+  <template id="screen-describe">
+    <section class="section">
+      <h2 class="section-divider">DESCRIBE YOUR SPACE</h2>
+      <p class="dim">Coming in Phase 5.</p>
+    </section>
+  </template>
+
+  <template id="screen-discover">
+    <section class="section">
+      <h2 class="section-divider">COMPETITOR DISCOVERY</h2>
+      <p class="dim">Coming in Phase 6.</p>
+    </section>
+  </template>
+
+  <template id="screen-template">
+    <section class="section">
+      <h2 class="section-divider">RESEARCH TEMPLATE</h2>
+      <p class="dim">Coming in Phase 7.</p>
+    </section>
+  </template>
+
+  <template id="screen-confirm">
+    <section class="section">
+      <h2 class="section-divider">READY TO RESEARCH</h2>
+      <p class="dim">Coming in Phase 7.</p>
+    </section>
+  </template>
+
+  <template id="screen-run">
+    <section class="section">
+      <h2 class="section-divider">RUN</h2>
+      <p class="dim">Coming in Phase 8.</p>
+    </section>
+  </template>
+
+  <template id="screen-results">
+    <section class="section">
+      <h2 class="section-divider">RESEARCH COMPLETE</h2>
+      <p class="dim">Coming in Phase 9.</p>
+    </section>
+  </template>
+
+  <template id="screen-dashboard">
+    <section class="section">
+      <h2 class="section-divider">DASHBOARD</h2>
+      <p class="dim">Coming in Phase 9.</p>
+    </section>
+  </template>
+
+  <template id="screen-not-found">
+    <section class="section">
+      <h2 class="section-divider error">UNKNOWN SCREEN</h2>
+      <p>No screen registered for <code x-text="$store.router.hash"></code>.</p>
+      <p><a href="#/welcome">Return to welcome</a></p>
+    </section>
+  </template>
 </body>
 </html>

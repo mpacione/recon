@@ -148,6 +148,73 @@ a:focus-visible {
 .warn    { color: var(--recon-warn); }
 
 /* -----------------------------------------------------------------
+ * x-cloak — hide Alpine-bound DOM until JS is ready, prevents the
+ * brief flash of pre-init markup when the page loads.
+ * ----------------------------------------------------------------- */
+
+[x-cloak] { display: none !important; }
+
+/* -----------------------------------------------------------------
+ * Flow progress breadcrumb (header chrome)
+ * ----------------------------------------------------------------- */
+
+.flow-progress {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-left: auto;
+  font-size: 0.875rem;
+}
+
+.flow-step {
+  white-space: nowrap;
+}
+
+/* -----------------------------------------------------------------
+ * Recent projects list (welcome screen)
+ * ----------------------------------------------------------------- */
+
+.recents {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.recent-item {
+  display: grid;
+  grid-template-columns: 2.25rem 18rem 1fr;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: var(--recon-radius);
+  cursor: pointer;
+  align-items: baseline;
+}
+
+.recent-item:hover,
+.recent-item:focus-within {
+  background: var(--recon-surface);
+  border-color: var(--recon-border);
+}
+
+.recent-index {
+  color: var(--recon-dim);
+  text-align: right;
+}
+
+.recent-name {
+  font-weight: 700;
+}
+
+.recent-meta {
+  font-size: 0.875rem;
+}
+
+/* -----------------------------------------------------------------
  * Footer / keybinds bar
  * ----------------------------------------------------------------- */
 
@@ -161,7 +228,12 @@ a:focus-visible {
   gap: 1.25rem;
 }
 
-.keybinds kbd {
+.keybind {
+  white-space: nowrap;
+}
+
+.keybinds kbd,
+kbd {
   font-family: inherit;
   color: var(--recon-amber);
   background: var(--recon-surface);
