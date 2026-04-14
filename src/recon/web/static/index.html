@@ -16,6 +16,12 @@
   <link rel="stylesheet" href="/static/theme.css">
   <script defer src="/static/app.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <!-- Lucide icons via Iconify. Used for functional UI chrome (remove
+       buttons, nav affordances). State markers stay as Unicode
+       geometric characters; see progressive-fidelity notes in
+       web-ui-spec.md. -->
+  <script type="module"
+          src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
 </head>
 <body x-data="reconShell()" x-cloak>
   <div class="page">
@@ -184,12 +190,15 @@
             <li class="candidate-row">
               <span class="candidate-marker"
                     :class="{ success: c.status === 'researched', amber: c.status !== 'scaffold', dim: c.status === 'scaffold' }"
-                    x-text="c.status === 'researched' ? '[x]' : '[ ]'"></span>
+                    x-text="c.status === 'researched' ? '\u25A0' : '\u25A1'"></span>
               <span class="candidate-name" x-text="c.name"></span>
               <span class="candidate-status dim" x-text="c.status"></span>
               <button type="button" class="candidate-remove"
                       @click="remove(c)"
-                      title="Remove this competitor">remove</button>
+                      aria-label="Remove this competitor"
+                      title="Remove this competitor">
+                <iconify-icon icon="lucide:x" width="14" height="14"></iconify-icon>
+              </button>
             </li>
           </template>
         </ul>
@@ -230,7 +239,7 @@
           <li class="checklist-item" @click="toggle(section)">
             <span class="checklist-marker"
                   :class="section.selected ? 'amber' : 'dim'"
-                  x-text="section.selected ? '[x]' : '[ ]'"></span>
+                  x-text="section.selected ? '\u25A0' : '\u25A1'"></span>
             <span class="checklist-body">
               <span class="checklist-title" x-text="section.title"></span>
               <span class="dim checklist-desc" x-text="section.description"></span>
@@ -296,7 +305,7 @@
             <li class="radio-item" @click="selectedModel = opt.id">
               <span class="radio-marker"
                     :class="selectedModel === opt.id ? 'amber' : 'dim'"
-                    x-text="selectedModel === opt.id ? '(*)' : '( )'"></span>
+                    x-text="selectedModel === opt.id ? '\u25C9' : '\u25CB'"></span>
               <span class="radio-label" x-text="opt.label"></span>
               <span class="dim radio-price"
                     x-text="'$' + opt.input_price_per_million + ' / $' + opt.output_price_per_million + ' per M'"></span>
