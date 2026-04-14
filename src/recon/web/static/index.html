@@ -135,9 +135,65 @@
   </template>
 
   <template id="screen-discover">
-    <section class="section">
+    <section class="section" x-data="discoverScreen()" x-init="init()">
       <h2 class="section-divider">COMPETITOR DISCOVERY</h2>
-      <p class="dim">Coming in Phase 6.</p>
+
+      <p class="dim" x-show="loading">Loading competitors&hellip;</p>
+      <p class="error" x-show="error" x-text="error"></p>
+
+      <form @submit.prevent="add()" class="add-competitor" x-show="!loading">
+        <label class="field-label">Add manually</label>
+        <div class="add-row">
+          <input type="text"
+                 x-model="form.name"
+                 placeholder="Company name"
+                 required>
+          <input type="text"
+                 x-model="form.url"
+                 placeholder="https://example.com (optional)">
+          <button type="submit" class="primary" :disabled="!form.name || adding">
+            <span x-show="!adding">Add</span>
+            <span x-show="adding">Adding&hellip;</span>
+          </button>
+        </div>
+        <textarea x-model="form.blurb"
+                  rows="2"
+                  placeholder="Short blurb (optional) &mdash; why this competitor matters"></textarea>
+      </form>
+
+      <div class="candidates" x-show="!loading">
+        <h3 class="section-divider">
+          <span>CANDIDATES</span>
+          <span class="dim candidates-count"
+                x-text="competitors.length + ' total'"></span>
+        </h3>
+        <p class="dim" x-show="competitors.length === 0">
+          No competitors yet. Add at least one above to continue.
+        </p>
+        <ul class="candidate-list" x-show="competitors.length > 0">
+          <template x-for="c in competitors" :key="c.slug">
+            <li class="candidate-row">
+              <span class="candidate-marker"
+                    :class="{ success: c.status === 'researched', amber: c.status !== 'scaffold', dim: c.status === 'scaffold' }"
+                    x-text="c.status === 'researched' ? '[x]' : '[ ]'"></span>
+              <span class="candidate-name amber" x-text="c.name"></span>
+              <span class="candidate-status dim" x-text="c.status"></span>
+              <button type="button" class="candidate-remove"
+                      @click="remove(c)"
+                      title="Remove this competitor">remove</button>
+            </li>
+          </template>
+        </ul>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="primary"
+                :disabled="competitors.length === 0"
+                @click="proceed()">
+          Done (<span x-text="competitors.length"></span> competitors)
+        </button>
+        <button type="button" @click="back()">Back</button>
+      </div>
     </section>
   </template>
 

@@ -245,6 +245,102 @@ function describeScreen() {
 }
 
 // ---------------------------------------------------------------------------
+// Discover screen
+// ---------------------------------------------------------------------------
+
+function discoverScreen() {
+  return {
+    loading: true,
+    error: null,
+    adding: false,
+    competitors: [],
+    form: { name: '', url: '', blurb: '' },
+
+    get workspacePath() {
+      return Alpine.store('router').params.arg[0] || '';
+    },
+
+    async init() {
+      await this.refresh();
+    },
+
+    async refresh() {
+      this.loading = true;
+      try {
+        const qs = new URLSearchParams({ path: this.workspacePath });
+        const res = await fetch(`/api/competitors?${qs}`);
+        if (!res.ok) {
+          this.error = `could not load competitors (${res.status})`;
+          return;
+        }
+        const body = await res.json();
+        this.competitors = body.competitors || [];
+        this.error = null;
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async add() {
+      if (!this.form.name) return;
+      this.adding = true;
+      try {
+        const res = await fetch('/api/competitors', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: this.workspacePath,
+            name: this.form.name,
+            url: this.form.url || null,
+            blurb: this.form.blurb || null,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          this.error = body.detail || `could not add (${res.status})`;
+          return;
+        }
+        const created = await res.json();
+        this.competitors = [...this.competitors, created];
+        this.form = { name: '', url: '', blurb: '' };
+        this.error = null;
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.adding = false;
+      }
+    },
+
+    async remove(candidate) {
+      const qs = new URLSearchParams({ path: this.workspacePath });
+      const res = await fetch(
+        `/api/competitors/${encodeURIComponent(candidate.slug)}?${qs}`,
+        { method: 'DELETE' },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        this.error = body.detail || `could not remove (${res.status})`;
+        return;
+      }
+      this.competitors = this.competitors.filter((c) => c.slug !== candidate.slug);
+    },
+
+    proceed() {
+      if (this.competitors.length === 0) return;
+      Alpine.store('router').navigate(
+        `#/template/${encodeURIComponent(this.workspacePath)}`,
+      );
+    },
+
+    back() {
+      Alpine.store('router').navigate('#/describe');
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Welcome screen
 // ---------------------------------------------------------------------------
 

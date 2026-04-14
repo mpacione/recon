@@ -21,7 +21,10 @@ from sse_starlette.sse import EventSourceResponse
 
 from recon.web.events_bridge import EventBridge
 from recon.web.schemas import (
+    CompetitorListResponse,
+    CompetitorModel,
     CompetitorRow,
+    CreateCompetitorRequest,
     CreateWorkspaceRequest,
     DashboardResponse,
     HealthResponse,
@@ -251,6 +254,58 @@ def create_app() -> FastAPI:
         ws = _open_workspace(path)
         return _load_api_key_status(ws.root)
 
+    @app.get("/api/competitors", response_model=CompetitorListResponse)
+    async def list_competitors(path: str = Query(..., description="Workspace directory path")) -> CompetitorListResponse:
+        """Return every profile on disk for this workspace."""
+        ws = _open_workspace(path)
+        return CompetitorListResponse(
+            competitors=[_profile_to_model(row) for row in ws.list_profiles()],
+        )
+
+    @app.post("/api/competitors", response_model=CompetitorModel, status_code=201)
+    async def create_competitor(payload: CreateCompetitorRequest) -> CompetitorModel:
+        """Create a competitor profile. Returns 409 if the slug exists."""
+        ws = _open_workspace(payload.path)
+        try:
+            profile_path = ws.create_profile(
+                payload.name, own_product=payload.own_product,
+            )
+        except FileExistsError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        if payload.url or payload.blurb:
+            _attach_candidate_metadata(profile_path, payload.url, payload.blurb)
+
+        # Round-trip through list_profiles so the response reflects the
+        # persisted frontmatter (including anything Workspace populated
+        # on create).
+        matches = [p for p in ws.list_profiles() if p["_path"] == profile_path]
+        meta = matches[0] if matches else {
+            "name": payload.name,
+            "_slug": profile_path.stem,
+            "type": "own_product" if payload.own_product else "competitor",
+            "research_status": "scaffold",
+        }
+        return _profile_to_model(meta, url=payload.url, blurb=payload.blurb)
+
+    @app.delete("/api/competitors/{slug}", status_code=204)
+    async def delete_competitor(slug: str, path: str = Query(..., description="Workspace directory path")):
+        """Remove a profile by slug. Path-traversal attempts return 400."""
+        if "/" in slug or "\\" in slug or ".." in slug:
+            raise HTTPException(status_code=400, detail="invalid slug")
+        ws = _open_workspace(path)
+        profile_path = ws.competitors_dir / f"{slug}.md"
+        resolved = profile_path.resolve()
+        # Double-check the resolved path is still inside competitors/
+        # — belt-and-braces defense against symlink tricks.
+        if ws.competitors_dir.resolve() not in resolved.parents:
+            raise HTTPException(status_code=400, detail="invalid slug")
+        if not profile_path.exists():
+            raise HTTPException(status_code=404, detail=f"no profile: {slug}")
+        profile_path.unlink()
+        # FastAPI returns an empty 204 when the handler returns None.
+        return None
+
     @app.post("/api/api-keys")
     async def save_api_key_endpoint(payload: SaveApiKeyRequest) -> dict[str, bool]:
         """Save a provider key to the workspace .env file.
@@ -426,6 +481,43 @@ def _heuristic_company_name(description: str) -> str:
     if leading:
         return " ".join(leading)
     return tokens[0]
+
+
+def _profile_to_model(
+    profile_meta: dict,
+    *,
+    url: str | None = None,
+    blurb: str | None = None,
+) -> CompetitorModel:
+    """Convert a ``Workspace.list_profiles`` entry to a response model."""
+    return CompetitorModel(
+        name=str(profile_meta.get("name", "Unknown")),
+        slug=str(profile_meta.get("_slug", "")),
+        type=str(profile_meta.get("type", "competitor")),
+        status=str(profile_meta.get("research_status", "scaffold")),
+        url=url or profile_meta.get("url"),
+        blurb=blurb or profile_meta.get("blurb"),
+    )
+
+
+def _attach_candidate_metadata(
+    profile_path: Path,
+    url: str | None,
+    blurb: str | None,
+) -> None:
+    """Add discovery-provided url/blurb to a profile's frontmatter."""
+    import frontmatter
+
+    post = frontmatter.load(str(profile_path))
+    changed = False
+    if url and not post.metadata.get("url"):
+        post["url"] = url
+        changed = True
+    if blurb and not post.metadata.get("blurb"):
+        post["blurb"] = blurb
+        changed = True
+    if changed:
+        profile_path.write_text(frontmatter.dumps(post))
 
 
 def _slugify_for_path(name: str) -> str:

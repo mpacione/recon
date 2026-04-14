@@ -137,3 +137,29 @@ class SaveApiKeyRequest(BaseModel):
     path: str
     name: str  # Logical provider name: "anthropic" | "google_ai"
     value: str = Field(..., min_length=1)
+
+
+# ---------------------------------------------------------------------------
+# /api/competitors
+# ---------------------------------------------------------------------------
+
+
+class CompetitorModel(BaseModel):
+    name: str
+    slug: str
+    type: str = "competitor"
+    status: str = "scaffold"
+    url: str | None = None
+    blurb: str | None = None
+
+
+class CompetitorListResponse(BaseModel):
+    competitors: list[CompetitorModel] = Field(default_factory=list)
+
+
+class CreateCompetitorRequest(BaseModel):
+    path: str
+    name: str = Field(..., min_length=1)
+    url: str | None = None
+    blurb: str | None = None
+    own_product: bool = False
