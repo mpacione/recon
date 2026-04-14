@@ -23,9 +23,13 @@ const FLOW_STEPS = [
   { key: 'results',   label: 'results' },
 ];
 
-// Screens that are *not* part of the linear flow (welcome, dashboard,
-// not-found). They suppress the flow-progress breadcrumb.
-const NON_FLOW_SCREENS = new Set(['welcome', 'dashboard', 'not-found']);
+// Screens that are *not* part of the linear flow. They suppress the
+// flow-progress breadcrumb. curation/browser/selector are currently
+// TUI-only placeholders; see web-ui-spec.md for the porting plan.
+const NON_FLOW_SCREENS = new Set([
+  'welcome', 'dashboard', 'not-found',
+  'curation', 'browser', 'selector',
+]);
 
 // Per-screen keybind hints. The shell renders these in the footer.
 // Listeners are attached at the document level by the router.
@@ -42,6 +46,9 @@ const SCREEN_KEYBINDS = {
   run:       [{ key: 'p', label: 'pause' }, { key: 's', label: 'stop' }, { key: 'q', label: 'quit' }],
   results:   [{ key: 'v', label: 'view summary' }, { key: 'b', label: 'dashboard' }, { key: 'q', label: 'quit' }],
   dashboard: [{ key: 'r', label: 'run' }, { key: 'b', label: 'back' }, { key: 'q', label: 'quit' }],
+  curation:  [{ key: 'h', label: 'home' }],
+  browser:   [{ key: 'h', label: 'home' }],
+  selector:  [{ key: 'h', label: 'home' }],
   'not-found': [{ key: 'h', label: 'home' }],
 };
 
@@ -128,6 +135,9 @@ function reconShell() {
         case 'run':       return 'researching';
         case 'results':   return 'complete';
         case 'dashboard': return 'dashboard';
+        case 'curation':  return 'theme curation';
+        case 'browser':   return 'competitor browser';
+        case 'selector':  return 'competitor selector';
         default:          return '';
       }
     },

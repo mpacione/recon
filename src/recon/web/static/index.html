@@ -200,9 +200,12 @@
         <ul class="candidate-list" x-show="competitors.length > 0">
           <template x-for="c in competitors" :key="c.slug">
             <li class="candidate-row">
+              <!-- 3-state marker reads as a progressive fill:
+                   \u25A1 empty (scaffold) \u2192 \u25A3 partial (researching) \u2192 \u25A0 full (researched).
+                   Colors reinforce the same progression: dim/amber/success. -->
               <span class="candidate-marker"
-                    :class="{ success: c.status === 'researched', amber: c.status !== 'scaffold', dim: c.status === 'scaffold' }"
-                    x-text="c.status === 'researched' ? '\u25A0' : '\u25A1'"></span>
+                    :class="{ success: c.status === 'researched', amber: c.status !== 'scaffold' && c.status !== 'researched', dim: c.status === 'scaffold' }"
+                    x-text="c.status === 'researched' ? '\u25A0' : (c.status === 'scaffold' ? '\u25A1' : '\u25A3')"></span>
               <span class="candidate-name" x-text="c.name"></span>
               <span class="candidate-status dim" x-text="c.status"></span>
               <button type="button" class="candidate-remove"
@@ -364,6 +367,32 @@
     <section class="section">
       <h2 class="section-divider">DASHBOARD</h2>
       <p class="dim">Coming in Phase 9.</p>
+    </section>
+  </template>
+
+  <!-- TUI-only today. These routes exist so the router resolves them
+       instead of falling through to "unknown screen" if another flow
+       or deep link references them. Each will port to web in a later
+       phase once the information architecture settles. See
+       docs/screenshots/tui/ for the target shapes. -->
+  <template id="screen-curation">
+    <section class="section">
+      <h2 class="section-divider">THEME CURATION</h2>
+      <p class="dim">Coming in Phase 10. See <code>docs/screenshots/tui/curation_with_themes.svg</code> for the target shape.</p>
+    </section>
+  </template>
+
+  <template id="screen-browser">
+    <section class="section">
+      <h2 class="section-divider">COMPETITOR BROWSER</h2>
+      <p class="dim">Coming in Phase 10. See <code>docs/screenshots/tui/browser_with_competitors.svg</code> for the target shape.</p>
+    </section>
+  </template>
+
+  <template id="screen-selector">
+    <section class="section">
+      <h2 class="section-divider">COMPETITOR SELECTOR</h2>
+      <p class="dim">Coming in Phase 10. See <code>docs/screenshots/tui/selector_with_competitors.svg</code> for the target shape.</p>
     </section>
   </template>
 
