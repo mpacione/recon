@@ -1031,5 +1031,76 @@ def tui(workspace):
     app.run()
 
 
+@main.command()
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Bind interface. Non-loopback values require --unsafe-bind-all.",
+)
+@click.option(
+    "--port",
+    default=8787,
+    show_default=True,
+    type=int,
+    help="Bind port.",
+)
+@click.option(
+    "--workspace",
+    "workspace_path",
+    default=None,
+    type=click.Path(exists=True, file_okay=False),
+    help="Pre-open this workspace on launch (currently advisory; full wiring lands in Phase 2).",
+)
+@click.option(
+    "--unsafe-bind-all",
+    is_flag=True,
+    default=False,
+    help="Required to bind a non-loopback host. The web UI has no auth; only do this on trusted networks.",
+)
+@click.option(
+    "--no-open",
+    "no_open",
+    is_flag=True,
+    default=False,
+    help="Do not auto-open the browser after the server starts.",
+)
+@click.option(
+    "--web-log-level",
+    default="info",
+    show_default=True,
+    type=click.Choice(["critical", "error", "warning", "info", "debug", "trace"], case_sensitive=False),
+    help="uvicorn log level (independent of the global --log-level).",
+)
+def serve(host, port, workspace_path, unsafe_bind_all, no_open, web_log_level):
+    """Launch the recon web UI on http://127.0.0.1:8787 by default.
+
+    The web UI mirrors the TUI flow (Welcome -> Describe -> Discovery
+    -> Template -> Confirm -> Run -> Results) in a browser. It is
+    intentionally local-only; binding to a public interface requires
+    the explicit --unsafe-bind-all flag.
+    """
+    from recon.web.server import is_loopback_host, run_server
+
+    if not is_loopback_host(host) and not unsafe_bind_all:
+        raise click.UsageError(
+            f"Refusing to bind {host}: pass --unsafe-bind-all to opt in. "
+            "The web UI has no authentication; only enable this on trusted networks.",
+        )
+
+    if workspace_path is not None:
+        # Phase 1 records the path for later phases to consume; the
+        # full pre-open behavior lands when /api/workspace is wired.
+        click.echo(f"workspace pre-open requested: {workspace_path}")
+
+    click.echo(f"recon web UI: http://{host}:{port}")
+    run_server(
+        host=host,
+        port=port,
+        open_browser=not no_open,
+        log_level=web_log_level,
+    )
+
+
 if __name__ == "__main__":
     main()

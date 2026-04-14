@@ -1,0 +1,199 @@
+/*
+ * recon web UI — cyberspace.online amber-on-black theme.
+ *
+ * Tokens ported from src/recon/tui/theme.py. When that file changes,
+ * mirror the changes here. (Phase 2 may extract a shared
+ * recon/branding.py both layers read from; see web-ui-spec.md §9.)
+ */
+
+:root {
+  --recon-bg:       #000000;  /* tui/theme.py: background */
+  --recon-fg:       #efe5c0;  /* tui/theme.py: foreground */
+  --recon-dim:      #a89984;  /* tui/theme.py: dim */
+  --recon-border:   #3a3a3a;  /* tui/theme.py: border */
+  --recon-amber:    #e0a044;  /* tui/theme.py: accent */
+  --recon-error:    #cc241d;  /* tui/theme.py: error */
+  --recon-success:  #98971a;  /* tui/theme.py: success */
+  --recon-warn:     #d79921;  /* tui/theme.py: warning */
+  --recon-surface:  #1a1a1a;  /* tui/theme.py: surface */
+  --recon-panel:    #0d0d0d;  /* tui/theme.py: panel */
+
+  --recon-font:
+    "JetBrains Mono", "IBM Plex Mono", "Menlo", "Consolas", monospace;
+
+  --recon-radius: 2px;
+  --recon-gap: 1rem;
+}
+
+/* -----------------------------------------------------------------
+ * Reset + base
+ * ----------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--recon-bg);
+  color: var(--recon-fg);
+  font-family: var(--recon-font);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: var(--recon-amber);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--recon-amber);
+}
+
+a:hover,
+a:focus-visible {
+  color: var(--recon-fg);
+  border-bottom-color: var(--recon-fg);
+  outline: none;
+}
+
+::selection {
+  background: var(--recon-amber);
+  color: var(--recon-bg);
+}
+
+/* -----------------------------------------------------------------
+ * Layout primitives
+ * ----------------------------------------------------------------- */
+
+.page {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  gap: 1rem;
+}
+
+.recon-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--recon-border);
+}
+
+.recon-title {
+  color: var(--recon-amber);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.recon-divider {
+  color: var(--recon-dim);
+}
+
+.recon-subtitle {
+  color: var(--recon-dim);
+}
+
+.recon-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.section {
+  background: var(--recon-panel);
+  border: 1px solid var(--recon-border);
+  border-radius: var(--recon-radius);
+  padding: 1.25rem 1.5rem;
+}
+
+/* Section dividers — rendered with box-drawing dashes to match the
+ * ── HEADING ── pattern used in the TUI. */
+.section-divider {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--recon-amber);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin: 0 0 1rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.section-divider::before,
+.section-divider::after {
+  content: "";
+  flex: 1 1 auto;
+  border-top: 1px solid var(--recon-border);
+}
+
+/* -----------------------------------------------------------------
+ * Inline state colors
+ * ----------------------------------------------------------------- */
+
+.dim     { color: var(--recon-dim); }
+.amber   { color: var(--recon-amber); }
+.error   { color: var(--recon-error); }
+.success { color: var(--recon-success); }
+.warn    { color: var(--recon-warn); }
+
+/* -----------------------------------------------------------------
+ * Footer / keybinds bar
+ * ----------------------------------------------------------------- */
+
+.keybinds {
+  border-top: 1px solid var(--recon-border);
+  padding-top: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--recon-dim);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+.keybinds kbd {
+  font-family: inherit;
+  color: var(--recon-amber);
+  background: var(--recon-surface);
+  border: 1px solid var(--recon-border);
+  border-radius: var(--recon-radius);
+  padding: 0 0.4em;
+  margin-right: 0.4em;
+}
+
+/* -----------------------------------------------------------------
+ * Scrollbar — match the TUI's thin amber-on-dark scrollbar
+ * ----------------------------------------------------------------- */
+
+* {
+  scrollbar-color: var(--recon-border) var(--recon-surface);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--recon-surface);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--recon-border);
+  border-radius: var(--recon-radius);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--recon-amber);
+}

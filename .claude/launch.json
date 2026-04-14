@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "recon-web",
+      "runtimeExecutable": ".venv/bin/recon",
+      "runtimeArgs": ["serve", "--no-open"],
+      "port": 8787
+    }
+  ]
+}
