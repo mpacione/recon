@@ -341,6 +341,143 @@ function discoverScreen() {
 }
 
 // ---------------------------------------------------------------------------
+// Template screen
+// ---------------------------------------------------------------------------
+
+function templateScreen() {
+  return {
+    loading: true,
+    saving: false,
+    error: null,
+    sections: [],
+
+    get workspacePath() {
+      return Alpine.store('router').params.arg[0] || '';
+    },
+
+    get selectedCount() {
+      return this.sections.filter((s) => s.selected).length;
+    },
+
+    async init() {
+      try {
+        const qs = new URLSearchParams({ path: this.workspacePath });
+        const res = await fetch(`/api/template?${qs}`);
+        if (!res.ok) {
+          this.error = `could not load template (${res.status})`;
+          return;
+        }
+        const body = await res.json();
+        this.sections = body.sections || [];
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    toggle(section) {
+      section.selected = !section.selected;
+    },
+
+    selectAll() {
+      this.sections.forEach((s) => { s.selected = true; });
+    },
+
+    deselectAll() {
+      this.sections.forEach((s) => { s.selected = false; });
+    },
+
+    async proceed() {
+      if (this.selectedCount === 0) return;
+      this.saving = true;
+      try {
+        const res = await fetch('/api/template', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: this.workspacePath,
+            section_keys: this.sections.filter((s) => s.selected).map((s) => s.key),
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          this.error = body.detail || `could not save (${res.status})`;
+          return;
+        }
+        Alpine.store('router').navigate(
+          `#/confirm/${encodeURIComponent(this.workspacePath)}`,
+        );
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    back() {
+      Alpine.store('router').navigate(
+        `#/discover/${encodeURIComponent(this.workspacePath)}`,
+      );
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Confirm screen
+// ---------------------------------------------------------------------------
+
+function confirmScreen() {
+  return {
+    loading: true,
+    error: null,
+    data: null,
+    selectedModel: '',
+    workers: 5,
+
+    get workspacePath() {
+      return Alpine.store('router').params.arg[0] || '';
+    },
+
+    async init() {
+      try {
+        const qs = new URLSearchParams({ path: this.workspacePath });
+        const res = await fetch(`/api/confirm?${qs}`);
+        if (!res.ok) {
+          this.error = `could not load estimate (${res.status})`;
+          return;
+        }
+        this.data = await res.json();
+        this.selectedModel = this.data.default_model;
+        this.workers = this.data.default_workers;
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    formatCost(value) {
+      if (value == null) return '';
+      return '$' + Number(value).toFixed(2);
+    },
+
+    formatEta(seconds) {
+      if (!seconds) return '';
+      if (seconds < 60) return `~${Math.round(seconds)}s`;
+      const mins = Math.round(seconds / 60);
+      return `~${mins} min`;
+    },
+
+    back() {
+      Alpine.store('router').navigate(
+        `#/template/${encodeURIComponent(this.workspacePath)}`,
+      );
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Welcome screen
 // ---------------------------------------------------------------------------
 

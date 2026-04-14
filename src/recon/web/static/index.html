@@ -198,16 +198,121 @@
   </template>
 
   <template id="screen-template">
-    <section class="section">
+    <section class="section" x-data="templateScreen()" x-init="init()">
       <h2 class="section-divider">RESEARCH TEMPLATE</h2>
-      <p class="dim">Coming in Phase 7.</p>
+      <p class="dim">
+        Each selected section will be researched for every competitor. Toggle
+        what you want; you can always come back and adjust later.
+      </p>
+
+      <p class="dim" x-show="loading">Loading template&hellip;</p>
+      <p class="error" x-show="error" x-text="error"></p>
+
+      <div class="template-controls" x-show="!loading">
+        <button type="button" @click="selectAll()">Select all</button>
+        <button type="button" @click="deselectAll()">Deselect all</button>
+        <span class="dim template-count">
+          <span x-text="selectedCount"></span> of <span x-text="sections.length"></span> selected
+        </span>
+      </div>
+
+      <ul class="checklist" x-show="!loading">
+        <template x-for="section in sections" :key="section.key">
+          <li class="checklist-item" @click="toggle(section)">
+            <span class="checklist-marker"
+                  :class="section.selected ? 'amber' : 'dim'"
+                  x-text="section.selected ? '[x]' : '[ ]'"></span>
+            <span class="checklist-body">
+              <span class="checklist-title" x-text="section.title"></span>
+              <span class="dim checklist-desc" x-text="section.description"></span>
+            </span>
+          </li>
+        </template>
+      </ul>
+
+      <div class="actions" x-show="!loading">
+        <button type="button" class="primary"
+                :disabled="selectedCount === 0 || saving"
+                @click="proceed()">
+          <span x-show="!saving">Continue (<span x-text="selectedCount"></span> sections)</span>
+          <span x-show="saving">Saving&hellip;</span>
+        </button>
+        <button type="button" @click="back()">Back</button>
+      </div>
     </section>
   </template>
 
   <template id="screen-confirm">
-    <section class="section">
+    <section class="section" x-data="confirmScreen()" x-init="init()">
       <h2 class="section-divider">READY TO RESEARCH</h2>
-      <p class="dim">Coming in Phase 7.</p>
+
+      <p class="dim" x-show="loading">Loading estimate&hellip;</p>
+      <p class="error" x-show="error" x-text="error"></p>
+
+      <div x-show="!loading && data">
+        <p>
+          This will research <strong class="amber" x-text="data?.competitor_count"></strong> competitor<span x-show="data?.competitor_count !== 1">s</span>
+          across <strong class="amber" x-text="data?.section_keys.length"></strong> section<span x-show="data?.section_keys.length !== 1">s</span> each.
+          <span class="dim">
+            &middot; <span x-text="formatEta(data?.eta_seconds)"></span> estimated
+          </span>
+        </p>
+
+        <h3 class="section-divider">SECTIONS</h3>
+        <ul class="confirm-sections">
+          <template x-for="name in data?.section_names" :key="name">
+            <li x-text="name"></li>
+          </template>
+        </ul>
+
+        <h3 class="section-divider">COST BREAKDOWN</h3>
+        <table class="cost-table">
+          <tbody>
+            <template x-for="(cost, stage) in data?.cost_by_stage" :key="stage">
+              <tr>
+                <td class="cost-label" x-text="stage"></td>
+                <td class="cost-value" x-text="formatCost(cost)"></td>
+              </tr>
+            </template>
+            <tr class="cost-total">
+              <td class="cost-label">Total</td>
+              <td class="cost-value" x-text="formatCost(data?.estimated_total)"></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3 class="section-divider">MODEL</h3>
+        <ul class="radio-list">
+          <template x-for="opt in data?.model_options" :key="opt.id">
+            <li class="radio-item" @click="selectedModel = opt.id">
+              <span class="radio-marker"
+                    :class="selectedModel === opt.id ? 'amber' : 'dim'"
+                    x-text="selectedModel === opt.id ? '(*)' : '( )'"></span>
+              <span class="radio-label amber" x-text="opt.label"></span>
+              <span class="dim radio-price"
+                    x-text="'$' + opt.input_price_per_million + ' / $' + opt.output_price_per_million + ' per M'"></span>
+              <span class="radio-total" x-text="formatCost(opt.estimated_total)"></span>
+              <span class="dim radio-desc" x-text="opt.description"></span>
+            </li>
+          </template>
+        </ul>
+
+        <h3 class="section-divider">WORKERS</h3>
+        <div class="workers-control">
+          <button type="button" @click="workers = Math.max(1, workers - 1)" :disabled="workers <= 1">-</button>
+          <span class="workers-value amber" x-text="workers"></span>
+          <button type="button" @click="workers = Math.min(16, workers + 1)" :disabled="workers >= 16">+</button>
+          <span class="dim">parallel workers</span>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="primary" disabled
+                  title="Run screen lands in Phase 8">
+            Start research (Phase 8)
+          </button>
+          <button type="button" @click="back()">Back</button>
+        </div>
+      </div>
     </section>
   </template>
 

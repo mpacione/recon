@@ -163,3 +163,53 @@ class CreateCompetitorRequest(BaseModel):
     url: str | None = None
     blurb: str | None = None
     own_product: bool = False
+
+
+# ---------------------------------------------------------------------------
+# /api/template
+# ---------------------------------------------------------------------------
+
+
+class TemplateSectionModel(BaseModel):
+    key: str
+    title: str
+    description: str
+    selected: bool = False
+    allowed_formats: list[str] = Field(default_factory=list)
+    preferred_format: str = "prose"
+
+
+class TemplateResponse(BaseModel):
+    sections: list[TemplateSectionModel] = Field(default_factory=list)
+
+
+class PutTemplateRequest(BaseModel):
+    path: str
+    section_keys: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# /api/confirm
+# ---------------------------------------------------------------------------
+
+
+class ModelOption(BaseModel):
+    id: str
+    label: str
+    input_price_per_million: float
+    output_price_per_million: float
+    description: str
+    estimated_total: float
+    recommended: bool = False
+
+
+class ConfirmResponse(BaseModel):
+    competitor_count: int
+    section_keys: list[str] = Field(default_factory=list)
+    section_names: list[str] = Field(default_factory=list)
+    cost_by_stage: dict[str, float] = Field(default_factory=dict)
+    estimated_total: float = 0.0
+    eta_seconds: int = 0
+    model_options: list[ModelOption] = Field(default_factory=list)
+    default_model: str = "claude-sonnet-4-20250514"
+    default_workers: int = 5

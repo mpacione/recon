@@ -9,6 +9,7 @@ table).
 from __future__ import annotations
 
 import re
+import yaml
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
@@ -24,16 +25,21 @@ from recon.web.schemas import (
     CompetitorListResponse,
     CompetitorModel,
     CompetitorRow,
+    ConfirmResponse,
     CreateCompetitorRequest,
     CreateWorkspaceRequest,
     DashboardResponse,
     HealthResponse,
+    ModelOption,
     OutputFileModel,
+    PutTemplateRequest,
     RecentProjectModel,
     RecentProjectsResponse,
     ResultsResponse,
     SaveApiKeyRequest,
     SectionStatusModel,
+    TemplateResponse,
+    TemplateSectionModel,
     ThemeFileModel,
     WorkspaceResponse,
 )
@@ -43,6 +49,54 @@ _STATIC_DIR = Path(__file__).parent / "static"
 # Default parent for newly-created workspaces when the request doesn't
 # pin one. Tests monkeypatch this to redirect into tmp_path.
 _DEFAULT_WORKSPACES_PARENT = Path.home() / "recon"
+
+# Confirm-screen cost model. Mirrors the numbers in design/v2-spec.md
+# §Screen 6. These are rough per-call/per-profile/per-theme averages
+# and will be tightened when we wire real cost telemetry back in.
+_COST_PER_SECTION_USD = 0.30
+_COST_PER_ENRICH_PROFILE_USD = 0.30
+_COST_PER_THEME_USD = 0.30
+_COST_PER_SUMMARY_USD = 0.30
+_DEFAULT_THEME_COUNT = 5
+_ENRICHMENT_PASSES = 3
+
+# Wall-clock ETA model: per research-section seconds, divided by
+# worker count. Enrichment + synthesis add fixed overhead.
+_SECONDS_PER_SECTION = 15.0
+_ENRICHMENT_OVERHEAD_S = 60.0
+_SYNTHESIS_OVERHEAD_S = 45.0
+
+# Canonical Claude 4 tier list for the Confirm screen. Prices are in
+# USD per million tokens. Keep in sync with recon.cost.ModelPricing.
+_MODEL_CATALOG: list[dict] = [
+    {
+        "id": "claude-sonnet-4-20250514",
+        "label": "Sonnet 4",
+        "description": "recommended",
+        "input_price_per_million": 3.0,
+        "output_price_per_million": 15.0,
+        "recommended": True,
+    },
+    {
+        "id": "claude-opus-4-20250805",
+        "label": "Opus 4",
+        "description": "deeper analysis",
+        "input_price_per_million": 15.0,
+        "output_price_per_million": 75.0,
+        "recommended": False,
+    },
+    {
+        "id": "claude-haiku-4-20250514",
+        "label": "Haiku 4",
+        "description": "faster, less depth",
+        "input_price_per_million": 0.8,
+        "output_price_per_million": 4.0,
+        "recommended": False,
+    },
+]
+# Sonnet = baseline for the cost model; other tiers scale the total
+# by the ratio of their blended price to Sonnet's.
+_BASELINE_MODEL_ID = "claude-sonnet-4-20250514"
 
 # Provider names recognized by the api-keys endpoints. Mirrors
 # recon.api_keys._KEY_MAP keys (the lowercase aliases).
@@ -306,6 +360,131 @@ def create_app() -> FastAPI:
         # FastAPI returns an empty 204 when the handler returns None.
         return None
 
+    @app.get("/api/template", response_model=TemplateResponse)
+    async def get_template(path: str = Query(..., description="Workspace directory path")) -> TemplateResponse:
+        """Return the full section pool with per-section selected flag.
+
+        The pool is ``DefaultSections.ALL``. A section is "selected"
+        iff it appears in the workspace's recon.yaml.
+        """
+        from recon.wizard import DefaultSections
+
+        ws = _open_workspace(path)
+        selected_keys = (
+            {s.key for s in ws.schema.sections} if ws.schema else set()
+        )
+        sections = [
+            TemplateSectionModel(
+                key=s["key"],
+                title=s["title"],
+                description=s["description"],
+                selected=s["key"] in selected_keys,
+                allowed_formats=list(s.get("allowed_formats", [])),
+                preferred_format=s.get("preferred_format", "prose"),
+            )
+            for s in DefaultSections.ALL
+        ]
+        # Any custom sections already selected but not in the pool
+        # (future custom-section support) get surfaced too.
+        known = {s.key for s in sections}
+        if ws.schema is not None:
+            for section in ws.schema.sections:
+                if section.key in known:
+                    continue
+                sections.append(
+                    TemplateSectionModel(
+                        key=section.key,
+                        title=section.title,
+                        description=section.description,
+                        selected=True,
+                        allowed_formats=list(section.allowed_formats),
+                        preferred_format=section.preferred_format,
+                    ),
+                )
+        return TemplateResponse(sections=sections)
+
+    @app.put("/api/template", response_model=TemplateResponse)
+    async def put_template(payload: PutTemplateRequest) -> TemplateResponse:
+        """Replace the workspace's selected section list.
+
+        Unknown keys cause a 400 and the yaml stays untouched, so
+        callers don't corrupt state on a typo.
+        """
+        from recon.wizard import DefaultSections
+
+        ws = _open_workspace(payload.path)
+        pool = {s["key"]: s for s in DefaultSections.ALL}
+        unknown = [k for k in payload.section_keys if k not in pool]
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown section keys: {sorted(unknown)}",
+            )
+
+        schema_path = ws.root / "recon.yaml"
+        raw = yaml.safe_load(schema_path.read_text()) or {}
+        raw["sections"] = [dict(pool[key]) for key in payload.section_keys]
+        schema_path.write_text(
+            yaml.dump(raw, default_flow_style=False, sort_keys=False),
+        )
+
+        return await get_template(str(ws.root))  # type: ignore[return-value]
+
+    @app.get("/api/confirm", response_model=ConfirmResponse)
+    async def get_confirm(path: str = Query(..., description="Workspace directory path")) -> ConfirmResponse:
+        """Cost breakdown, model options, and ETA for the Confirm screen."""
+        ws = _open_workspace(path)
+        profiles = ws.list_profiles()
+        competitor_count = len(profiles)
+
+        sections = ws.schema.sections if ws.schema else []
+        section_keys = [s.key for s in sections]
+        section_names = [s.title for s in sections]
+        section_count = len(sections)
+
+        cost_by_stage = _estimate_cost_by_stage(competitor_count, section_count)
+        estimated_total = sum(cost_by_stage.values())
+        eta_seconds = _estimate_eta_seconds(competitor_count, section_count)
+
+        baseline = next(
+            m for m in _MODEL_CATALOG if m["id"] == _BASELINE_MODEL_ID
+        )
+        baseline_blended = (
+            baseline["input_price_per_million"]
+            + baseline["output_price_per_million"]
+        )
+
+        model_options: list[ModelOption] = []
+        for entry in _MODEL_CATALOG:
+            blended = (
+                entry["input_price_per_million"]
+                + entry["output_price_per_million"]
+            )
+            scale = blended / baseline_blended if baseline_blended else 1.0
+            model_options.append(
+                ModelOption(
+                    id=entry["id"],
+                    label=entry["label"],
+                    input_price_per_million=entry["input_price_per_million"],
+                    output_price_per_million=entry["output_price_per_million"],
+                    description=entry["description"],
+                    estimated_total=round(estimated_total * scale, 2),
+                    recommended=entry["recommended"],
+                ),
+            )
+
+        return ConfirmResponse(
+            competitor_count=competitor_count,
+            section_keys=section_keys,
+            section_names=section_names,
+            cost_by_stage=cost_by_stage,
+            estimated_total=round(estimated_total, 2),
+            eta_seconds=eta_seconds,
+            model_options=model_options,
+            default_model=_BASELINE_MODEL_ID,
+            default_workers=5,
+        )
+
     @app.post("/api/api-keys")
     async def save_api_key_endpoint(payload: SaveApiKeyRequest) -> dict[str, bool]:
         """Save a provider key to the workspace .env file.
@@ -481,6 +660,46 @@ def _heuristic_company_name(description: str) -> str:
     if leading:
         return " ".join(leading)
     return tokens[0]
+
+
+def _estimate_cost_by_stage(
+    competitor_count: int,
+    section_count: int,
+) -> dict[str, float]:
+    """Stage-by-stage USD estimates for the Confirm screen.
+
+    Numbers are intentionally rough — the cost tracker records real
+    spend during a run. This is just "how many dollars should the
+    user steel themselves for before hitting Start?"
+    """
+    research = competitor_count * section_count * _COST_PER_SECTION_USD
+    enrichment = (
+        competitor_count * _ENRICHMENT_PASSES * _COST_PER_ENRICH_PROFILE_USD
+    )
+    themes = _DEFAULT_THEME_COUNT * _COST_PER_THEME_USD
+    summaries = _DEFAULT_THEME_COUNT * _COST_PER_SUMMARY_USD + _COST_PER_SUMMARY_USD
+    return {
+        "research": round(research, 2),
+        "enrichment": round(enrichment, 2),
+        "themes": round(themes, 2),
+        "summaries": round(summaries, 2),
+    }
+
+
+def _estimate_eta_seconds(
+    competitor_count: int,
+    section_count: int,
+    workers: int = 5,
+) -> int:
+    """Rough wall-clock estimate. Research dominates; fixed overhead
+    for enrichment + synthesis is added separately."""
+    workers = max(1, workers)
+    research_work = competitor_count * section_count * _SECONDS_PER_SECTION
+    return int(
+        (research_work / workers)
+        + _ENRICHMENT_OVERHEAD_S
+        + _SYNTHESIS_OVERHEAD_S,
+    )
 
 
 def _profile_to_model(

@@ -407,6 +407,182 @@ p.error {
 }
 
 /* -----------------------------------------------------------------
+ * Template — checklist with [x] / [ ] markers
+ * ----------------------------------------------------------------- */
+
+.template-controls {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.template-count {
+  margin-left: auto;
+  font-size: 0.875rem;
+}
+
+.checklist {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.checklist-item {
+  display: grid;
+  grid-template-columns: 3rem 1fr;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: var(--recon-radius);
+  cursor: pointer;
+}
+
+.checklist-item:hover {
+  background: var(--recon-surface);
+  border-color: var(--recon-border);
+}
+
+.checklist-marker {
+  font-family: var(--recon-font);
+  align-self: start;
+  padding-top: 0.15rem;
+}
+
+.checklist-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.checklist-title {
+  font-weight: 700;
+}
+
+.checklist-desc {
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+/* -----------------------------------------------------------------
+ * Confirm — cost table + model radio + workers
+ * ----------------------------------------------------------------- */
+
+.confirm-sections {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.confirm-sections li::before {
+  content: "\2022  "; /* bullet */
+  color: var(--recon-amber);
+  padding-right: 0.5rem;
+}
+
+.cost-table {
+  border-collapse: collapse;
+  margin: 0.5rem 0 1.5rem;
+  width: 100%;
+  max-width: 24rem;
+}
+
+.cost-table td {
+  padding: 0.25rem 0.75rem;
+  border-bottom: 1px dotted var(--recon-border);
+}
+
+.cost-label {
+  text-transform: capitalize;
+  color: var(--recon-fg);
+}
+
+.cost-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--recon-amber);
+}
+
+.cost-total {
+  font-weight: 700;
+}
+
+.cost-total td {
+  border-top: 1px solid var(--recon-border);
+  border-bottom: none;
+  padding-top: 0.5rem;
+}
+
+.radio-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.radio-item {
+  display: grid;
+  grid-template-columns: 3rem 8rem 14rem 6rem 1fr;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: var(--recon-radius);
+  align-items: baseline;
+}
+
+.radio-item:hover {
+  background: var(--recon-surface);
+}
+
+.radio-marker {
+  font-family: var(--recon-font);
+}
+
+.radio-label {
+  font-weight: 700;
+}
+
+.radio-price {
+  font-size: 0.875rem;
+}
+
+.radio-total {
+  text-align: right;
+  color: var(--recon-amber);
+  font-variant-numeric: tabular-nums;
+}
+
+.radio-desc {
+  font-size: 0.875rem;
+}
+
+.workers-control {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin: 0.5rem 0 1.5rem;
+}
+
+.workers-control button {
+  width: 2.5rem;
+  padding: 0.25rem 0;
+}
+
+.workers-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  min-width: 3ch;
+  text-align: center;
+}
+
+/* -----------------------------------------------------------------
  * Footer / keybinds bar
  * ----------------------------------------------------------------- */
 
