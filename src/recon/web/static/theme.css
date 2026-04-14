@@ -18,14 +18,17 @@
   --recon-surface:  #1a1a1a;  /* tui/theme.py: surface */
   --recon-panel:    #0d0d0d;  /* tui/theme.py: panel */
 
+  /* Sans — Inter 4.0. Used for body prose, headings, buttons, form
+   * labels. Uppercase + tracking on headings supplies the retro CLI
+   * feel without leaning on a display face. */
   --recon-font:
-    "JetBrains Mono", "IBM Plex Mono", "Menlo", "Consolas", monospace;
+    "Inter", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
 
-  /* Heading font. Departure Mono is cyberspace.online's default H1 face;
-   * if it's not available we fall back to JetBrains Mono + uppercase.
-   * See .section-divider / h1,h2,h3 below. */
-  --recon-heading-font:
-    "Departure Mono", "JetBrains Mono", "IBM Plex Mono", "Menlo", "Consolas", monospace;
+  /* Mono — JetBrains Mono. Reserved for data: costs, paths, keybinds,
+   * status markers, code, tabular numbers. Applied via the .mono
+   * utility class and component-level overrides. */
+  --recon-font-mono:
+    "JetBrains Mono", "IBM Plex Mono", "Menlo", "Consolas", monospace;
 
   /* 5px matches cyberspace.online's .terminal-box radius. Keep 2px
    * available for small controls (buttons, inputs) where the terminal
@@ -52,11 +55,27 @@ body {
   background: var(--recon-bg);
   color: var(--recon-fg);
   font-family: var(--recon-font);
+  /* Inter 4.0: enable contextual alternates + cv11 (single-storey a)
+   * for a slightly more geometric feel that plays nicely with
+   * JetBrains Mono in mixed content. */
+  font-feature-settings: "cv11", "ss03", "calt";
   font-size: 14px;
   line-height: 1.5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Use Inter's variable instance where available; graceful fallback
+ * for browsers that don't accept variable font-family. */
+@supports (font-variation-settings: normal) {
+  html, body { font-family: "InterVariable", "Inter", system-ui, sans-serif; }
+}
+
+/* Mono utility — apply to any element that should render in
+ * JetBrains Mono. Used on markers, paths, costs, keybinds. */
+.mono {
+  font-family: var(--recon-font-mono);
 }
 
 a {
@@ -106,14 +125,14 @@ a:focus-visible {
 }
 
 .recon-title {
-  /* Mirror cyberspace.online's H1: Departure Mono, uppercase, regular
-   * weight, cream (not amber). */
-  font-family: var(--recon-heading-font);
+  /* Brand mark — Inter uppercase with heavier tracking gives a retro
+   * CLI feel without pulling in a display face. */
+  font-family: var(--recon-font);
   color: var(--recon-fg);
-  font-weight: 400;
-  letter-spacing: 0.05em;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  font-size: 1.125rem;
+  font-size: 1rem;
 }
 
 .recon-divider {
@@ -141,17 +160,17 @@ a:focus-visible {
 
 /* Section / subsection headings.
  *
- * Dark theme reference: H1 in Departure Mono, regular weight (400),
- * uppercase, same cream as body text. We keep the TUI's ── HEADING ──
- * dash flourish but render the dashes in the border color so they
- * read as quiet structure, not as a painted amber accent. */
+ * Inter uppercase with tight tracking — the retro CLI vibe comes from
+ * the casing + tracking + flanking rules, not from a monospace face.
+ * Keeping the TUI's ── HEADING ── dash flourish as flex-grown border
+ * rules so section headers still read as "terminal banner". */
 .section-divider {
-  font-family: var(--recon-heading-font);
-  font-size: 1rem;
-  font-weight: 400;
+  font-family: var(--recon-font);
+  font-size: 0.875rem;
+  font-weight: 600;
   color: var(--recon-fg);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   margin: 0 0 0.75rem 0;
   display: flex;
   align-items: center;
@@ -166,10 +185,11 @@ a:focus-visible {
 }
 
 h1, h2, h3, h4 {
-  font-family: var(--recon-heading-font);
-  font-weight: 400;
-  letter-spacing: 0.05em;
+  font-family: var(--recon-font);
+  font-weight: 600;
+  letter-spacing: 0.08em;
   color: var(--recon-fg);
+  text-transform: uppercase;
 }
 
 /* -----------------------------------------------------------------
@@ -237,16 +257,19 @@ h1, h2, h3, h4 {
 }
 
 .recent-index {
+  font-family: var(--recon-font-mono);
   color: var(--recon-dim);
   text-align: right;
 }
 
 .recent-name {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .recent-meta {
-  font-size: 0.875rem;
+  font-family: var(--recon-font-mono);
+  font-size: 0.8125rem;
+  color: var(--recon-dim);
 }
 
 /* -----------------------------------------------------------------
@@ -268,10 +291,11 @@ h1, h2, h3, h4 {
 
 .field-label {
   /* Plain cream instead of amber — matches cyberspace.online's all-cream
-   * form labels. Still small-caps for structure. */
+   * form labels. Inter + uppercase + heavier tracking matches headers. */
   color: var(--recon-fg);
-  font-size: 0.875rem;
-  letter-spacing: 0.05em;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -295,7 +319,10 @@ input[type="password"] {
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius-sm);
   padding: 0.375rem 0.75rem;
-  font-family: var(--recon-font);
+  /* Inputs stay monospace — tokens, URLs, API keys, and descriptions
+   * all read better with fixed-width character cells, and it reinforces
+   * the terminal feel where the user is typing structured data. */
+  font-family: var(--recon-font-mono);
   font-size: inherit;
   line-height: 1.5;
   resize: vertical;
@@ -433,11 +460,13 @@ p.error {
 }
 
 .candidate-marker {
-  font-family: var(--recon-font);
+  font-family: var(--recon-font-mono);
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .candidate-name {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .candidate-status {
@@ -501,9 +530,11 @@ p.error {
 }
 
 .checklist-marker {
-  font-family: var(--recon-font);
+  font-family: var(--recon-font-mono);
+  font-size: 1rem;
+  line-height: 1;
   align-self: start;
-  padding-top: 0.15rem;
+  padding-top: 0.2rem;
 }
 
 .checklist-body {
@@ -513,12 +544,12 @@ p.error {
 }
 
 .checklist-title {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .checklist-desc {
-  font-size: 0.875rem;
-  line-height: 1.4;
+  font-size: 0.8125rem;
+  line-height: 1.45;
 }
 
 /* -----------------------------------------------------------------
@@ -558,13 +589,14 @@ p.error {
 }
 
 .cost-value {
+  font-family: var(--recon-font-mono);
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--recon-fg);
 }
 
 .cost-total {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .cost-total td {
@@ -597,25 +629,30 @@ p.error {
 }
 
 .radio-marker {
-  font-family: var(--recon-font);
+  font-family: var(--recon-font-mono);
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .radio-label {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .radio-price {
-  font-size: 0.875rem;
+  font-family: var(--recon-font-mono);
+  font-size: 0.8125rem;
+  color: var(--recon-dim);
 }
 
 .radio-total {
+  font-family: var(--recon-font-mono);
   text-align: right;
   color: var(--recon-fg);
   font-variant-numeric: tabular-nums;
 }
 
 .radio-desc {
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
 }
 
 .workers-control {
@@ -631,8 +668,9 @@ p.error {
 }
 
 .workers-value {
+  font-family: var(--recon-font-mono);
   font-size: 1.5rem;
-  font-weight: 700;
+  font-weight: 600;
   min-width: 3ch;
   text-align: center;
 }
@@ -644,7 +682,7 @@ p.error {
 .keybinds {
   border-top: 1px solid var(--recon-border);
   padding-top: 0.75rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--recon-dim);
   display: flex;
   flex-wrap: wrap;
@@ -657,13 +695,24 @@ p.error {
 
 .keybinds kbd,
 kbd {
-  font-family: inherit;
+  font-family: var(--recon-font-mono);
+  font-size: 0.8125rem;
   color: var(--recon-amber);
   background: var(--recon-surface);
   border: 1px solid var(--recon-border);
-  border-radius: var(--recon-radius);
+  border-radius: var(--recon-radius-sm);
   padding: 0 0.4em;
   margin-right: 0.4em;
+}
+
+/* Inline code + tabular paths use JetBrains Mono on a faint cream
+ * tint — matches cyberspace.online's inline-code treatment. */
+code {
+  font-family: var(--recon-font-mono);
+  font-size: 0.875em;
+  background: hsla(0, 0%, 100%, 0.07);
+  padding: 0.05em 0.35em;
+  border-radius: var(--recon-radius-sm);
 }
 
 /* -----------------------------------------------------------------
