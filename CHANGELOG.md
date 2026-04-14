@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- Web UI (Phases 1-7 + typography/nav polish)
+
+A third recon interface alongside the CLI and TUI. Local FastAPI app served
+via `recon serve` (wraps uvicorn, opens the browser, binds loopback only).
+Single-worker by design so the in-process EventBridge can fan engine events
+to SSE clients without cross-process state. Static Alpine.js shell —
+deliberately no bundler — with a hash router, Alpine stores for navigation
+and reactive state, and mock-data injection for visual QA via `Alpine.$data`.
+
+Screens shipped: Welcome (recents picker), Describe (new-project form),
+Discovery (manual-mode candidate curation; LLM-driven search is a later
+phase), Template (research-section checklist), Confirm (model + workers +
+estimate). Dashboard / Run / Results / Curation / Browser / Selector are
+placeholder routes that resolve without 404ing — the TUI SVGs in
+`docs/screenshots/tui/` are the target shapes for when we port them.
+
+#### Styling pass — neo-retro rather than terminal-emulator
+
+- **Typography:** dropped Departure Mono entirely. Inter 4.0 (rsms.me CDN)
+  handles headers/body/nav with uppercase + ~0.08em tracking for the retro
+  CLI vibe; JetBrains Mono (Google Fonts) carries data, markers, code, and
+  input content. The all-mono original made the browser feel like an
+  xterm clone rather than a sibling UI.
+- **Markers:** hybrid system — Unicode geometric shapes (U+25xx, safe for
+  the no-emoji test) for state, Lucide icons via `<iconify-icon>` for
+  click affordances. 3-state candidate marker now reads as a progressive
+  fill: `□` scaffold → `▣` researching → `■` researched. Previously
+  scaffold and researching both showed `□` and were distinguished only by
+  colour, which failed the "glance test."
+- **Flow-progress nav:** restructured from a visual breadcrumb into a
+  clickable nav. Completed steps are links (underline on hover, `role=
+  "link"`, keyboard-accessible); the current step is `aria-current="step"`
+  and the future steps are `aria-disabled="true"`. No separate top/side
+  nav — the pipeline progression *is* the nav.
+- **Dark-theme colour match** to cyberspace.online (`#0d0d0d` panel on
+  `#000000` page, `#e0a044` amber accent, `#3a3a3a` borders) plus
+  a `code`-tag cream tint for inline markdown.
+
+#### API + CLI
+
+- `recon serve --host/--port/--no-browser/--log-level/--unsafe-bind-all`
+- `GET  /api/health`, `/api/recents`, `/api/workspace`, `/api/results`
+- `POST /api/workspaces` (create) · `POST /api/discovery/round` (manual
+  candidates) · `GET  /api/events` (SSE)
+- The recents store was lifted out of `recon.tui.screens.welcome` into a
+  shared module so both UIs read the same `~/.recon/recent.json`.
+
+#### Tests
+
+- 84 web tests (`tests/web/`) cover REST smoke, recents parity with the
+  TUI, discovery round validation, and a `test_root_does_not_use_emojis`
+  guard that forbids codepoints in U+2600–U+27BF. All passing.
+- Existing 600+ engine and TUI tests unaffected.
+
+#### Reference captures
+
+- `docs/screenshots/web/*.png` — html2canvas captures of each shipped
+  screen at 2x DPR with mock data injected.
+- `docs/screenshots/tui/*.svg` — 11 pytest-textual-snapshot baselines,
+  used as the target shape for the web screens still to be ported.
+
 ### Fixed -- TUI audit Phase Q (wizard completion had the same bug)
 
 Continuing the Phase P audit: if "implicit handshake via mutable app

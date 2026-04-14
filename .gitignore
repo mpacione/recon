@@ -4,8 +4,10 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.venv
 .venv/
 venv/
+uv.lock
 
 # code-graph-rag MCP
 .code-graph-rag/
@@ -23,6 +25,9 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Claude Code local settings
+.claude/
 
 # pytest-textual-snapshot failure report
 snapshot_report.html

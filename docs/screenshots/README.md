@@ -17,9 +17,10 @@ mock data injected via the Alpine store.
 | `template.png`| Research-template checklist         |
 | `confirm.png` | Estimate + model + workers confirm  |
 
-Regenerate: start the web server (`uv run uvicorn recon.web.app:app --port 8787`),
-open the preview, and run the `html2canvas` capture flow described in
-`app.js` dev notes.
+Regenerate: start the web server with `uv run recon serve` (or, for a live
+-reload dev loop, `uv run uvicorn --factory recon.web.api:create_app --port
+8787 --reload`), open the preview, and run the `html2canvas` capture flow
+described in `app.js` dev notes.
 
 ## TUI (`tui/`)
 

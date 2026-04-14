@@ -7,11 +7,14 @@
 
 | Document | Contents |
 |---|---|
-| [Pipeline](pipeline.md) | Full revised pipeline — 6 phases from setup through delivery, state machine, phase dependencies |
-| [Setup and Discovery](setup-and-discovery.md) | Wizard flow, schema design, competitor discovery, theme discovery, own-product research |
-| [Research and Verification](research-and-verification.md) | Section-by-section research agents, multi-agent consensus verification, format constraints, source preferences |
-| [Architecture](architecture.md) | Three-layer architecture, TUI design, CLI/headless mode, state management, SQLite schema, error logging |
-| [Operations](operations.md) | Run planner, incremental runs, diff updates, cost estimation, install and dependencies |
+| [v2 spec](v2-spec.md) | Canonical UX spec for the v2 TUI flow — progressive disclosure, screen-by-screen walkthrough, keybinds, done criteria |
+| [Web UI spec](web-ui-spec.md) | FastAPI + Alpine.js + SSE architecture, route table, Pydantic schemas, build sequence, test strategy |
+| [UI audit 2026-04-12](ui-audit-2026-04-12.md) | Cross-UI audit covering TUI/web parity and aesthetic direction |
+| [Pipeline](archive/pipeline.md) | Full revised pipeline — 6 phases from setup through delivery, state machine, phase dependencies |
+| [Setup and Discovery](archive/setup-and-discovery.md) | Wizard flow, schema design, competitor discovery, theme discovery, own-product research |
+| [Research and Verification](archive/research-and-verification.md) | Section-by-section research agents, multi-agent consensus verification, format constraints, source preferences |
+| [Architecture](archive/architecture.md) | Three-layer architecture, TUI design, CLI/headless mode, state management, SQLite schema, error logging |
+| [Operations](archive/operations.md) | Run planner, incremental runs, diff updates, cost estimation, install and dependencies |
 
 ## Design Principles
 

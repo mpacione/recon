@@ -1,6 +1,15 @@
 # recon Web UI — Design Specification
 
-**Status:** Phase 1 (scaffold) in progress. Branch: `v2`. Started 2026-04-13.
+**Status:** Phases 1–7 shipped; Phases 8–10 stubbed (placeholder routes for
+dashboard/run/results/curation/browser/selector). Branch: `v2`. Started
+2026-04-13. Last updated 2026-04-14.
+
+Shipped so far: FastAPI scaffold + `recon serve` CLI (1), EventBridge (2),
+read-only API + recents lift (3), static Alpine shell + hash router (4),
+Welcome + Describe (5), Discovery (manual-mode, no LLM) (6), Template +
+Confirm (7). Plus two styling passes on top: Dark-theme colour match to
+cyberspace.online, Inter 4.0 + JetBrains Mono hybrid typography, Lucide
+icons via `iconify-icon`, and a clickable flow-progress nav.
 
 This document is the canonical reference for the third recon UI: a local web UI
 that mirrors the TUI's functionality, shares the same engine, and ports the
@@ -324,18 +333,30 @@ both files (see §9 — we'll consider extracting a shared tokens file later).
   --recon-warn:         #d79921;  /* theme.py: warning */
   --recon-surface:      #1a1a1a;  /* theme.py: surface */
   --recon-panel:        #0d0d0d;  /* theme.py: panel */
-  --recon-font: "JetBrains Mono", "IBM Plex Mono", "Menlo", monospace;
+  /* UI typography (headers, body, nav). Inter 4.0 via rsms.me CDN. */
+  --recon-font: "Inter", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  /* Data/markers/code. JetBrains Mono via Google Fonts. */
+  --recon-font-mono: "JetBrains Mono", "IBM Plex Mono", "Menlo", "Consolas", monospace;
 }
 ```
+
+The font story changed after Phase 6 — the original all-mono plan made the
+web UI feel like a terminal emulator rather than a browser app. We now run
+Inter 4.0 for UI chrome (headers, body, nav, buttons) with uppercase +
+letter-spacing for the "retro CLI vibe," and JetBrains Mono only where the
+rhythm matters: candidate/checklist/radio markers, cost values, code
+samples, keybind chips, and `<input>`/`<textarea>` content.
 
 ### Visual patterns to replicate (from TUI)
 
 | Pattern | Implementation |
 |---|---|
 | `── HEADING ──` | `.section-divider` with pseudo-element box-drawing characters |
-| `[x]` / `[ ]` checkboxes | Plain text rendered amber/dim |
-| `●` / `○` radios | Plain text |
-| `Step 3/6 · …` breadcrumb | `<nav class="flow-progress">` in the header |
+| `[x]` / `[ ]` checkboxes | `▣`/`□` Unicode shapes (U+25A3/U+25A1) |
+| `●` / `○` radios | `◉`/`○` Unicode shapes (U+25C9/U+25CB) |
+| 3-state candidate markers | `□` scaffold → `▣` researching → `■` researched (U+25A1/U+25A3/U+25A0). Progressive fill reads at a glance; colour reinforces but isn't load-bearing. |
+| Icon affordances (close, add, open) | Lucide via `<iconify-icon icon="lucide:x">` — lets us keep modern click targets without adopting a heavy icon font |
+| `Step 3/6 · …` breadcrumb | `<nav class="flow-progress">` — clickable when completed, `role="link"` + `aria-current` + `aria-disabled` wired up. Serves as the main app nav, not just a progress indicator. |
 | Bottom keybind bar | `<footer class="keybinds">` docked, 1 line |
 | Rounded thin borders | `border: 1px solid var(--recon-border); border-radius: 2px;` |
 | No emoji | Lint rule in tests + pre-commit |
