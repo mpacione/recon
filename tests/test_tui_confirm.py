@@ -54,6 +54,40 @@ class TestConfirmScreen:
             labels = [item._label for item in items]
             assert any("Sonnet" in l or "sonnet" in l for l in labels)
 
+    async def test_shows_section_names_when_provided(self) -> None:
+        from recon.tui.screens.confirm import ConfirmScreen
+
+        class _App(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield Static("")
+
+            def on_mount(self) -> None:
+                self.push_screen(ConfirmScreen(
+                    competitor_count=5,
+                    section_count=3,
+                    section_names=["Overview", "Pricing", "Community"],
+                ))
+
+        app = _App()
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            statics = app.screen.query(Static)
+            all_text = " ".join(str(s.render()) for s in statics)
+            assert "Overview" in all_text
+            assert "Pricing" in all_text
+            assert "Community" in all_text
+
+    async def test_shows_estimated_time(self) -> None:
+        app = _ConfirmTestApp()
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            statics = app.screen.query(Static)
+            all_text = " ".join(str(s.render()) for s in statics)
+            assert "min" in all_text
+            assert "Estimated time" in all_text
+
     async def test_result_contains_model_and_workers(self) -> None:
         from recon.tui.screens.confirm import ConfirmResult, ConfirmScreen
 

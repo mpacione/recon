@@ -99,12 +99,14 @@ class ConfirmScreen(ReconScreen):
         self,
         competitor_count: int,
         section_count: int,
+        section_names: list[str] | None = None,
         initial_model: str = "sonnet",
         initial_workers: int = 5,
     ) -> None:
         super().__init__()
         self._competitor_count = competitor_count
         self._section_count = section_count
+        self._section_names = section_names or []
         self._models = list_available_models()
         self._model_names = [m["name"] for m in self._models]
         self._selected_model = (
@@ -160,10 +162,20 @@ class ConfirmScreen(ReconScreen):
         themes_cost = pricing.calculate_cost(3000, 1500) * 5
         summary_cost = pricing.calculate_cost(3000, 1500) * 6
 
+        # Estimated wall-clock time: ~15s per section call + ~10s per enrich pass
+        est_seconds = section_calls * 15 + self._competitor_count * 3 * 10 + 60
+        est_minutes = max(1, est_seconds // 60)
+
+        section_list = ""
+        if self._section_names:
+            names = ", ".join(self._section_names)
+            section_list = f"\n  [#a89984]Sections:[/]  [#efe5c0]{names}[/]\n"
+
         return (
             f"[bold #e0a044]── READY TO RESEARCH ──[/]\n\n"
             f"[#efe5c0]This will research {self._competitor_count} competitors "
-            f"across {self._section_count} sections each.[/]\n\n"
+            f"across {self._section_count} sections each.[/]"
+            f"{section_list}\n"
             f"  [#a89984]Research:[/]     [#efe5c0]{section_calls} section calls[/]"
             f"          [#e0a044]~${research_cost:.2f}[/]\n"
             f"  [#a89984]Enrichment:[/]   [#efe5c0]{self._competitor_count} profiles x 3 passes[/]"
@@ -174,7 +186,9 @@ class ConfirmScreen(ReconScreen):
             f"    [#e0a044]~${summary_cost:.2f}[/]\n"
             f"                                     {'─' * 14}\n"
             f"  [#efe5c0]Estimated total:[/]"
-            f"                    [bold #e0a044]~${total:.2f}[/]"
+            f"                    [bold #e0a044]~${total:.2f}[/]\n"
+            f"  [#a89984]Estimated time:[/]"
+            f"                    [#e0a044]~{est_minutes} min[/]"
         )
 
     def _model_label(self, index: int) -> str:

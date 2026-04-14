@@ -96,18 +96,57 @@ class WorkspaceContext:
 
 
 def _detect_api_key(workspace_root: Path) -> bool:
-    """Cheap check: env var or .env in workspace root."""
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return True
+    """Check for an API key and validate it with a lightweight ping."""
+    key = _extract_api_key(workspace_root)
+    if not key:
+        return False
+    return _validate_api_key(key)
+
+
+def _extract_api_key(workspace_root: Path) -> str:
+    """Extract the API key from env var or .env file."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if key:
+        return key
     env_path = workspace_root / ".env"
     if env_path.exists():
         try:
             for line in env_path.read_text().splitlines():
                 if line.startswith("ANTHROPIC_API_KEY="):
-                    return True
+                    return line.split("=", 1)[1].strip()
         except OSError:
             pass
-    return False
+    return ""
+
+
+def _validate_api_key(key: str) -> bool:
+    """Lightweight ping to verify the API key is valid.
+
+    Uses a minimal count-tokens request to avoid spending credits.
+    Falls back to presence-check if the request fails for network reasons.
+    """
+    if not key or not key.startswith("sk-ant-"):
+        return bool(key)
+    try:
+        import urllib.error
+        import urllib.request
+
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages/count_tokens",
+            data=b'{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}',
+            headers={
+                "x-api-key": key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status == 200
+    except urllib.error.HTTPError as exc:
+        return exc.code != 401
+    except Exception:
+        return True
 
 
 # ----------------------------------------------------------------------

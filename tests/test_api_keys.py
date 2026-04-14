@@ -149,6 +149,38 @@ class TestSaveApiKey:
         assert keys_new["anthropic"] == "sk-ant-global123"
 
 
+class TestExtractApiKey:
+    def test_extracts_from_env_file(self, tmp_path: Path) -> None:
+        from recon.tui.shell import _extract_api_key
+
+        (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=sk-ant-test123\n")
+        assert _extract_api_key(tmp_path) == "sk-ant-test123"
+
+    def test_returns_empty_when_no_key(self, tmp_path: Path) -> None:
+        from recon.tui.shell import _extract_api_key
+
+        assert _extract_api_key(tmp_path) == ""
+
+    def test_prefers_env_var(self, tmp_path: Path, monkeypatch) -> None:
+        from recon.tui.shell import _extract_api_key
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fromenv")
+        (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=sk-ant-fromfile\n")
+        assert _extract_api_key(tmp_path) == "sk-ant-fromenv"
+
+
+class TestValidateApiKey:
+    def test_empty_key_is_invalid(self) -> None:
+        from recon.tui.shell import _validate_api_key
+
+        assert not _validate_api_key("")
+
+    def test_non_anthropic_key_accepted_by_presence(self) -> None:
+        from recon.tui.shell import _validate_api_key
+
+        assert _validate_api_key("some-custom-key")
+
+
 class TestMaskApiKey:
     def test_masks_middle_of_key(self) -> None:
         from recon.api_keys import mask_api_key

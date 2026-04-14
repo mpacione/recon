@@ -143,6 +143,33 @@ class TestWelcomeScreen:
             recent_items = app.query(".recent-item")
             assert len(recent_items) == 2
 
+    async def test_recent_projects_show_status_indicator(self, tmp_path: Path) -> None:
+        from textual.app import App, ComposeResult
+
+        json_path = tmp_path / "recent.json"
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        (project_dir / "recon.yaml").write_text("domain: test")
+        output_dir = project_dir / "output"
+        output_dir.mkdir()
+        (output_dir / "report.md").write_text("done")
+
+        manager = RecentProjectsManager(json_path)
+        manager.add(project_dir, "My Project")
+
+        class TestApp(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield WelcomeScreen(recent_projects_path=json_path)
+
+        app = TestApp()
+        async with app.run_test(size=(120, 40)):
+            recent_items = app.query(".recent-item")
+            assert len(recent_items) == 1
+            text = str(recent_items[0].render())
+            assert "done" in text
+
 
 class TestWelcomeScreenKeybindings:
     """Welcome's actions are exposed via keybindings.

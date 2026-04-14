@@ -276,10 +276,9 @@ class StageMonitor(Static):
             left = left_lines[i] if i < len(left_lines) else ""
             right = right_lines[i] if i < len(right_lines) else ""
 
-            # Pad left column (accounting for Rich markup)
             visible_len = len(self._strip_markup(left))
             padding = max(0, left_w - visible_len)
-            lines.append(f"{left}{' ' * padding}  {right}")
+            lines.append(f"{left}{' ' * padding} [#3a3a3a]│[/] {right}")
 
         self.update("\n".join(lines))
 
@@ -299,9 +298,9 @@ class StageMonitor(Static):
             elif cs.failed > 0:
                 icon = "[#cc241d]!![/]"
             elif cs.active_section:
-                icon = "[#e0a044]>>[/]"
+                icon = "[#e0a044]▸ [/]"
             else:
-                icon = "[#3a3a3a]· [/]"
+                icon = "[#3a3a3a]○ [/]"
 
             lines.append(f"{icon} [#efe5c0]{name:24s}[/] [#a89984]{frac:>5} {pct:>4}[/]")
 
@@ -314,24 +313,22 @@ class StageMonitor(Static):
         lines: list[str] = []
         lines.append("[#a89984]WORKERS[/]")
 
-        # Spinner frame for active workers (ticks with the 1s interval)
         spinner_idx = int(time.monotonic() * 4) % len(_SPINNER_FRAMES)
         frame = _SPINNER_FRAMES[spinner_idx]
 
         for w in self._workers:
             if w.idle:
                 lines.append(
-                    f"[#3a3a3a]\\[W{w.worker_id}] idle[/]"
+                    f"[#3a3a3a]· idle[/]"
                 )
             else:
                 elapsed = w.elapsed_str
                 lines.append(
-                    f"[#e0a044]\\[W{w.worker_id}][/] "
+                    f"[#e0a044]▸[/] "
                     f"[#efe5c0]{w.competitor}[/] [#3a3a3a]·[/] "
                     f"[#a89984]{w.task}[/]  "
                     f"[#3a3a3a]{elapsed}[/]"
                 )
-                # Show last activity line + spinner
                 if w.activity:
                     last = w.activity[-1]
                     lines.append(

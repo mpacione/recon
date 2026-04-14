@@ -89,8 +89,8 @@ class TemplateScreen(ReconScreen):
             yield Static(
                 "[bold #e0a044]── ADD YOUR OWN ──[/]\n"
                 "[#a89984]Describe a section you'd like added and we'll create it.\n"
-                'e.g. "Compare open-source vs proprietary firmware approaches"\n'
-                'e.g. "Materials compatibility — which filaments each printer supports"[/]',
+                'e.g. "Compare pricing tiers and free-trial offerings"\n'
+                'e.g. "Developer experience — API docs, SDKs, and community"[/]',
             )
             yield Static("")
             yield Input(
@@ -100,6 +100,8 @@ class TemplateScreen(ReconScreen):
 
         with Horizontal(id="template-actions"):
             yield Button("Proceed", id="btn-proceed", variant="primary")
+            yield Button("Select All", id="btn-select-all")
+            yield Button("Deselect All", id="btn-deselect-all")
             yield Button("Back", id="btn-back")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -108,6 +110,18 @@ class TemplateScreen(ReconScreen):
             self.action_submit()
         elif button_id == "btn-back":
             self.action_cancel()
+        elif button_id == "btn-select-all":
+            self._set_all_selected(True)
+        elif button_id == "btn-deselect-all":
+            self._set_all_selected(False)
+
+    def _set_all_selected(self, selected: bool) -> None:
+        for section in self._sections:
+            section["selected"] = selected
+        for item in self.query(ChecklistItem):
+            if item._selected != selected:
+                item._selected = selected
+                item.refresh()
 
     def on_checklist_item_toggled(self, event: ChecklistItem.Toggled) -> None:
         if 0 <= event.index < len(self._sections):

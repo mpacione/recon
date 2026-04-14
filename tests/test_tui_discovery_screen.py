@@ -65,6 +65,14 @@ class TestDiscoveryScreen:
             summary = app.screen.query_one("#discovery-summary", Static)
             assert "5" in str(summary.content)
 
+    async def test_header_shows_found_count(self) -> None:
+        app = _DiscoveryTestApp(state=_make_state(_make_candidates(7)))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            title = app.screen.query_one("#discovery-title", Static)
+            title_text = str(title.content)
+            assert "7 found" in title_text
+
     async def test_shows_candidates_in_datatable(self) -> None:
         app = _DiscoveryTestApp(state=_make_state(_make_candidates(3)))
         async with app.run_test(size=(120, 40)) as pilot:

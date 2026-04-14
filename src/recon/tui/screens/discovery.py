@@ -192,9 +192,12 @@ class DiscoveryScreen(ReconScreen):
 
     def compose_body(self) -> ComposeResult:
         with Vertical(id="discovery-container"):
+            count = len(self._state.all_candidates)
+            count_label = f"  [#a89984]{count} found[/]" if count > 0 else ""
             yield Static(
                 f"[bold #e0a044]── COMPETITOR DISCOVERY ──[/] "
-                f"[#a89984]·[/] [#efe5c0]{self._domain}[/]",
+                f"[#a89984]·[/] [#efe5c0]{self._domain}[/]"
+                f"{count_label}",
                 id="discovery-title",
             )
             yield self._build_search_progress()
@@ -375,6 +378,18 @@ class DiscoveryScreen(ReconScreen):
                 f"[#a89984]rounds:[/] [#e0a044]{self._state.round_count}[/]  "
                 f"[#3a3a3a]·[/]  [#a89984]accepted:[/] [#e0a044]{accepted}[/]  "
                 f"[#3a3a3a]·[/]  [#a89984]rejected:[/] [#e0a044]{rejected}[/]",
+            )
+        except Exception:
+            pass
+        # Update title with candidate count
+        try:
+            title = self.query_one("#discovery-title", Static)
+            count = len(self._state.all_candidates)
+            count_label = f"  [#a89984]{count} found[/]" if count > 0 else ""
+            title.update(
+                f"[bold #e0a044]── COMPETITOR DISCOVERY ──[/] "
+                f"[#a89984]·[/] [#efe5c0]{self._domain}[/]"
+                f"{count_label}"
             )
         except Exception:
             pass

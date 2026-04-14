@@ -133,3 +133,34 @@ class TestStageMonitor:
             monitor = app.query_one(StageMonitor)
             # Just verify it doesn't crash on enrichment events
             assert monitor is not None
+
+    async def test_column_separator_visible(self) -> None:
+        app = _MonitorTestApp(
+            competitor_names=["Alpha", "Beta"],
+            section_keys=["overview"],
+        )
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            from recon.tui.stage_monitor import StageMonitor
+
+            monitor = app.query_one(StageMonitor)
+            content = str(monitor.render())
+            assert "│" in content
+
+    async def test_no_w_numbering_in_worker_cards(self) -> None:
+        from recon.events import SectionStarted, publish
+
+        app = _MonitorTestApp(
+            competitor_names=["Alpha"],
+            section_keys=["overview"],
+        )
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            publish(SectionStarted(competitor_name="Alpha", section_key="overview"))
+            await pilot.pause()
+            from recon.tui.stage_monitor import StageMonitor
+
+            monitor = app.query_one(StageMonitor)
+            content = str(monitor.render())
+            assert "[W1]" not in content
+            assert "Alpha" in content

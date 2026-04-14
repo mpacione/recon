@@ -585,6 +585,7 @@ class ReconApp(App):
             ConfirmScreen(
                 competitor_count=competitor_count,
                 section_count=len(selected),
+                section_names=[s["title"] for s in selected],
             ),
             self._handle_v2_confirm_result,
         )

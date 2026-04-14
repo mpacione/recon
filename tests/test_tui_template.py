@@ -48,6 +48,71 @@ class TestTemplateScreen:
             assert "Overview" in labels
             assert "Pricing" in labels
 
+    async def test_select_all_selects_all_sections(self) -> None:
+        from recon.tui.screens.template import TemplateScreen
+        from recon.tui.widgets import ChecklistItem
+
+        class _App(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield Static("")
+
+            def on_mount(self) -> None:
+                sections = [
+                    {"key": "a", "title": "A", "description": "", "selected": False},
+                    {"key": "b", "title": "B", "description": "", "selected": False},
+                    {"key": "c", "title": "C", "description": "", "selected": True},
+                ]
+                self.push_screen(TemplateScreen(sections=sections, domain="test"))
+
+        app = _App()
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, TemplateScreen)
+            screen._set_all_selected(True)
+            await pilot.pause()
+            items = screen.query(ChecklistItem)
+            assert all(item._selected for item in items)
+
+    async def test_deselect_all_deselects_all_sections(self) -> None:
+        from recon.tui.screens.template import TemplateScreen
+        from recon.tui.widgets import ChecklistItem
+
+        class _App(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield Static("")
+
+            def on_mount(self) -> None:
+                sections = [
+                    {"key": "a", "title": "A", "description": "", "selected": True},
+                    {"key": "b", "title": "B", "description": "", "selected": True},
+                ]
+                self.push_screen(TemplateScreen(sections=sections, domain="test"))
+
+        app = _App()
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, TemplateScreen)
+            screen._set_all_selected(False)
+            await pilot.pause()
+            items = screen.query(ChecklistItem)
+            assert all(not item._selected for item in items)
+
+    async def test_template_has_generic_examples(self) -> None:
+        app = _TemplateTestApp()
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            statics = app.screen.query(Static)
+            all_text = " ".join(str(s.render()) for s in statics)
+            assert "filament" not in all_text.lower()
+            assert "3D" not in all_text
+            assert "firmware" not in all_text.lower()
+
     async def test_result_contains_selected_sections(self) -> None:
         from recon.tui.screens.template import TemplateResult, TemplateScreen
 

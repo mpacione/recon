@@ -217,12 +217,25 @@ class WelcomeScreen(ReconScreen):
             return
         for i, project in enumerate(projects[:9]):
             display_path = project.path.replace(str(Path.home()), "~")
+            status = self._project_status(project.path)
             yield Static(
-                f"  [#e0a044]{i + 1}[/]  [#efe5c0]{project.name}[/]"
+                f"  [#e0a044]{i + 1}[/]  {status} [#efe5c0]{project.name}[/]"
                 f"  [#3a3a3a]·[/]  [#a89984]{display_path}[/]",
                 id=f"recent-item-{i}",
                 classes="recent-item",
             )
+
+    @staticmethod
+    def _project_status(path_str: str) -> str:
+        project_path = Path(path_str)
+        if not project_path.exists():
+            return "[#cc241d]missing[/]"
+        output_dir = project_path / "output"
+        if output_dir.exists() and any(output_dir.iterdir()):
+            return "[#98971a]done[/]   "
+        if (project_path / "recon.yaml").exists():
+            return "[#d79921]ready[/]  "
+        return "[#a89984]new[/]    "
 
     def action_new(self) -> None:
         _log.info("WelcomeScreen action_new")
