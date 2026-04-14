@@ -72,7 +72,7 @@
         <template x-for="(project, i) in projects" :key="project.path">
           <li class="recent-item" @click="open(project)">
             <span class="recent-index" x-text="(i + 1) + '.'"></span>
-            <span class="recent-name amber" x-text="project.name"></span>
+            <span class="recent-name" x-text="project.name"></span>
             <span class="dim recent-meta">
               <span x-text="formatDate(project.last_opened)"></span>
               &middot;
@@ -176,7 +176,7 @@
               <span class="candidate-marker"
                     :class="{ success: c.status === 'researched', amber: c.status !== 'scaffold', dim: c.status === 'scaffold' }"
                     x-text="c.status === 'researched' ? '[x]' : '[ ]'"></span>
-              <span class="candidate-name amber" x-text="c.name"></span>
+              <span class="candidate-name" x-text="c.name"></span>
               <span class="candidate-status dim" x-text="c.status"></span>
               <button type="button" class="candidate-remove"
                       @click="remove(c)"
@@ -251,8 +251,8 @@
 
       <div x-show="!loading && data">
         <p>
-          This will research <strong class="amber" x-text="data?.competitor_count"></strong> competitor<span x-show="data?.competitor_count !== 1">s</span>
-          across <strong class="amber" x-text="data?.section_keys.length"></strong> section<span x-show="data?.section_keys.length !== 1">s</span> each.
+          This will research <strong x-text="data?.competitor_count"></strong> competitor<span x-show="data?.competitor_count !== 1">s</span>
+          across <strong x-text="data?.section_keys.length"></strong> section<span x-show="data?.section_keys.length !== 1">s</span> each.
           <span class="dim">
             &middot; <span x-text="formatEta(data?.eta_seconds)"></span> estimated
           </span>
@@ -288,7 +288,7 @@
               <span class="radio-marker"
                     :class="selectedModel === opt.id ? 'amber' : 'dim'"
                     x-text="selectedModel === opt.id ? '(*)' : '( )'"></span>
-              <span class="radio-label amber" x-text="opt.label"></span>
+              <span class="radio-label" x-text="opt.label"></span>
               <span class="dim radio-price"
                     x-text="'$' + opt.input_price_per_million + ' / $' + opt.output_price_per_million + ' per M'"></span>
               <span class="radio-total" x-text="formatCost(opt.estimated_total)"></span>

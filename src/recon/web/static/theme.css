@@ -21,7 +21,17 @@
   --recon-font:
     "JetBrains Mono", "IBM Plex Mono", "Menlo", "Consolas", monospace;
 
-  --recon-radius: 2px;
+  /* Heading font. Departure Mono is cyberspace.online's default H1 face;
+   * if it's not available we fall back to JetBrains Mono + uppercase.
+   * See .section-divider / h1,h2,h3 below. */
+  --recon-heading-font:
+    "Departure Mono", "JetBrains Mono", "IBM Plex Mono", "Menlo", "Consolas", monospace;
+
+  /* 5px matches cyberspace.online's .terminal-box radius. Keep 2px
+   * available for small controls (buttons, inputs) where the terminal
+   * look calls for sharper corners. */
+  --recon-radius: 5px;
+  --recon-radius-sm: 2px;
   --recon-gap: 1rem;
 }
 
@@ -50,15 +60,19 @@ body {
 }
 
 a {
-  color: var(--recon-amber);
-  text-decoration: none;
-  border-bottom: 1px dotted var(--recon-amber);
+  /* cyberspace.online links stay cream; underline marks them instead of
+   * a color swap. Keeps the page from looking "painted" with amber. */
+  color: var(--recon-fg);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--recon-border);
+  text-underline-offset: 0.2em;
 }
 
 a:hover,
 a:focus-visible {
-  color: var(--recon-fg);
-  border-bottom-color: var(--recon-fg);
+  color: var(--recon-amber);
+  text-decoration-color: var(--recon-amber);
   outline: none;
 }
 
@@ -75,7 +89,9 @@ a:focus-visible {
   display: grid;
   grid-template-rows: auto 1fr auto;
   min-height: 100vh;
-  max-width: 1280px;
+  /* cyberspace.online caps its content column at roughly 880px which
+   * keeps lines at a readable monospace width. */
+  max-width: 920px;
   margin: 0 auto;
   padding: 1.5rem;
   gap: 1rem;
@@ -90,9 +106,14 @@ a:focus-visible {
 }
 
 .recon-title {
-  color: var(--recon-amber);
-  font-weight: 700;
+  /* Mirror cyberspace.online's H1: Departure Mono, uppercase, regular
+   * weight, cream (not amber). */
+  font-family: var(--recon-heading-font);
+  color: var(--recon-fg);
+  font-weight: 400;
   letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 1.125rem;
 }
 
 .recon-divider {
@@ -109,22 +130,29 @@ a:focus-visible {
   gap: 2rem;
 }
 
+/* Section card — mirrors cyberspace.online's .terminal-box: pure black
+ * bg, 1px border, 5px radius, tight padding. */
 .section {
-  background: var(--recon-panel);
+  background: var(--recon-bg);
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius);
-  padding: 1.25rem 1.5rem;
+  padding: 0.875rem 1rem;
 }
 
-/* Section dividers — rendered with box-drawing dashes to match the
- * ── HEADING ── pattern used in the TUI. */
+/* Section / subsection headings.
+ *
+ * Dark theme reference: H1 in Departure Mono, regular weight (400),
+ * uppercase, same cream as body text. We keep the TUI's ── HEADING ──
+ * dash flourish but render the dashes in the border color so they
+ * read as quiet structure, not as a painted amber accent. */
 .section-divider {
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--recon-amber);
+  font-family: var(--recon-heading-font);
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--recon-fg);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin: 0 0 1rem 0;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.75rem 0;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -135,6 +163,13 @@ a:focus-visible {
   content: "";
   flex: 1 1 auto;
   border-top: 1px solid var(--recon-border);
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--recon-heading-font);
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  color: var(--recon-fg);
 }
 
 /* -----------------------------------------------------------------
@@ -232,9 +267,12 @@ a:focus-visible {
 }
 
 .field-label {
-  color: var(--recon-amber);
+  /* Plain cream instead of amber — matches cyberspace.online's all-cream
+   * form labels. Still small-caps for structure. */
+  color: var(--recon-fg);
   font-size: 0.875rem;
   letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .field-row {
@@ -255,8 +293,8 @@ input[type="password"] {
   background: var(--recon-bg);
   color: var(--recon-fg);
   border: 1px solid var(--recon-border);
-  border-radius: var(--recon-radius);
-  padding: 0.5rem 0.75rem;
+  border-radius: var(--recon-radius-sm);
+  padding: 0.375rem 0.75rem;
   font-family: var(--recon-font);
   font-size: inherit;
   line-height: 1.5;
@@ -290,33 +328,50 @@ input:focus {
 }
 
 button {
-  background: var(--recon-bg);
+  background: transparent;
   color: var(--recon-fg);
   font-family: var(--recon-font);
   font-size: inherit;
-  padding: 0.5rem 1.25rem;
+  padding: 0.25rem 1rem;
   border: 1px solid var(--recon-border);
-  border-radius: var(--recon-radius);
+  border-radius: var(--recon-radius-sm);
   cursor: pointer;
+  line-height: 1.5;
 }
 
 button:hover {
-  border-color: var(--recon-dim);
+  border-color: var(--recon-fg);
 }
 
+/* Primary — solid cream fill with dark text. Lifted directly from
+ * cyberspace.online's "Sign up" CTA. */
 button.primary {
-  border-color: var(--recon-amber);
-  color: var(--recon-amber);
-  font-weight: 700;
+  background: var(--recon-fg);
+  color: var(--recon-bg);
+  border-color: var(--recon-fg);
 }
 
 button.primary:hover {
-  background: var(--recon-surface);
+  background: var(--recon-amber);
+  border-color: var(--recon-amber);
+  color: var(--recon-bg);
 }
 
 button[disabled] {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+button[disabled]:hover {
+  border-color: var(--recon-border);
+  background: transparent;
+  color: var(--recon-fg);
+}
+
+button.primary[disabled]:hover {
+  background: var(--recon-fg);
+  border-color: var(--recon-fg);
+  color: var(--recon-bg);
 }
 
 p.error {
@@ -481,7 +536,7 @@ p.error {
 
 .confirm-sections li::before {
   content: "\2022  "; /* bullet */
-  color: var(--recon-amber);
+  color: var(--recon-dim);
   padding-right: 0.5rem;
 }
 
@@ -505,7 +560,7 @@ p.error {
 .cost-value {
   text-align: right;
   font-variant-numeric: tabular-nums;
-  color: var(--recon-amber);
+  color: var(--recon-fg);
 }
 
 .cost-total {
@@ -555,7 +610,7 @@ p.error {
 
 .radio-total {
   text-align: right;
-  color: var(--recon-amber);
+  color: var(--recon-fg);
   font-variant-numeric: tabular-nums;
 }
 
