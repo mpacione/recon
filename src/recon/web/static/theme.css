@@ -672,13 +672,23 @@ iconify-icon {
 
 .radio-item {
   display: grid;
-  grid-template-columns: 3rem 8rem 14rem 6rem 1fr;
+  /* Label gets extra room so "Claude Sonnet 4.5" and similar names
+   * don't wrap. Price column widened slightly for the " / $" split
+   * line. Description fills remainder. */
+  grid-template-columns: 2.25rem minmax(10rem, auto) minmax(12rem, auto) 6rem 1fr;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
   cursor: pointer;
   border: 1px solid transparent;
   border-radius: var(--recon-radius);
   align-items: baseline;
+}
+
+.radio-item:has(.radio-marker.amber) {
+  /* Subtle amber highlight on the selected row so it reads at a glance
+   * even before the user sees the filled marker. */
+  background: color-mix(in oklab, var(--recon-amber) 8%, transparent);
+  border-color: var(--recon-amber);
 }
 
 .radio-item:hover {
@@ -730,6 +740,114 @@ iconify-icon {
   font-weight: 600;
   min-width: 3ch;
   text-align: center;
+}
+
+/* -----------------------------------------------------------------
+ * Empty / coming-soon states
+ *
+ * Used for screens that are registered in the router but don't have
+ * a full implementation yet (e.g. the Run screen during Phase 7).
+ * The goal is to communicate "this is a known planned destination,
+ * you're not lost" without leaking internal phase numbers or file
+ * paths that only mean something to the dev team.
+ * ----------------------------------------------------------------- */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 0.25rem 0.5rem;
+  color: var(--recon-fg);
+}
+
+.empty-state-icon {
+  color: var(--recon-dim);
+  /* Pull the icon baseline up so it sits next to the heading rule
+   * rather than floating above it. */
+  margin-bottom: -0.25rem;
+}
+
+.empty-state-title {
+  font-weight: 600;
+  color: var(--recon-fg);
+  margin: 0;
+}
+
+.empty-state-body {
+  color: var(--recon-dim);
+  max-width: 48ch;
+  margin: 0;
+  line-height: 1.55;
+}
+
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+/* Anchor styled as a button. Used in empty-state CTAs where we want
+ * the browser to treat the control as a link (right-click, copy URL,
+ * open in new tab) rather than a JS-only button. */
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 1rem;
+  color: var(--recon-fg);
+  border: 1px solid var(--recon-border);
+  border-radius: var(--recon-radius-sm);
+  text-decoration: none;
+  font-family: var(--recon-font);
+  line-height: 1.5;
+}
+
+.button-link:hover,
+.button-link:focus-visible {
+  color: var(--recon-amber);
+  border-color: var(--recon-amber);
+  outline: none;
+}
+
+/* Pill that flags a feature as "under construction" without the
+ * developer-facing "Phase N" vocabulary. */
+.badge-soon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0.5rem;
+  font-family: var(--recon-font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--recon-amber);
+  background: color-mix(in oklab, var(--recon-amber) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--recon-amber) 35%, transparent);
+  border-radius: 999px;
+}
+
+/* Inline banner used on the Confirm screen (and anywhere else that
+ * needs a muted "heads up" row without a full empty-state layout). */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  margin: 0.75rem 0 0.25rem;
+  border: 1px solid color-mix(in oklab, var(--recon-amber) 35%, transparent);
+  background: color-mix(in oklab, var(--recon-amber) 7%, transparent);
+  border-radius: var(--recon-radius);
+  color: var(--recon-fg);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.notice iconify-icon {
+  color: var(--recon-amber);
+  flex: 0 0 auto;
+  margin-top: 0.15rem;
 }
 
 /* -----------------------------------------------------------------

@@ -338,10 +338,19 @@
           <span class="dim">parallel workers</span>
         </div>
 
+        <p class="notice" role="note">
+          <iconify-icon icon="lucide:info" width="16" height="16" aria-hidden="true"></iconify-icon>
+          <span>
+            Live research runs land in a follow-up release. Your workspace, competitors,
+            and template are saved &mdash; you can return here any time.
+          </span>
+        </p>
+
         <div class="actions">
           <button type="button" class="primary" disabled
-                  title="Run screen lands in Phase 8">
-            Start research (Phase 8)
+                  title="Live research runs land in a follow-up release">
+            Start research
+            <span class="badge-soon" aria-label="coming soon">soon</span>
           </button>
           <button type="button" @click="back()">Back</button>
         </div>
@@ -349,58 +358,164 @@
     </section>
   </template>
 
+  <!-- =============================================================
+       Placeholder screens. The router resolves these so deep links
+       never land on "unknown screen", but the features themselves
+       arrive in a follow-up release. Each screen wears the same
+       empty-state shell so users learn the pattern.
+       ============================================================= -->
+
   <template id="screen-run">
     <section class="section">
-      <h2 class="section-divider">RUN</h2>
-      <p class="dim">Coming in Phase 8.</p>
+      <h2 class="section-divider">RESEARCH RUN
+        <span class="badge-soon" aria-label="coming soon">soon</span>
+      </h2>
+      <div class="empty-state">
+        <iconify-icon class="empty-state-icon" icon="lucide:play-circle" width="36" height="36" aria-hidden="true"></iconify-icon>
+        <p class="empty-state-title">Live research streaming lands in a follow-up release.</p>
+        <p class="empty-state-body">
+          This is where you&rsquo;ll watch the pipeline work &mdash; per-competitor progress,
+          running cost, and streaming agent output. For now, your workspace, competitors,
+          and template are all saved and ready.
+        </p>
+        <div class="empty-state-actions">
+          <a class="button-link" href="#/welcome">
+            <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
+            Back to projects
+          </a>
+        </div>
+      </div>
     </section>
   </template>
 
   <template id="screen-results">
     <section class="section">
-      <h2 class="section-divider">RESEARCH COMPLETE</h2>
-      <p class="dim">Coming in Phase 9.</p>
+      <h2 class="section-divider">RESEARCH COMPLETE
+        <span class="badge-soon" aria-label="coming soon">soon</span>
+      </h2>
+      <div class="empty-state">
+        <iconify-icon class="empty-state-icon" icon="lucide:sparkles" width="36" height="36" aria-hidden="true"></iconify-icon>
+        <p class="empty-state-title">Results view arrives with the live runner.</p>
+        <p class="empty-state-body">
+          You&rsquo;ll land here after a run completes &mdash; executive summary, per-theme
+          briefs, and links to every sourced fact.
+        </p>
+        <div class="empty-state-actions">
+          <a class="button-link" href="#/welcome">
+            <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
+            Back to projects
+          </a>
+        </div>
+      </div>
     </section>
   </template>
 
   <template id="screen-dashboard">
     <section class="section">
-      <h2 class="section-divider">DASHBOARD</h2>
-      <p class="dim">Coming in Phase 9.</p>
+      <h2 class="section-divider">DASHBOARD
+        <span class="badge-soon" aria-label="coming soon">soon</span>
+      </h2>
+      <div class="empty-state">
+        <iconify-icon class="empty-state-icon" icon="lucide:layout-dashboard" width="36" height="36" aria-hidden="true"></iconify-icon>
+        <p class="empty-state-title">The project dashboard is on the way.</p>
+        <p class="empty-state-body">
+          Resume, re-run, or browse existing research on any saved workspace. Until
+          this lands, start a fresh project or jump back into setup from the welcome
+          screen.
+        </p>
+        <div class="empty-state-actions">
+          <a class="button-link" href="#/welcome">
+            <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
+            Back to projects
+          </a>
+        </div>
+      </div>
     </section>
   </template>
 
-  <!-- TUI-only today. These routes exist so the router resolves them
-       instead of falling through to "unknown screen" if another flow
-       or deep link references them. Each will port to web in a later
-       phase once the information architecture settles. See
-       docs/screenshots/tui/ for the target shapes. -->
   <template id="screen-curation">
     <section class="section">
-      <h2 class="section-divider">THEME CURATION</h2>
-      <p class="dim">Coming in Phase 10. See <code>docs/screenshots/tui/curation_with_themes.svg</code> for the target shape.</p>
+      <h2 class="section-divider">THEME CURATION
+        <span class="badge-soon" aria-label="coming soon">soon</span>
+      </h2>
+      <div class="empty-state">
+        <iconify-icon class="empty-state-icon" icon="lucide:tags" width="36" height="36" aria-hidden="true"></iconify-icon>
+        <p class="empty-state-title">Theme curation is available in the terminal UI today.</p>
+        <p class="empty-state-body">
+          Run <code>recon tui</code> to review emerging themes and approve the ones
+          worth a deep dive. This screen brings the same workflow to the web.
+        </p>
+        <div class="empty-state-actions">
+          <a class="button-link" href="#/welcome">
+            <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
+            Back to projects
+          </a>
+        </div>
+      </div>
     </section>
   </template>
 
   <template id="screen-browser">
     <section class="section">
-      <h2 class="section-divider">COMPETITOR BROWSER</h2>
-      <p class="dim">Coming in Phase 10. See <code>docs/screenshots/tui/browser_with_competitors.svg</code> for the target shape.</p>
+      <h2 class="section-divider">COMPETITOR BROWSER
+        <span class="badge-soon" aria-label="coming soon">soon</span>
+      </h2>
+      <div class="empty-state">
+        <iconify-icon class="empty-state-icon" icon="lucide:folder-search" width="36" height="36" aria-hidden="true"></iconify-icon>
+        <p class="empty-state-title">Per-competitor deep dives live in the terminal UI.</p>
+        <p class="empty-state-body">
+          <code>recon tui</code> lets you drill into any competitor to read the
+          synthesised brief, sourced facts, and raw retrievals. Web parity is next.
+        </p>
+        <div class="empty-state-actions">
+          <a class="button-link" href="#/welcome">
+            <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
+            Back to projects
+          </a>
+        </div>
+      </div>
     </section>
   </template>
 
   <template id="screen-selector">
     <section class="section">
-      <h2 class="section-divider">COMPETITOR SELECTOR</h2>
-      <p class="dim">Coming in Phase 10. See <code>docs/screenshots/tui/selector_with_competitors.svg</code> for the target shape.</p>
+      <h2 class="section-divider">COMPETITOR SELECTOR
+        <span class="badge-soon" aria-label="coming soon">soon</span>
+      </h2>
+      <div class="empty-state">
+        <iconify-icon class="empty-state-icon" icon="lucide:list-checks" width="36" height="36" aria-hidden="true"></iconify-icon>
+        <p class="empty-state-title">Pick-and-re-run is coming with the live runner.</p>
+        <p class="empty-state-body">
+          For now, the terminal UI lets you scope an incremental run to a subset of
+          competitors. This screen will bring that shortcut to the web.
+        </p>
+        <div class="empty-state-actions">
+          <a class="button-link" href="#/welcome">
+            <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
+            Back to projects
+          </a>
+        </div>
+      </div>
     </section>
   </template>
 
   <template id="screen-not-found">
     <section class="section">
-      <h2 class="section-divider error">UNKNOWN SCREEN</h2>
-      <p>No screen registered for <code x-text="$store.router.hash"></code>.</p>
-      <p><a href="#/welcome">Return to welcome</a></p>
+      <h2 class="section-divider error">NOT FOUND</h2>
+      <div class="empty-state">
+        <iconify-icon class="empty-state-icon" icon="lucide:map-pin-off" width="36" height="36" aria-hidden="true"></iconify-icon>
+        <p class="empty-state-title">That route doesn&rsquo;t match any screen.</p>
+        <p class="empty-state-body">
+          No screen is registered for <code x-text="$store.router.hash"></code><span>.</span>
+          Head back to the welcome screen to start a new project or resume a recent one.
+        </p>
+        <div class="empty-state-actions">
+          <a class="button-link" href="#/welcome">
+            <iconify-icon icon="lucide:home" width="14" height="14" aria-hidden="true"></iconify-icon>
+            Return home
+          </a>
+        </div>
+      </div>
     </section>
   </template>
 </body>

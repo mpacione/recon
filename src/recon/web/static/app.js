@@ -113,12 +113,20 @@ function reconShell() {
     },
 
     mount(screenKey) {
-      const tpl = document.getElementById(`screen-${screenKey}`)
-        || document.getElementById('screen-not-found');
+      // When the requested screen isn't registered, fall back to the
+      // not-found template AND mark the shell's activeScreen as
+      // 'not-found' so chrome derived from activeScreen (flow nav,
+      // keybinds, subtitle) reflects the actual rendered screen.
+      let tpl = document.getElementById(`screen-${screenKey}`);
+      let resolvedKey = screenKey;
+      if (!tpl) {
+        tpl = document.getElementById('screen-not-found');
+        resolvedKey = 'not-found';
+      }
       const slot = this.$refs.slot;
       slot.innerHTML = '';
       slot.appendChild(tpl.content.cloneNode(true));
-      this.activeScreen = screenKey;
+      this.activeScreen = resolvedKey;
     },
 
     // -------------------------------------------------------------
