@@ -40,6 +40,30 @@ class TestRoot:
         response = client.get("/")
         assert "theme.css" in response.text
 
+    def test_root_injects_recon_home_config(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # The SPA's welcome screen uses window.RECON_HOME to shorten
+        # paths like /Users/alice/work to ~/work. The root route must
+        # swap the <!--RECON_CONFIG--> marker for a script that sets
+        # it — otherwise the frontend shows absolute paths.
+        monkeypatch.setenv("HOME", "/Users/alice")
+        response = client.get("/")
+        body = response.text
+        assert "<!--RECON_CONFIG-->" not in body
+        assert 'window.RECON_HOME = "/Users/alice"' in body
+
+    def test_root_escapes_home_for_safe_injection(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # A HOME containing a double-quote or backslash must not break
+        # the injected <script>. json.dumps produces a valid JS literal.
+        monkeypatch.setenv("HOME", 'C:\\Users\\"bob"')
+        response = client.get("/")
+        body = response.text
+        # Literal backslash + escaped quote inside the JS string.
+        assert 'window.RECON_HOME = "C:\\\\Users\\\\\\"bob\\""' in body
+
     def test_root_does_not_use_emojis(self, client: TestClient) -> None:
         # House style: no emoji anywhere. Catches pasted-from-design
         # leakage where someone slips a U+1F* glyph into the HTML.

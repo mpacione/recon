@@ -8,6 +8,8 @@ table).
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import yaml
 from collections.abc import AsyncIterator
@@ -16,7 +18,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
@@ -38,6 +40,8 @@ from recon.web.schemas import (
     ResultsResponse,
     SaveApiKeyRequest,
     SectionStatusModel,
+    StartRunRequest,
+    StartRunResponse,
     TemplateResponse,
     TemplateSectionModel,
     ThemeFileModel,
@@ -534,6 +538,94 @@ def create_app() -> FastAPI:
         save_api_key(payload.name, payload.value, ws.root)
         return _load_api_key_status(ws.root)
 
+    @app.post("/api/runs")
+    async def start_run(payload: StartRunRequest) -> StartRunResponse:
+        """Kick off a pipeline run and return the run_id for SSE subscription.
+
+        Prototype behaviour: the LLM client is ALWAYS a deterministic
+        fake (see :mod:`recon.web.fake_llm`). Real-LLM mode is gated
+        behind a follow-up release — letting the "Start research"
+        button in the UI cost money before the surrounding flow is
+        finished would be a bad trade.
+
+        The pipeline runs as a background task on the FastAPI event
+        loop. The :class:`EventBridge` already fans out every engine
+        event to subscribed SSE clients, so the caller just needs to
+        open the returned ``events_url`` to see the stream.
+        """
+        ws = _open_workspace(payload.path)
+
+        # Defer the heavy imports until someone actually runs a pipeline.
+        # Matches the TUI pipeline_runner pattern so the web app stays
+        # snappy at startup.
+        from dataclasses import replace
+
+        from recon.pipeline import Pipeline, PipelineConfig, PipelineStage
+        from recon.state import StateStore
+        from recon.web.fake_llm import FakeLLMClient
+
+        # Fake mode is the only supported mode today. A future branch
+        # will honour use_fake_llm=False by routing through
+        # recon.client_factory.create_llm_client with proper API-key
+        # validation — but doing that from the web UI before the flow
+        # is nailed down would spend real dollars on a button click.
+        client = FakeLLMClient()
+
+        store = StateStore(db_path=ws.root / ".recon" / "state.db")
+        await store.initialize()
+
+        config = PipelineConfig(
+            start_from=PipelineStage.RESEARCH,
+            stop_after=PipelineStage.DELIVER,
+            verification_enabled=False,
+        )
+        if payload.workers:
+            config = replace(config, max_research_workers=payload.workers)
+
+        import asyncio as _asyncio
+
+        cancel_event = _asyncio.Event()
+        pause_event = _asyncio.Event()
+        pause_event.set()  # set = running, cleared = paused
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=client,
+            config=config,
+            cancel_event=cancel_event,
+            pause_event=pause_event,
+        )
+
+        try:
+            run_id = await pipeline.plan()
+        except Exception as exc:  # noqa: BLE001 -- surface failure to caller
+            raise HTTPException(
+                status_code=500,
+                detail=f"could not plan run: {exc}",
+            ) from exc
+
+        async def _execute() -> None:
+            try:
+                await pipeline.execute(run_id)
+            except Exception:
+                # Errors flow to the UI via RunFailed events; we don't
+                # want to crash the server loop just because one run
+                # failed.
+                import logging as _logging
+
+                _logging.getLogger(__name__).exception(
+                    "pipeline run %s crashed", run_id,
+                )
+
+        _asyncio.create_task(_execute())
+
+        return StartRunResponse(
+            run_id=run_id,
+            events_url=f"/api/runs/{run_id}/events",
+            use_fake_llm=True,
+        )
+
     @app.get("/api/events")
     async def events() -> EventSourceResponse:
         """Server-Sent Events stream of every engine event.
@@ -574,22 +666,52 @@ def create_app() -> FastAPI:
     return app
 
 
+_CONFIG_MARKER = "<!--RECON_CONFIG-->"
+
+
+def _render_index_html() -> str:
+    """Return the SPA shell with server-side config injected.
+
+    We swap the ``<!--RECON_CONFIG-->`` marker in index.html for a
+    ``<script>`` that sets ``window.RECON_HOME``. The frontend reads
+    this to display HOME-relative paths as ``~/...`` (see
+    ``welcomeScreen.shortPath`` in app.js).
+
+    Rendering happens per-request because ``$HOME`` can differ between
+    the process and the user viewing the page. The file is small
+    (<20KB) so reading it fresh has no meaningful cost.
+    """
+    raw = (_STATIC_DIR / "index.html").read_text()
+    home = os.path.expanduser("~")
+    # json.dumps produces a valid JS string literal (escapes quotes,
+    # backslashes, control chars, and produces "null" for None). This
+    # is safer than repr() or manual string splicing since the home
+    # directory can contain characters with special meaning in JS.
+    payload = (
+        "<script>"
+        f"window.RECON_HOME = {json.dumps(home)};"
+        "</script>"
+    )
+    # Use a single-shot replace so accidental duplicate markers in
+    # future edits don't silently double-inject.
+    if _CONFIG_MARKER in raw:
+        return raw.replace(_CONFIG_MARKER, payload, 1)
+    return raw
+
+
 def _register_root_route(app: FastAPI) -> None:
     """Attach the SPA shell route. Split out to keep create_app readable."""
 
     @app.get("/")
-    async def root() -> FileResponse:
-        """Serve the SPA shell.
+    async def root() -> HTMLResponse:
+        """Serve the SPA shell with runtime config injected.
 
-        We serve the static index.html directly rather than mounting
+        We serve the rendered index.html directly rather than mounting
         StaticFiles at "/" so that hash-based client routes (e.g.
         ``/#/welcome``) and future deep links don't accidentally hit
         a static-file 404.
         """
-        return FileResponse(
-            _STATIC_DIR / "index.html",
-            media_type="text/html",
-        )
+        return HTMLResponse(_render_index_html())
 
 
 # ---------------------------------------------------------------------------

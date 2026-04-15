@@ -42,9 +42,9 @@ const SCREEN_KEYBINDS = {
   describe:  [{ key: 'enter', label: 'continue' }, { key: 'esc', label: 'back' }],
   discover:  [{ key: 'space', label: 'toggle' }, { key: 's', label: 'search more' }, { key: 'enter', label: 'done' }, { key: 'esc', label: 'back' }],
   template:  [{ key: 'space', label: 'toggle' }, { key: 'enter', label: 'proceed' }, { key: 'esc', label: 'back' }],
-  confirm:   [{ key: 'esc', label: 'back' }],
-  run:       [{ key: 'p', label: 'pause' }, { key: 's', label: 'stop' }, { key: 'q', label: 'quit' }],
-  results:   [{ key: 'v', label: 'view summary' }, { key: 'b', label: 'dashboard' }, { key: 'q', label: 'quit' }],
+  confirm:   [{ key: 'enter', label: 'start run' }, { key: 'esc', label: 'back' }],
+  run:       [{ key: 'esc', label: 'back to dashboard' }],
+  results:   [{ key: 'b', label: 'dashboard' }, { key: 'h', label: 'home' }],
   dashboard: [{ key: 'r', label: 'run' }, { key: 'b', label: 'back' }, { key: 'q', label: 'quit' }],
   curation:  [{ key: 'h', label: 'home' }],
   browser:   [{ key: 'h', label: 'home' }],
@@ -234,10 +234,11 @@ function reconShell() {
       const data = this.screenData();
       const router = Alpine.store('router');
 
-      // Flow screens reserve Enter/Escape. Outside the flow, `h` is
-      // the universal "home" shortcut.
-      const inFlow = ['describe', 'discover', 'template', 'confirm'].includes(screen);
-      if (key === 'h' && !inFlow) {
+      // Flow screens reserve Enter/Escape for proceed/back. Outside
+      // the flow (and on the terminal 'results' screen), `h` is the
+      // universal "home" shortcut.
+      const reservesH = ['describe', 'discover', 'template', 'confirm', 'run'].includes(screen);
+      if (key === 'h' && !reservesH) {
         router.navigate('#/welcome');
         event.preventDefault();
         return;
@@ -288,6 +289,23 @@ function reconShell() {
         case 'confirm':
           if (key === 'Escape' && data && typeof data.back === 'function') {
             data.back();
+            event.preventDefault();
+          } else if (key === 'Enter' && data && typeof data.start === 'function') {
+            data.start();
+            event.preventDefault();
+          }
+          break;
+
+        case 'run':
+          if (key === 'Escape' && this.workspacePath) {
+            router.navigate(`#/dashboard/${encodeURIComponent(this.workspacePath)}`);
+            event.preventDefault();
+          }
+          break;
+
+        case 'results':
+          if (key === 'b' && this.workspacePath) {
+            router.navigate(`#/dashboard/${encodeURIComponent(this.workspacePath)}`);
             event.preventDefault();
           }
           break;
@@ -616,6 +634,7 @@ function confirmScreen() {
     data: null,
     selectedModel: '',
     workers: 5,
+    starting: false,
 
     get workspacePath() {
       return Alpine.store('router').params.arg[0] || '';
@@ -651,10 +670,309 @@ function confirmScreen() {
       return `~${mins} min`;
     },
 
+    // Kick off a run. The server always injects the fake LLM client
+    // for the prototype, so this is cheap by design. We navigate to
+    // the run screen as soon as we have a run_id; the SSE stream
+    // drives the rest of the UX.
+    async start() {
+      if (this.starting || this.loading) return;
+      this.starting = true;
+      this.error = null;
+      try {
+        const res = await fetch('/api/runs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: this.workspacePath,
+            model: this.selectedModel || null,
+            workers: this.workers || null,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          this.error = body.detail || `could not start run (${res.status})`;
+          return;
+        }
+        const body = await res.json();
+        Alpine.store('router').navigate(
+          `#/run/${encodeURIComponent(this.workspacePath)}/${encodeURIComponent(body.run_id)}`,
+        );
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.starting = false;
+      }
+    },
+
     back() {
       Alpine.store('router').navigate(
         `#/template/${encodeURIComponent(this.workspacePath)}`,
       );
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Run screen
+// ---------------------------------------------------------------------------
+//
+// Subscribes to /api/runs/<run_id>/events and renders:
+//   - a live activity log (capped at MAX_ACTIVITY entries)
+//   - a running cost counter from CostRecorded events
+//   - a stage progress bar driven by RunStageStarted events
+//   - "view results" / "open dashboard" CTAs when the run finishes
+//
+// Stage weights mirror the TUI's pipeline_runner so users see the
+// same rough shape of progress across both UIs.
+
+const _RUN_STAGE_PROGRESS = {
+  research: 0.15,
+  verify: 0.3,
+  enrich: 0.45,
+  index: 0.55,
+  themes: 0.65,
+  synthesize: 0.85,
+  deliver: 0.95,
+};
+
+const _RUN_MAX_ACTIVITY = 80;
+
+function runScreen() {
+  return {
+    // The SSE subscription lives on the factory instance so we can
+    // tear it down when the component unmounts (the hash router
+    // replaces .screen-slot on navigation, which triggers Alpine's
+    // destroy() path where we close the stream).
+    _source: null,
+
+    activity: [],
+    cost: 0,
+    progress: 0,
+    phase: 'connecting',
+    status: 'running',  // 'running' | 'done' | 'failed' | 'cancelled'
+    error: null,
+
+    get workspacePath() {
+      return Alpine.store('router').params.arg[0] || '';
+    },
+
+    get runId() {
+      return Alpine.store('router').params.arg[1] || '';
+    },
+
+    get progressPercent() {
+      return Math.round(this.progress * 100);
+    },
+
+    get isTerminal() {
+      return this.status !== 'running';
+    },
+
+    init() {
+      if (!this.runId) {
+        this.error = 'no run_id in URL';
+        this.status = 'failed';
+        return;
+      }
+      this._connect();
+    },
+
+    destroy() {
+      this._teardown();
+    },
+
+    _teardown() {
+      if (this._source) {
+        this._source.close();
+        this._source = null;
+      }
+    },
+
+    _connect() {
+      const url = `/api/runs/${encodeURIComponent(this.runId)}/events`;
+      const source = new EventSource(url);
+      this._source = source;
+
+      // sse-starlette serializes events as {event, data} where data is
+      // the JSON payload. addEventListener(type) lets us filter by
+      // event class without parsing everything.
+      const handlers = {
+        RunStarted:         (p) => this._onRunStarted(p),
+        RunStageStarted:    (p) => this._onStageStarted(p),
+        RunStageCompleted:  (p) => this._onStageCompleted(p),
+        RunCompleted:       (p) => this._onRunCompleted(p),
+        RunFailed:          (p) => this._onRunFailed(p),
+        RunCancelled:       (p) => this._onRunCancelled(p),
+        CostRecorded:       (p) => this._onCost(p),
+        SectionStarted:     (p) => this._pushActivity(`research: ${p.competitor_name} / ${p.section_key}`),
+        SectionResearched:  (p) => this._pushActivity(`researched: ${p.competitor_name} / ${p.section_key}`),
+        SectionRetrying:    (p) => this._pushActivity(`retry (${p.attempt}): ${p.competitor_name} / ${p.section_key}`),
+        SectionFailed:      (p) => this._pushActivity(`failed: ${p.competitor_name} / ${p.section_key}`),
+        ThemesDiscovered:   (p) => this._pushActivity(`themes discovered: ${p.theme_count}`),
+        EnrichmentStarted:  (p) => this._pushActivity(`enrich: ${p.competitor_name} / ${p.pass_name}`),
+        EnrichmentCompleted:(p) => this._pushActivity(`enriched: ${p.competitor_name} / ${p.pass_name}`),
+        SynthesisStarted:   (p) => this._pushActivity(`synthesize: ${p.theme_label}`),
+        SynthesisCompleted: (p) => this._pushActivity(`synthesized: ${p.theme_label}`),
+        DeliveryStarted:    (p) => this._pushActivity(`deliver: ${p.theme_label}`),
+        DeliveryCompleted:  (p) => this._pushActivity(`delivered: ${p.theme_label}`),
+      };
+
+      for (const [name, handler] of Object.entries(handlers)) {
+        source.addEventListener(name, (ev) => {
+          const payload = this._parse(ev.data);
+          if (payload == null) return;
+          handler(payload);
+        });
+      }
+
+      source.onerror = () => {
+        // An onerror during a terminal state is the server closing the
+        // stream — not worth showing. Only surface it while the run
+        // is still running.
+        if (this.status === 'running') {
+          this.phase = 'disconnected';
+          this._pushActivity('stream disconnected');
+        }
+      };
+    },
+
+    _parse(raw) {
+      try {
+        return JSON.parse(raw);
+      } catch (_err) {
+        return null;
+      }
+    },
+
+    _pushActivity(line) {
+      const stamp = new Date().toLocaleTimeString();
+      this.activity.push({ stamp, line });
+      if (this.activity.length > _RUN_MAX_ACTIVITY) {
+        this.activity.splice(0, this.activity.length - _RUN_MAX_ACTIVITY);
+      }
+    },
+
+    _onRunStarted(_payload) {
+      this.phase = 'started';
+      this.status = 'running';
+      this._pushActivity('run started');
+    },
+
+    _onStageStarted(payload) {
+      const stage = payload.stage || '';
+      this.phase = stage;
+      this._pushActivity(`${stage}: start`);
+      const weight = _RUN_STAGE_PROGRESS[stage];
+      if (weight != null && weight > this.progress) {
+        this.progress = weight;
+      }
+    },
+
+    _onStageCompleted(payload) {
+      this._pushActivity(`${payload.stage}: done`);
+    },
+
+    _onRunCompleted(payload) {
+      this.status = 'done';
+      this.phase = 'complete';
+      this.progress = 1;
+      if (typeof payload.total_cost_usd === 'number') {
+        this.cost = payload.total_cost_usd;
+      }
+      this._pushActivity(`complete — $${this.cost.toFixed(4)}`);
+      this._teardown();
+    },
+
+    _onRunFailed(payload) {
+      this.status = 'failed';
+      this.phase = 'failed';
+      this.error = payload.error || 'run failed';
+      this._pushActivity(`failed: ${this.error}`);
+      this._teardown();
+    },
+
+    _onRunCancelled(_payload) {
+      this.status = 'cancelled';
+      this.phase = 'cancelled';
+      this._pushActivity('cancelled');
+      this._teardown();
+    },
+
+    _onCost(payload) {
+      if (typeof payload.cost_usd === 'number') {
+        this.cost += payload.cost_usd;
+      }
+    },
+
+    formatCost() {
+      return '$' + this.cost.toFixed(4);
+    },
+
+    goToResults() {
+      Alpine.store('router').navigate(
+        `#/results/${encodeURIComponent(this.workspacePath)}`,
+      );
+    },
+
+    goToDashboard() {
+      Alpine.store('router').navigate(
+        `#/dashboard/${encodeURIComponent(this.workspacePath)}`,
+      );
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Results screen
+// ---------------------------------------------------------------------------
+//
+// Read-only surface over the workspace's delivered artifacts:
+// executive_summary.md (preview up to ~2KB from the backend),
+// per-theme markdown under themes/, and any other top-level output
+// files. Everything is file-backed on disk so dropping files in a
+// workspace and visiting #/results/<path> is enough to exercise it.
+
+function resultsScreen() {
+  return {
+    loading: true,
+    error: null,
+    data: null,
+
+    get workspacePath() {
+      return Alpine.store('router').params.arg[0] || '';
+    },
+
+    async init() {
+      if (!this.workspacePath) {
+        this.loading = false;
+        this.error = 'no workspace path in URL';
+        return;
+      }
+      try {
+        const qs = new URLSearchParams({ path: this.workspacePath });
+        const res = await fetch(`/api/results?${qs}`);
+        if (!res.ok) {
+          this.error = `could not load results (${res.status})`;
+          return;
+        }
+        this.data = await res.json();
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    get hasSummary() {
+      return !!this.data?.executive_summary_path;
+    },
+
+    get hasAnyArtifact() {
+      return this.hasSummary || (this.data?.theme_files?.length || 0) > 0;
+    },
+
+    dashboardHash() {
+      return `#/dashboard/${encodeURIComponent(this.workspacePath)}`;
     },
   };
 }

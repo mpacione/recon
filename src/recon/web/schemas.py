@@ -208,6 +208,21 @@ class ModelOption(BaseModel):
     recommended: bool = False
 
 
+class StartRunRequest(BaseModel):
+    path: str
+    # Hook for a future real-LLM toggle. Ignored by the prototype —
+    # the web endpoint currently always uses the fake client.
+    use_fake_llm: bool = True
+    model: str | None = None
+    workers: int | None = None
+
+
+class StartRunResponse(BaseModel):
+    run_id: str
+    events_url: str
+    use_fake_llm: bool = True
+
+
 class ConfirmResponse(BaseModel):
     competitor_count: int
     section_keys: list[str] = Field(default_factory=list)

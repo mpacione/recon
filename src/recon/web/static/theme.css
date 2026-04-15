@@ -491,6 +491,17 @@ input:focus {
   border-color: var(--recon-amber);
 }
 
+/* Placeholder text: default browser styling is too bright on the
+ * near-black canvas, which competes with real typed values. Drop to
+ * the dim token and italicize so it reads as hint copy, not content.
+ * Opacity:1 is required — Firefox applies 0.54 by default. */
+textarea::placeholder,
+input::placeholder {
+  color: var(--recon-dim);
+  font-style: italic;
+  opacity: 1;
+}
+
 .api-keys {
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius);
@@ -1062,6 +1073,168 @@ iconify-icon {
   color: var(--recon-amber);
   flex: 0 0 auto;
   margin-top: 0.15rem;
+}
+
+/* -----------------------------------------------------------------
+ * Results screen
+ *
+ * Executive summary preview is a raw markdown block rendered inside
+ * <pre> so whitespace + heading markers survive. We only cap the
+ * height so a long preview doesn't push the theme list off-screen.
+ * ----------------------------------------------------------------- */
+
+.results-summary {
+  margin-bottom: 1.5rem;
+}
+
+.results-summary-path {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.results-summary-preview {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  max-height: 22rem;
+  overflow: auto;
+  color: var(--recon-fg);
+  background: var(--recon-surface);
+  border: 1px solid var(--recon-border);
+  border-radius: var(--recon-radius-sm);
+  font-family: var(--recon-font-mono);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.results-theme-list {
+  list-style: none;
+  margin: 0.5rem 0 1.25rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.results-theme-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.4rem 0.25rem;
+  border-bottom: 1px dashed var(--recon-border);
+}
+
+.results-theme-row:last-child {
+  border-bottom: none;
+}
+
+.results-theme-marker {
+  flex: 0 0 auto;
+  padding-top: 0.15rem;
+}
+
+.results-theme-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.results-theme-title {
+  color: var(--recon-fg);
+}
+
+.results-theme-path {
+  font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.results-theme-badge {
+  flex: 0 0 auto;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--recon-dim);
+  border: 1px solid var(--recon-border);
+  border-radius: 999px;
+  line-height: 1.5;
+}
+
+/* -----------------------------------------------------------------
+ * Run screen — live pipeline progress + activity log
+ * ----------------------------------------------------------------- */
+
+.run-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.run-phase,
+.run-cost {
+  font-family: var(--recon-font-mono);
+  font-size: 0.9rem;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.run-progress-track {
+  height: 0.5rem;
+  border: 1px solid var(--recon-border);
+  border-radius: var(--recon-radius-sm);
+  background: var(--recon-surface);
+  overflow: hidden;
+}
+
+.run-progress-fill {
+  height: 100%;
+  background: var(--recon-amber);
+  transition: width 220ms ease-out;
+}
+
+.run-progress-label {
+  margin: 0.35rem 0 0.75rem;
+  font-size: 0.8125rem;
+  text-align: right;
+  font-family: var(--recon-font-mono);
+}
+
+.run-activity {
+  max-height: 26rem;
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem;
+  background: var(--recon-surface);
+  border: 1px solid var(--recon-border);
+  border-radius: var(--recon-radius-sm);
+  font-family: var(--recon-font-mono);
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.run-activity-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.run-activity-stamp {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.run-activity-line {
+  flex: 1 1 auto;
+  word-break: break-word;
 }
 
 /* -----------------------------------------------------------------

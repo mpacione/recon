@@ -14,6 +14,11 @@
   <link rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="/static/theme.css">
+  <!-- Server-injected runtime config. The FastAPI root route swaps
+       this comment for a <script> block setting window.RECON_HOME
+       (and future config values). Kept as a comment in the static
+       file so `file://` previews still load without syntax errors. -->
+  <!--RECON_CONFIG-->
   <script defer src="/static/app.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <!-- Lucide icons via Iconify. Used for functional UI chrome (remove
@@ -88,7 +93,7 @@
        =========================================================== -->
 
   <template id="screen-welcome">
-    <section class="section" x-data="welcomeScreen()" x-init="init()">
+    <section class="section" x-data="welcomeScreen()">
       <div class="welcome-hero">
         <div class="welcome-hero-copy">
           <h2 class="welcome-hero-title">Competitive intelligence, researched for you.</h2>
@@ -146,7 +151,7 @@
   </template>
 
   <template id="screen-describe">
-    <section class="section" x-data="describeScreen()" x-init="init()">
+    <section class="section" x-data="describeScreen()">
       <h2 class="section-divider">DESCRIBE YOUR SPACE</h2>
       <p class="dim">
         Describe your company, product, or the competitive space you want to
@@ -196,7 +201,7 @@
   </template>
 
   <template id="screen-discover">
-    <section class="section" x-data="discoverScreen()" x-init="init()">
+    <section class="section" x-data="discoverScreen()">
       <h2 class="section-divider">COMPETITOR DISCOVERY</h2>
 
       <p class="dim" x-show="loading">Loading competitors&hellip;</p>
@@ -296,7 +301,7 @@
   </template>
 
   <template id="screen-template">
-    <section class="section" x-data="templateScreen()" x-init="init()">
+    <section class="section" x-data="templateScreen()">
       <h2 class="section-divider">RESEARCH TEMPLATE</h2>
       <p class="dim">
         Each selected section will be researched for every competitor. Toggle
@@ -341,7 +346,7 @@
   </template>
 
   <template id="screen-confirm">
-    <section class="section" x-data="confirmScreen()" x-init="init()">
+    <section class="section" x-data="confirmScreen()">
       <h2 class="section-divider">READY TO RESEARCH</h2>
 
       <p class="dim" x-show="loading">Loading estimate&hellip;</p>
@@ -406,18 +411,21 @@
         <p class="notice" role="note">
           <iconify-icon icon="lucide:info" width="16" height="16" aria-hidden="true"></iconify-icon>
           <span>
-            Live research runs land in a follow-up release. Your workspace, competitors,
-            and template are saved &mdash; you can return here any time.
+            Preview run &mdash; uses a deterministic fake LLM so no API charges are incurred.
+            Real-LLM mode lands in a follow-up release.
           </span>
         </p>
 
+        <p class="error" x-show="error" x-text="error"></p>
+
         <div class="actions">
-          <button type="button" class="primary" disabled
-                  title="Live research runs land in a follow-up release">
-            Start research
-            <span class="badge-soon" aria-label="coming soon">soon</span>
+          <button type="button" class="primary"
+                  :disabled="starting"
+                  @click="start()">
+            <span x-show="!starting">Start research</span>
+            <span x-show="starting">Starting&hellip;</span>
           </button>
-          <button type="button" @click="back()">Back</button>
+          <button type="button" @click="back()" :disabled="starting">Back</button>
         </div>
       </div>
     </section>
@@ -431,41 +439,131 @@
        ============================================================= -->
 
   <template id="screen-run">
-    <section class="section">
-      <h2 class="section-divider">RESEARCH RUN
-        <span class="badge-soon" aria-label="coming soon">soon</span>
-      </h2>
-      <div class="empty-state">
-        <iconify-icon class="empty-state-icon" icon="lucide:play-circle" width="36" height="36" aria-hidden="true"></iconify-icon>
-        <p class="empty-state-title">Live research streaming lands in a follow-up release.</p>
+    <section class="section" x-data="runScreen()">
+      <h2 class="section-divider">RESEARCH RUN</h2>
+
+      <p class="error" x-show="error" x-text="error"></p>
+
+      <div class="run-header">
+        <div class="run-phase">
+          <span class="dim">phase:</span>
+          <span class="amber" x-text="phase"></span>
+        </div>
+        <div class="run-cost">
+          <span class="dim">cost:</span>
+          <span class="amber" x-text="formatCost()"></span>
+        </div>
+      </div>
+
+      <div class="run-progress-track" role="progressbar"
+           :aria-valuenow="progressPercent" aria-valuemin="0" aria-valuemax="100">
+        <div class="run-progress-fill" :style="`width: ${progressPercent}%`"></div>
+      </div>
+      <p class="run-progress-label dim">
+        <span x-text="progressPercent"></span>%
+      </p>
+
+      <h3 class="section-divider">ACTIVITY</h3>
+      <div class="run-activity">
+        <p class="dim" x-show="activity.length === 0">Waiting for first event&hellip;</p>
+        <template x-for="entry in activity" :key="entry.stamp + ':' + entry.line">
+          <div class="run-activity-row">
+            <span class="run-activity-stamp dim" x-text="entry.stamp"></span>
+            <span class="run-activity-line" x-text="entry.line"></span>
+          </div>
+        </template>
+      </div>
+
+      <div class="actions" x-show="isTerminal">
+        <button type="button" class="primary"
+                x-show="status === 'done'"
+                @click="goToResults()">
+          View results
+        </button>
+        <button type="button" @click="goToDashboard()">
+          Dashboard
+        </button>
+      </div>
+    </section>
+  </template>
+
+  <template id="screen-results">
+    <section class="section" x-data="resultsScreen()">
+      <h2 class="section-divider">RESEARCH COMPLETE</h2>
+
+      <p class="dim" x-show="loading">Loading results&hellip;</p>
+      <p class="error" x-show="error" x-text="error"></p>
+
+      <!-- No artifacts yet: the workspace was set up but no run has
+           produced an exec summary or theme files. Point the user
+           back at the dashboard to kick off a run instead of leaving
+           them on an empty screen. -->
+      <div class="empty-state" x-show="!loading && !error && !hasAnyArtifact">
+        <iconify-icon class="empty-state-icon" icon="lucide:sparkles" width="36" height="36" aria-hidden="true"></iconify-icon>
+        <p class="empty-state-title">No results yet.</p>
         <p class="empty-state-body">
-          This is where you&rsquo;ll watch the pipeline work &mdash; per-competitor progress,
-          running cost, and streaming agent output. For now, your workspace, competitors,
-          and template are all saved and ready.
+          Run the research pipeline first &mdash; the executive summary and per-theme
+          briefs will land here when the run completes.
         </p>
         <div class="empty-state-actions">
+          <a class="button-link" :href="dashboardHash()">
+            <iconify-icon icon="lucide:layout-dashboard" width="14" height="14" aria-hidden="true"></iconify-icon>
+            Open dashboard
+          </a>
           <a class="button-link" href="#/welcome">
             <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
             Back to projects
           </a>
         </div>
       </div>
-    </section>
-  </template>
 
-  <template id="screen-results">
-    <section class="section">
-      <h2 class="section-divider">RESEARCH COMPLETE
-        <span class="badge-soon" aria-label="coming soon">soon</span>
-      </h2>
-      <div class="empty-state">
-        <iconify-icon class="empty-state-icon" icon="lucide:sparkles" width="36" height="36" aria-hidden="true"></iconify-icon>
-        <p class="empty-state-title">Results view arrives with the live runner.</p>
-        <p class="empty-state-body">
-          You&rsquo;ll land here after a run completes &mdash; executive summary, per-theme
-          briefs, and links to every sourced fact.
-        </p>
-        <div class="empty-state-actions">
+      <div x-show="!loading && !error && hasAnyArtifact">
+        <!-- Executive summary preview. The backend caps it at ~2KB so
+             the payload stays small; users who want the full doc read
+             the file path shown below. -->
+        <template x-if="hasSummary">
+          <div class="results-summary">
+            <h3 class="section-divider">EXECUTIVE SUMMARY</h3>
+            <p class="dim results-summary-path mono"
+               x-text="data.executive_summary_path"></p>
+            <pre class="results-summary-preview"
+                 x-text="data.executive_summary_preview"></pre>
+          </div>
+        </template>
+
+        <template x-if="(data?.theme_files?.length || 0) > 0">
+          <div class="results-themes">
+            <h3 class="section-divider">
+              <span>THEMES</span>
+              <span class="dim" x-text="data.theme_files.length + ' total'"></span>
+            </h3>
+            <ul class="results-theme-list">
+              <template x-for="(t, idx) in data.theme_files"
+                        :key="t.name || t.path || idx">
+                <li class="results-theme-row">
+                  <span class="results-theme-marker success mono"
+                        aria-hidden="true">&#9632;</span>
+                  <div class="results-theme-body">
+                    <span class="results-theme-title"
+                          x-text="t.title || t.name"></span>
+                    <span class="dim results-theme-path mono"
+                          x-text="t.path"></span>
+                  </div>
+                  <template x-if="t.distilled_path">
+                    <span class="results-theme-badge mono"
+                          :title="t.distilled_path">distilled</span>
+                  </template>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </template>
+
+        <div class="actions">
+          <a class="button-link" :href="dashboardHash()">
+            <iconify-icon icon="lucide:layout-dashboard" width="14" height="14" aria-hidden="true"></iconify-icon>
+            Dashboard
+          </a>
           <a class="button-link" href="#/welcome">
             <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
             Back to projects
@@ -476,7 +574,7 @@
   </template>
 
   <template id="screen-dashboard">
-    <section class="section" x-data="dashboardScreen()" x-init="init()">
+    <section class="section" x-data="dashboardScreen()">
       <h2 class="section-divider">DASHBOARD
         <span class="badge-soon" aria-label="coming soon">soon</span>
       </h2>
