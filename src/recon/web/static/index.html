@@ -232,16 +232,18 @@
           No competitors yet. Add at least one above to continue.
         </p>
         <ul class="candidate-list" x-show="competitors.length > 0">
-          <template x-for="c in competitors" :key="c.slug">
+          <template x-for="(c, idx) in competitors" :key="c.slug || c.name || idx">
             <li class="candidate-row"
                 :class="{ 'candidate-row-own': c.type === 'own_product' }">
-              <!-- 3-state marker reads as a progressive fill:
-                   \u25A1 empty (waiting) \u2192 \u25A3 partial (researching) \u2192 \u25A0 full (ready).
+              <!-- Progressive-fill status marker, drawn with circles
+                   to avoid confusion with the square checkbox glyphs
+                   used by the research template screen:
+                     \u25CB empty (waiting) \u2192 \u25D0 half (researching) \u2192 \u25CF full (ready).
                    Colors reinforce the same progression: dim/amber/success. -->
               <span class="candidate-marker"
                     :class="{ success: c.status === 'researched', amber: c.status !== 'scaffold' && c.status !== 'researched', dim: c.status === 'scaffold' }"
                     :title="candidateStatusLabel(c.status)"
-                    x-text="c.status === 'researched' ? '\u25A0' : (c.status === 'scaffold' ? '\u25A1' : '\u25A3')"></span>
+                    x-text="c.status === 'researched' ? '\u25CF' : (c.status === 'scaffold' ? '\u25CB' : '\u25D0')"></span>
 
               <div class="candidate-body">
                 <div class="candidate-headline">
@@ -474,19 +476,43 @@
   </template>
 
   <template id="screen-dashboard">
-    <section class="section">
+    <section class="section" x-data="dashboardScreen()" x-init="init()">
       <h2 class="section-divider">DASHBOARD
         <span class="badge-soon" aria-label="coming soon">soon</span>
       </h2>
+
+      <p class="dim" x-show="loading">Loading workspace&hellip;</p>
+      <p class="error" x-show="error" x-text="error"></p>
+
+      <div x-show="!loading && workspace">
+        <p>
+          <strong x-text="workspace?.company_name"></strong>
+          <span class="dim"> &middot; </span>
+          <span class="dim" x-text="workspace?.domain"></span>
+        </p>
+        <p class="dim">
+          <span x-text="workspace?.competitor_count"></span>
+          competitor<span x-show="workspace?.competitor_count !== 1">s</span>
+          &middot;
+          <span x-text="workspace?.section_count"></span>
+          section<span x-show="workspace?.section_count !== 1">s</span>
+        </p>
+      </div>
+
       <div class="empty-state">
         <iconify-icon class="empty-state-icon" icon="lucide:layout-dashboard" width="36" height="36" aria-hidden="true"></iconify-icon>
-        <p class="empty-state-title">The project dashboard is on the way.</p>
+        <p class="empty-state-title">The full project dashboard is on the way.</p>
         <p class="empty-state-body">
           Resume, re-run, or browse existing research on any saved workspace. Until
-          this lands, start a fresh project or jump back into setup from the welcome
-          screen.
+          this lands, you can jump back into setup below or return to the project list.
         </p>
         <div class="empty-state-actions">
+          <template x-if="workspace">
+            <a class="button-link" :href="resumeDiscoverHash()">
+              <iconify-icon icon="lucide:arrow-right" width="14" height="14" aria-hidden="true"></iconify-icon>
+              Resume setup
+            </a>
+          </template>
           <a class="button-link" href="#/welcome">
             <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
             Back to projects

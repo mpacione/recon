@@ -42,7 +42,7 @@ const SCREEN_KEYBINDS = {
   describe:  [{ key: 'enter', label: 'continue' }, { key: 'esc', label: 'back' }],
   discover:  [{ key: 'space', label: 'toggle' }, { key: 's', label: 'search more' }, { key: 'enter', label: 'done' }, { key: 'esc', label: 'back' }],
   template:  [{ key: 'space', label: 'toggle' }, { key: 'enter', label: 'proceed' }, { key: 'esc', label: 'back' }],
-  confirm:   [{ key: 'enter', label: 'start research' }, { key: 'esc', label: 'back' }],
+  confirm:   [{ key: 'esc', label: 'back' }],
   run:       [{ key: 'p', label: 'pause' }, { key: 's', label: 'stop' }, { key: 'q', label: 'quit' }],
   results:   [{ key: 'v', label: 'view summary' }, { key: 'b', label: 'dashboard' }, { key: 'q', label: 'quit' }],
   dashboard: [{ key: 'r', label: 'run' }, { key: 'b', label: 'back' }, { key: 'q', label: 'quit' }],
@@ -146,6 +146,7 @@ function reconShell() {
         case 'curation':  return 'theme curation';
         case 'browser':   return 'competitor browser';
         case 'selector':  return 'competitor selector';
+        case 'not-found': return 'not found';
         default:          return '';
       }
     },
@@ -205,29 +206,94 @@ function reconShell() {
     // Global keyboard shortcuts
     // -------------------------------------------------------------
 
+    // Grab the Alpine reactive proxy for the currently-mounted screen
+    // so we can invoke its factory methods (proceed/back/etc) from
+    // global keybinds.
+    screenData() {
+      const slot = this.$refs.slot;
+      const root = slot && slot.firstElementChild;
+      if (!root) return null;
+      try {
+        return Alpine.$data(root);
+      } catch (_) {
+        return null;
+      }
+    },
+
     handleKey(event) {
-      // Don't steal focus from form inputs.
       const tag = (event.target && event.target.tagName) || '';
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+      const isFormField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      // Escape always escapes — even from inputs. Other keys yield to
+      // form-field focus so users can type normally.
+      if (isFormField && event.key !== 'Escape') {
         return;
       }
-      // Welcome-only shortcuts.
-      if (this.activeScreen === 'welcome') {
-        if (event.key === 'n') {
-          Alpine.store('router').navigate('#/describe');
-          event.preventDefault();
-        } else if (/^[1-9]$/.test(event.key)) {
-          // Forwarded to the welcome component via a custom event so
-          // it can look up the index in its own state.
-          document.dispatchEvent(new CustomEvent('recon:welcome-pick', {
-            detail: { index: Number(event.key) - 1 },
-          }));
-          event.preventDefault();
-        }
-      }
-      if (event.key === 'h') {
-        Alpine.store('router').navigate('#/welcome');
+
+      const key = event.key;
+      const screen = this.activeScreen;
+      const data = this.screenData();
+      const router = Alpine.store('router');
+
+      // Flow screens reserve Enter/Escape. Outside the flow, `h` is
+      // the universal "home" shortcut.
+      const inFlow = ['describe', 'discover', 'template', 'confirm'].includes(screen);
+      if (key === 'h' && !inFlow) {
+        router.navigate('#/welcome');
         event.preventDefault();
+        return;
+      }
+
+      switch (screen) {
+        case 'welcome':
+          if (key === 'n') {
+            router.navigate('#/describe');
+            event.preventDefault();
+          } else if (/^[1-9]$/.test(key)) {
+            document.dispatchEvent(new CustomEvent('recon:welcome-pick', {
+              detail: { index: Number(key) - 1 },
+            }));
+            event.preventDefault();
+          }
+          break;
+
+        case 'describe':
+          if (key === 'Escape' && data && typeof data.back === 'function') {
+            data.back();
+            event.preventDefault();
+          }
+          // Enter submits via the form's native @submit.prevent, so
+          // no extra handling is needed here.
+          break;
+
+        case 'discover':
+          if (key === 'Enter' && data && typeof data.proceed === 'function') {
+            data.proceed();
+            event.preventDefault();
+          } else if (key === 'Escape' && data && typeof data.back === 'function') {
+            data.back();
+            event.preventDefault();
+          }
+          break;
+
+        case 'template':
+          if (key === 'Enter' && data && typeof data.proceed === 'function') {
+            data.proceed();
+            event.preventDefault();
+          } else if (key === 'Escape' && data && typeof data.back === 'function') {
+            data.back();
+            event.preventDefault();
+          }
+          break;
+
+        case 'confirm':
+          if (key === 'Escape' && data && typeof data.back === 'function') {
+            data.back();
+            event.preventDefault();
+          }
+          break;
+
+        default:
+          break;
       }
     },
   };
@@ -256,9 +322,6 @@ function describeScreen() {
       this.submitting = true;
       this.error = null;
       try {
-        // Persist any newly-typed API keys first so workspace creation
-        // can pick them up via load_api_keys.
-        await this.persistKeys();
         const res = await fetch('/api/workspaces', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -270,6 +333,10 @@ function describeScreen() {
           return;
         }
         const ws = await res.json();
+        // Save typed API keys to the fresh workspace's .env so the
+        // discovery/research stages downstream can pick them up via
+        // recon.api_keys.load_api_keys.
+        await this.persistKeys(ws.path);
         Alpine.store('router').navigate(
           `#/discover/${encodeURIComponent(ws.path)}`,
         );
@@ -280,13 +347,31 @@ function describeScreen() {
       }
     },
 
-    async persistKeys() {
-      // Best-effort: skip empty fields. We don't have a workspace path
-      // yet (the workspace is being created), so saving keys here
-      // would need the workspace to already exist. For now, defer
-      // key-save to a follow-up step after workspace creation.
-      // This stub keeps the UI shape stable while the multi-step
-      // dance lands in a follow-up commit.
+    async persistKeys(workspacePath) {
+      if (!workspacePath) return;
+      // Best-effort: failures don't block navigation. Users can retry
+      // by revisiting the workspace's settings later.
+      for (const provider of this.providers) {
+        const value = (provider.value || '').trim();
+        if (!value) continue;
+        try {
+          const res = await fetch('/api/api-keys', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              path: workspacePath,
+              name: provider.name,
+              value,
+            }),
+          });
+          if (res.ok) {
+            provider.saved = true;
+            provider.value = '';
+          }
+        } catch (_) {
+          // Non-fatal — continue with the remaining providers.
+        }
+      }
     },
 
     back() {
@@ -376,6 +461,7 @@ function discoverScreen() {
         return;
       }
       this.competitors = this.competitors.filter((c) => c.slug !== candidate.slug);
+      this.error = null;
     },
 
     proceed() {
@@ -400,12 +486,9 @@ function discoverScreen() {
     // can keep their own display conventions.
 
     candidateTierLabel(type) {
-      switch (type) {
-        case 'own_product': return 'you';
-        case 'adjacent':    return 'adjacent';
-        case 'ancillary':   return 'ancillary';
-        default:            return 'competitor';
-      }
+      // Backend currently only emits 'competitor' and 'own_product'.
+      // If future tiers (adjacent / ancillary) return, extend here.
+      return type === 'own_product' ? 'you' : 'competitor';
     },
 
     candidateStatusLabel(status) {
@@ -460,6 +543,14 @@ function templateScreen() {
         }
         const body = await res.json();
         this.sections = body.sections || [];
+        // Canonical sections are worth researching by default — if
+        // the backend hands us a template with nothing pre-selected
+        // (first-visit case), opt the user into the full set so
+        // they can trim down rather than build up.
+        const anySelected = this.sections.some((s) => s.selected);
+        if (!anySelected) {
+          this.sections.forEach((s) => { s.selected = true; });
+        }
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -569,6 +660,50 @@ function confirmScreen() {
 }
 
 // ---------------------------------------------------------------------------
+// Dashboard screen (placeholder-with-context)
+// ---------------------------------------------------------------------------
+//
+// The full dashboard ships alongside the live runner. Until then we
+// at least read the workspace back so the user sees *which* project
+// they're resuming (not a bare "dashboard is on the way" message).
+
+function dashboardScreen() {
+  return {
+    loading: true,
+    workspace: null,
+    error: null,
+
+    get workspacePath() {
+      return Alpine.store('router').params.arg[0] || '';
+    },
+
+    async init() {
+      if (!this.workspacePath) {
+        this.loading = false;
+        return;
+      }
+      try {
+        const qs = new URLSearchParams({ path: this.workspacePath });
+        const res = await fetch(`/api/workspace?${qs}`);
+        if (!res.ok) {
+          this.error = `could not load workspace (${res.status})`;
+          return;
+        }
+        this.workspace = await res.json();
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    resumeDiscoverHash() {
+      return `#/discover/${encodeURIComponent(this.workspacePath)}`;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Welcome screen
 // ---------------------------------------------------------------------------
 
@@ -603,11 +738,33 @@ function welcomeScreen() {
     },
 
     open(project) {
-      // Resume = land on the dashboard for that workspace. Path is
-      // URL-encoded so it survives the hash router round-trip.
-      Alpine.store('router').navigate(
-        `#/dashboard/${encodeURIComponent(project.path)}`,
-      );
+      // Route by on-disk state so the user lands somewhere useful:
+      //   missing  → no-op (directory is gone; the row is dimmed
+      //              and the click should feel inert, not routed to
+      //              a broken dashboard)
+      //   new      → describe flow (no recon.yaml yet)
+      //   ready    → resume discovery (workspace exists, no output)
+      //   done     → dashboard (has output)
+      // Path is URL-encoded so it survives the hash router round-trip.
+      if (project.status === 'missing') {
+        return;
+      }
+      const router = Alpine.store('router');
+      const encoded = encodeURIComponent(project.path);
+      let hash;
+      switch (project.status) {
+        case 'new':
+          hash = '#/describe';
+          break;
+        case 'ready':
+          hash = `#/discover/${encoded}`;
+          break;
+        case 'done':
+        default:
+          hash = `#/dashboard/${encoded}`;
+          break;
+      }
+      router.navigate(hash);
     },
 
     formatDate(iso) {

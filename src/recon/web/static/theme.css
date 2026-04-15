@@ -676,15 +676,6 @@ p.error {
   background: color-mix(in oklab, var(--recon-amber) 10%, transparent);
 }
 
-.candidate-tier-adjacent {
-  color: var(--recon-fg);
-  border-color: var(--recon-border);
-}
-
-.candidate-tier-ancillary {
-  color: var(--recon-dim);
-}
-
 /* URL display — subtle link treatment so many URLs in a list don't
  * overwhelm the name column. External-link icon flags that clicking
  * leaves the app; we also add target=_blank so it actually does. */
