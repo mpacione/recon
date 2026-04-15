@@ -30,6 +30,11 @@ class RecentProjectModel(BaseModel):
     path: str
     name: str
     last_opened: str
+    # One of "done" (has output), "ready" (recon.yaml exists, no
+    # output yet), "new" (path exists but not set up), or "missing"
+    # (directory no longer on disk). Mirrors TUI welcome screen so
+    # both UIs agree on what each recent project looks like.
+    status: str = "new"
 
 
 class RecentProjectsResponse(BaseModel):

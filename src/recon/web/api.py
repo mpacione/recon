@@ -66,6 +66,31 @@ _SECONDS_PER_SECTION = 15.0
 _ENRICHMENT_OVERHEAD_S = 60.0
 _SYNTHESIS_OVERHEAD_S = 45.0
 
+
+def _project_status(path_str: str) -> str:
+    """Classify a recent project by its on-disk state.
+
+    Mirrors ``WelcomeScreen._project_status`` from the TUI so both UIs
+    surface the same status on the recent-projects list. Returning a
+    plain string keeps the API stable if we ever want to grow the set
+    of states; the UI maps strings to markers/colors.
+
+    - ``missing``: directory is no longer on disk (broken recent).
+    - ``done``:    ``output/`` exists and has at least one artifact.
+    - ``ready``:   workspace is configured (``recon.yaml``) but no
+                   output yet — user can resume into run/confirm.
+    - ``new``:     path exists but neither condition above applies.
+    """
+    project_path = Path(path_str)
+    if not project_path.exists():
+        return "missing"
+    output_dir = project_path / "output"
+    if output_dir.exists() and any(output_dir.iterdir()):
+        return "done"
+    if (project_path / "recon.yaml").exists():
+        return "ready"
+    return "new"
+
 # Canonical Claude 4 tier list for the Confirm screen. Prices are in
 # USD per million tokens. Keep in sync with recon.cost.ModelPricing.
 _MODEL_CATALOG: list[dict] = [
@@ -192,7 +217,10 @@ def create_app() -> FastAPI:
         return RecentProjectsResponse(
             projects=[
                 RecentProjectModel(
-                    path=p.path, name=p.name, last_opened=p.last_opened,
+                    path=p.path,
+                    name=p.name,
+                    last_opened=p.last_opened,
+                    status=_project_status(p.path),
                 )
                 for p in projects
             ],

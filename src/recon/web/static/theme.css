@@ -271,13 +271,95 @@ h1, h2, h3, h4 {
 }
 
 /* -----------------------------------------------------------------
- * Recent projects list (welcome screen)
+ * Welcome screen — hero + recent projects list
  * ----------------------------------------------------------------- */
+
+.welcome-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1.5rem 2rem;
+  align-items: center;
+  padding: 0.25rem 0 1rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--recon-border);
+}
+
+.welcome-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.welcome-hero-title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--recon-fg);
+}
+
+.welcome-hero-lede {
+  margin: 0;
+  max-width: 58ch;
+  line-height: 1.55;
+}
+
+/* Primary CTA on the welcome hero. Uses the cream-filled button style
+ * so mouse users have an obvious entry point that mirrors the
+ * keyboard shortcut. The keybind chip on the right mirrors the n
+ * shortcut so users learn both affordances at once. */
+.welcome-hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 1rem;
+  background: var(--recon-fg);
+  color: var(--recon-bg);
+  border: 1px solid var(--recon-fg);
+  border-radius: var(--recon-radius-sm);
+  text-decoration: none;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.welcome-hero-cta:hover,
+.welcome-hero-cta:focus-visible {
+  background: var(--recon-amber);
+  border-color: var(--recon-amber);
+  color: var(--recon-bg);
+  outline: none;
+  text-decoration: none;
+}
+
+.welcome-hero-cta-kbd {
+  display: inline-flex;
+  align-items: center;
+  padding-left: 0.35rem;
+  border-left: 1px solid color-mix(in oklab, var(--recon-bg) 25%, transparent);
+}
+
+.welcome-hero-cta-kbd kbd {
+  background: color-mix(in oklab, var(--recon-bg) 15%, transparent);
+  color: var(--recon-bg);
+  border-color: color-mix(in oklab, var(--recon-bg) 35%, transparent);
+}
+
+.welcome-recents-heading {
+  margin-top: 1.25rem;
+}
+
+.welcome-empty {
+  padding: 1rem 0.25rem;
+}
 
 .recents {
   list-style: none;
   padding: 0;
-  margin: 1rem 0 0;
+  margin: 0.75rem 0 0;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -285,7 +367,7 @@ h1, h2, h3, h4 {
 
 .recent-item {
   display: grid;
-  grid-template-columns: 2.25rem 18rem 1fr;
+  grid-template-columns: 1.75rem 1.5rem minmax(8rem, auto) 4.5rem 1fr;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
   border: 1px solid transparent;
@@ -300,20 +382,51 @@ h1, h2, h3, h4 {
   border-color: var(--recon-border);
 }
 
+.recent-item-missing {
+  /* Missing workspaces stay clickable (the user may want to remove
+   * them) but strike a lower-energy tone so they don't mask real
+   * projects. Hover still highlights. */
+  opacity: 0.72;
+}
+
+.recent-item-missing .recent-name {
+  text-decoration: line-through;
+  text-decoration-color: var(--recon-border);
+  text-decoration-thickness: 1px;
+}
+
 .recent-index {
   font-family: var(--recon-font-mono);
   color: var(--recon-dim);
   text-align: right;
 }
 
+.recent-marker {
+  font-size: 1rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
 .recent-name {
   font-weight: 600;
+}
+
+.recent-status {
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
 }
 
 .recent-meta {
   font-family: var(--recon-font-mono);
   font-size: 0.8125rem;
   color: var(--recon-dim);
+  justify-self: end;
+  text-align: right;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 /* -----------------------------------------------------------------

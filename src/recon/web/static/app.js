@@ -633,5 +633,52 @@ function welcomeScreen() {
       }
       return p;
     },
+
+    // -------------------------------------------------------------
+    // Status markers for the recent-projects list.
+    //
+    // The API maps each path to one of: done / ready / new / missing
+    // (see web.api._project_status). We translate that into the same
+    // 3-state progressive-fill vocabulary used on Discovery:
+    //
+    //   done    → \u25A0  filled  (success)
+    //   ready   → \u25A3  partial (amber)   — workspace set up, no output
+    //   new     → \u25A1  empty   (dim)     — path exists but nothing here
+    //   missing → \u2715  cross   (error)   — directory is gone
+    //
+    // Returning a marker string + class name lets the template render
+    // both the glyph and a matching text chip without duplicating the
+    // branching in the HTML.
+    // -------------------------------------------------------------
+
+    recentStatusMarker(status) {
+      switch (status) {
+        case 'done':    return '\u25A0';
+        case 'ready':   return '\u25A3';
+        case 'missing': return '\u2715';
+        case 'new':
+        default:        return '\u25A1';
+      }
+    },
+
+    recentStatusLabel(status) {
+      switch (status) {
+        case 'done':    return 'done';
+        case 'ready':   return 'ready';
+        case 'missing': return 'missing';
+        case 'new':
+        default:        return 'new';
+      }
+    },
+
+    recentStatusClass(status) {
+      switch (status) {
+        case 'done':    return 'success';
+        case 'ready':   return 'amber';
+        case 'missing': return 'error';
+        case 'new':
+        default:        return 'dim';
+      }
+    },
   };
 }

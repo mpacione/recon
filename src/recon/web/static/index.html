@@ -89,17 +89,51 @@
 
   <template id="screen-welcome">
     <section class="section" x-data="welcomeScreen()" x-init="init()">
-      <h2 class="section-divider">WELCOME</h2>
-      <p>Competitive intelligence research, automated.</p>
+      <div class="welcome-hero">
+        <div class="welcome-hero-copy">
+          <h2 class="welcome-hero-title">Competitive intelligence, researched for you.</h2>
+          <p class="dim welcome-hero-lede">
+            Describe your space once &mdash; recon discovers competitors, researches each
+            section, verifies the claims, and ships a structured brief.
+          </p>
+        </div>
+        <a class="welcome-hero-cta" href="#/describe">
+          <iconify-icon icon="lucide:plus" width="16" height="16" aria-hidden="true"></iconify-icon>
+          New project
+          <span class="welcome-hero-cta-kbd" aria-hidden="true">
+            <kbd>n</kbd>
+          </span>
+        </a>
+      </div>
+
+      <h3 class="section-divider welcome-recents-heading">RECENT PROJECTS</h3>
+
       <p class="dim" x-show="loading">Loading recent projects&hellip;</p>
-      <p class="dim" x-show="!loading && projects.length === 0">
-        No recent projects. Press <kbd>n</kbd> to start a new one.
-      </p>
+      <div class="empty-state welcome-empty" x-show="!loading && projects.length === 0">
+        <iconify-icon class="empty-state-icon" icon="lucide:folder-plus" width="32" height="32" aria-hidden="true"></iconify-icon>
+        <p class="empty-state-title">No projects yet.</p>
+        <p class="empty-state-body">
+          Start one by pressing <kbd>n</kbd> or clicking <strong>New project</strong> above.
+        </p>
+      </div>
+
       <ul class="recents" x-show="!loading && projects.length > 0">
         <template x-for="(project, i) in projects" :key="project.path">
-          <li class="recent-item" @click="open(project)">
+          <li class="recent-item"
+              :class="{ 'recent-item-missing': project.status === 'missing' }"
+              @click="open(project)"
+              :title="project.status === 'missing'
+                        ? 'This directory is no longer on disk'
+                        : ('Open ' + project.name)">
             <span class="recent-index" x-text="(i + 1) + '.'"></span>
+            <span class="recent-marker mono"
+                  :class="recentStatusClass(project.status)"
+                  :title="recentStatusLabel(project.status)"
+                  x-text="recentStatusMarker(project.status)"></span>
             <span class="recent-name" x-text="project.name"></span>
+            <span class="recent-status mono"
+                  :class="recentStatusClass(project.status)"
+                  x-text="recentStatusLabel(project.status)"></span>
             <span class="dim recent-meta">
               <span x-text="formatDate(project.last_opened)"></span>
               &middot;

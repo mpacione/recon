@@ -124,6 +124,51 @@ class TestRecents:
         assert response.status_code == 200
         assert len(response.json()["projects"]) == 1
 
+    def test_status_reflects_on_disk_state(
+        self, client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Exercise every status branch users care about on the welcome
+        # screen: missing, new, ready, done. The UI maps these strings
+        # to markers/colors so both TUI and web agree on what each
+        # recent project looks like.
+        missing_path = tmp_path / "gone"  # never created → missing
+
+        new_path = tmp_path / "new-workspace"
+        new_path.mkdir()  # exists but no recon.yaml yet
+
+        ready_path = tmp_path / "ready-workspace"
+        ready_path.mkdir()
+        (ready_path / "recon.yaml").write_text("domain: test\n")
+
+        done_path = tmp_path / "done-workspace"
+        done_path.mkdir()
+        (done_path / "recon.yaml").write_text("domain: test\n")
+        (done_path / "output").mkdir()
+        (done_path / "output" / "summary.md").write_text("# hi")
+
+        recent_file = tmp_path / "recent.json"
+        recent_file.write_text(
+            json.dumps([
+                {"path": str(missing_path), "name": "gone",    "last_opened": "2026-04-13T10:00:00+00:00"},
+                {"path": str(new_path),     "name": "fresh",   "last_opened": "2026-04-13T10:00:00+00:00"},
+                {"path": str(ready_path),   "name": "ready",   "last_opened": "2026-04-13T10:00:00+00:00"},
+                {"path": str(done_path),    "name": "done",    "last_opened": "2026-04-13T10:00:00+00:00"},
+            ]),
+        )
+        monkeypatch.setattr(
+            "recon.tui.screens.welcome._DEFAULT_RECENT_PATH", recent_file,
+        )
+
+        response = client.get("/api/recents")
+        projects = response.json()["projects"]
+        status_by_name = {p["name"]: p["status"] for p in projects}
+        assert status_by_name == {
+            "gone": "missing",
+            "fresh": "new",
+            "ready": "ready",
+            "done": "done",
+        }
+
 
 # ---------------------------------------------------------------------------
 # /api/workspace
