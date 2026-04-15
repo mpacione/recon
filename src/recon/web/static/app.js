@@ -388,6 +388,46 @@ function discoverScreen() {
     back() {
       Alpine.store('router').navigate('#/describe');
     },
+
+    // -------------------------------------------------------------
+    // Display helpers
+    // -------------------------------------------------------------
+    //
+    // The backend ships tier/status as raw enum strings (scaffold,
+    // researching, researched, own_product). Those read as jargon
+    // to end users; map them to friendlier labels at render time
+    // rather than in the API response so other clients (TUI, CLI)
+    // can keep their own display conventions.
+
+    candidateTierLabel(type) {
+      switch (type) {
+        case 'own_product': return 'you';
+        case 'adjacent':    return 'adjacent';
+        case 'ancillary':   return 'ancillary';
+        default:            return 'competitor';
+      }
+    },
+
+    candidateStatusLabel(status) {
+      switch (status) {
+        case 'scaffold':    return 'waiting';
+        case 'researching': return 'researching\u2026';
+        case 'researched':  return 'ready';
+        default:            return status || '';
+      }
+    },
+
+    candidateHost(url) {
+      if (!url) return '';
+      try {
+        const u = new URL(url);
+        return u.hostname.replace(/^www\./, '');
+      } catch (_) {
+        // Fall back to the raw string when it's not a parseable URL
+        // (e.g. "example.com" without a scheme).
+        return url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+      }
+    },
   };
 }
 

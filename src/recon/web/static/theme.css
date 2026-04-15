@@ -492,10 +492,13 @@ p.error {
 
 .candidate-row {
   display: grid;
-  grid-template-columns: 3rem 1fr 8rem 6rem;
-  align-items: baseline;
+  /* marker | body (flex stack: headline + optional blurb) | status | remove
+   * The body is the only growing column; status stays a fixed width
+   * so the right edge aligns and tabular scanning works. */
+  grid-template-columns: 1.75rem minmax(0, 1fr) 6rem 2rem;
+  align-items: start;
   gap: 0.75rem;
-  padding: 0.4rem 0.75rem;
+  padding: 0.55rem 0.75rem;
   border-bottom: 1px solid var(--recon-surface);
 }
 
@@ -503,20 +506,127 @@ p.error {
   background: var(--recon-surface);
 }
 
+/* "You" row — reinforce the different identity with a subtle left
+ * rule in amber so users' own product reads as a pinned/special item
+ * without screaming for attention. */
+.candidate-row-own {
+  box-shadow: inset 2px 0 0 var(--recon-amber);
+}
+
 .candidate-marker {
   font-family: var(--recon-font-mono);
   font-size: 1rem;
-  line-height: 1;
+  line-height: 1.4; /* match headline line so marker sits on its cap-line */
+}
+
+.candidate-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0; /* allow text-overflow to engage inside grid cell */
+}
+
+.candidate-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.55rem;
+  line-height: 1.4;
 }
 
 .candidate-name {
   font-weight: 600;
+  /* Name is the scanning anchor — keep it in the body font, not mono.
+   * Brand names read much more naturally in Inter than monospace. */
+}
+
+/* Tier chip — small uppercased pill next to the name. Different
+ * background per tier so "you", "competitor", and "adjacent" are
+ * distinguishable at a glance without forcing a table column. */
+.candidate-tier {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.05rem 0.45rem;
+  font-family: var(--recon-font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--recon-dim);
+  border: 1px solid var(--recon-border);
+  border-radius: 999px;
+  line-height: 1.5;
+}
+
+.candidate-tier-own_product {
+  color: var(--recon-amber);
+  border-color: color-mix(in oklab, var(--recon-amber) 45%, transparent);
+  background: color-mix(in oklab, var(--recon-amber) 10%, transparent);
+}
+
+.candidate-tier-adjacent {
+  color: var(--recon-fg);
+  border-color: var(--recon-border);
+}
+
+.candidate-tier-ancillary {
+  color: var(--recon-dim);
+}
+
+/* URL display — subtle link treatment so many URLs in a list don't
+ * overwhelm the name column. External-link icon flags that clicking
+ * leaves the app; we also add target=_blank so it actually does. */
+.candidate-url {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--recon-dim);
+  font-family: var(--recon-font-mono);
+  font-size: 0.8125rem;
+  text-decoration: none;
+  text-decoration-color: transparent;
+  max-width: 20rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.candidate-url:hover,
+.candidate-url:focus-visible {
+  color: var(--recon-amber);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: currentColor;
+  text-underline-offset: 0.2em;
+  outline: none;
+}
+
+.candidate-url-host {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.candidate-blurb {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  margin: 0;
+  /* Clamp long blurbs to two lines so rows stay comparable in height
+   * and a very chatty blurb doesn't push the rest of the list down. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .candidate-status {
-  font-size: 0.875rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-family: var(--recon-font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  text-align: right;
+  white-space: nowrap;
+  align-self: start;
+  line-height: 1.5;
 }
 
 .candidate-remove {
