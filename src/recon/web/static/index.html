@@ -534,13 +534,13 @@
         </div>
       </div>
 
-      <div class="run-progress-track" role="progressbar"
+      <div class="run-progress" role="progressbar"
            :aria-valuenow="progressPercent" aria-valuemin="0" aria-valuemax="100">
-        <div class="run-progress-fill" :style="`width: ${progressPercent}%`"></div>
+        <span class="run-progress-bar mono" x-text="progressBar"></span>
+        <span class="run-progress-percent mono dim">
+          <span x-text="String(progressPercent).padStart(3, ' ')"></span>%
+        </span>
       </div>
-      <p class="run-progress-label dim">
-        <span x-text="progressPercent"></span>%
-      </p>
 
       <h3 class="section-divider">ACTIVITY</h3>
       <div class="run-activity">

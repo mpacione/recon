@@ -937,6 +937,31 @@ function runScreen() {
       return Math.round(this.progress * 100);
     },
 
+    // Render progress as a 42-cell string of Unicode block glyphs.
+    // Full cells use █ (U+2588), empty cells use ░ (U+2591), and the
+    // head cell uses the partial-block ladder ▏▎▍▌▋▊▉ (U+258F..U+2589)
+    // so sub-cell changes read as a smooth 8-level gradient. The
+    // monospace font in CSS keeps the track a fixed width regardless
+    // of the current value.
+    get progressBar() {
+      const WIDTH = 42;
+      const value = Math.max(0, Math.min(1, this.progress)) * WIDTH;
+      const full = Math.floor(value);
+      const frac = value - full;
+      const partials = ['', '\u258F', '\u258E', '\u258D', '\u258C', '\u258B', '\u258A', '\u2589'];
+      const idx = Math.round(frac * 8);
+      let head = '';
+      let empty = WIDTH - full;
+      if (idx >= 8 && full < WIDTH) {
+        return '\u2588'.repeat(full + 1) + '\u2591'.repeat(WIDTH - full - 1);
+      }
+      if (idx > 0 && empty > 0) {
+        head = partials[idx];
+        empty -= 1;
+      }
+      return '\u2588'.repeat(full) + head + '\u2591'.repeat(Math.max(0, empty));
+    },
+
     get isTerminal() {
       return this.status !== 'running';
     },

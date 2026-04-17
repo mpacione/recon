@@ -137,9 +137,13 @@ body {
 }
 
 /* Mono utility — apply to any element that should render in
- * JetBrains Mono. Used on markers, paths, costs, keybinds. */
+ * JetBrains Mono. Used on markers, paths, costs, keybinds. The
+ * tabular-nums feature lines numeric digits up in a fixed-width
+ * grid so progress percentages, timestamps, and costs never
+ * shimmer on update. */
 .mono {
   font-family: var(--recon-font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 a {
@@ -347,12 +351,30 @@ html[data-crt="off"] body::after {
 }
 
 /* Section card — mirrors cyberspace.online's .terminal-box: pure black
- * bg, 1px border, 5px radius, tight padding. */
+ * bg, 1px border, 5px radius, tight padding. Fades in on mount so
+ * navigation feels like stepping through terminal pages rather than
+ * swapping painted layers. */
 .section {
   background: var(--recon-bg);
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius);
   padding: 0.875rem 1rem;
+  animation: section-mount 220ms ease-out both;
+}
+
+@keyframes section-mount {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section { animation: none; }
 }
 
 /* Section / subsection headings.
@@ -1606,25 +1628,29 @@ iconify-icon {
   gap: 0.4rem;
 }
 
-.run-progress-track {
-  height: 0.5rem;
-  border: 1px solid var(--recon-border);
-  border-radius: var(--recon-radius-sm);
-  background: var(--recon-surface);
-  overflow: hidden;
-}
-
-.run-progress-fill {
-  height: 100%;
-  background: var(--recon-amber);
-  transition: width 220ms ease-out;
-}
-
-.run-progress-label {
-  margin: 0.35rem 0 0.75rem;
-  font-size: 0.8125rem;
-  text-align: right;
+.run-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0.75rem;
   font-family: var(--recon-font-mono);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.run-progress-bar {
+  color: var(--recon-amber);
+  letter-spacing: -0.05em;
+  /* Soft amber glow so the filled blocks really read as phosphor. */
+  text-shadow: 0 0 4px color-mix(in oklab, var(--recon-amber) 50%, transparent);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.run-progress-percent {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  white-space: pre;
 }
 
 .run-activity {
