@@ -51,8 +51,10 @@ from recon.web.schemas import (
 _STATIC_DIR = Path(__file__).parent / "static"
 
 # Default parent for newly-created workspaces when the request doesn't
-# pin one. Tests monkeypatch this to redirect into tmp_path.
-_DEFAULT_WORKSPACES_PARENT = Path.home() / "recon"
+# pin one. We used to put workspaces in ~/recon which collides with
+# the v1 recon source checkout on developer machines — that was a
+# real bug report. Tests monkeypatch this to redirect into tmp_path.
+_DEFAULT_WORKSPACES_PARENT = Path.home() / "recon-workspaces"
 
 # Confirm-screen cost model. Mirrors the numbers in design/v2-spec.md
 # §Screen 6. These are rough per-call/per-profile/per-theme averages
@@ -307,14 +309,31 @@ def create_app() -> FastAPI:
 
         if payload.path:
             target = Path(payload.path).expanduser()
+            # Explicit path: a collision is a user error worth surfacing.
+            if (target / "recon.yaml").exists():
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"workspace already exists at {target}",
+                )
         else:
+            # Derived path: never fail on collision. Auto-suffix until we
+            # find a free slug so repeat "new project" clicks from the
+            # same description land in fresh directories instead of
+            # surfacing a raw 409. The user can see and override the
+            # final path in the workspace header after creation.
             target = _DEFAULT_WORKSPACES_PARENT / slug
-
-        if (target / "recon.yaml").exists():
-            raise HTTPException(
-                status_code=409,
-                detail=f"workspace already exists at {target}",
-            )
+            suffix = 2
+            while (target / "recon.yaml").exists() or target.exists():
+                target = _DEFAULT_WORKSPACES_PARENT / f"{slug}-{suffix}"
+                suffix += 1
+                if suffix > 100:  # safety valve; shouldn't ever hit
+                    raise HTTPException(
+                        status_code=500,
+                        detail=(
+                            f"too many existing workspaces matching "
+                            f"{slug!r}; pick an explicit path"
+                        ),
+                    )
 
         ws = Workspace.init(
             root=target,
@@ -339,6 +358,23 @@ def create_app() -> FastAPI:
         """Return a presence map of saved provider keys for the workspace."""
         ws = _open_workspace(path)
         return _load_api_key_status(ws.root)
+
+    @app.get("/api/api-keys/global")
+    async def get_global_api_keys() -> dict[str, bool]:
+        """Return a presence map for keys saved in the global ``~/.recon/.env``.
+
+        Used by the describe screen to avoid prompting the user for
+        keys they've already saved in a prior workspace. We never
+        return the key VALUES — only whether they exist — so this
+        endpoint is safe to call before any workspace exists.
+        """
+        from recon.api_keys import _DEFAULT_GLOBAL_DIR, _parse_env_file
+
+        global_env = _parse_env_file(_DEFAULT_GLOBAL_DIR / ".env")
+        return {
+            "anthropic": bool(global_env.get("ANTHROPIC_API_KEY")),
+            "google_ai": bool(global_env.get("GOOGLE_AI_API_KEY")),
+        }
 
     @app.get("/api/competitors", response_model=CompetitorListResponse)
     async def list_competitors(path: str = Query(..., description="Workspace directory path")) -> CompetitorListResponse:

@@ -131,6 +131,8 @@ class TestCreateWorkspace:
     ) -> None:
         # tmp_workspace already has a recon.yaml — POSTing into it is
         # ambiguous (overwrite? merge? error?) so we reject explicitly.
+        # This only applies to EXPLICIT path submissions; derived paths
+        # get auto-suffixed (see test_auto_suffixes_derived_path below).
         response = client.post(
             "/api/workspaces",
             json={
@@ -142,6 +144,34 @@ class TestCreateWorkspace:
         )
         assert response.status_code == 409
         assert "already" in response.json()["detail"].lower()
+
+    def test_auto_suffixes_derived_path_when_slug_collides(
+        self, client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Users repeatedly clicking "new project" with the same
+        # description used to hit raw 409s. Derived paths now
+        # auto-suffix (-2, -3, ...) so the flow stays unblocked.
+        monkeypatch.setattr(
+            "recon.web.api._DEFAULT_WORKSPACES_PARENT", tmp_path / "ws",
+        )
+
+        payload = {
+            "description": "Acme Corp builds rockets",
+            "company_name": "Acme Corp",
+            "domain": "rockets",
+        }
+
+        first = client.post("/api/workspaces", json=payload)
+        assert first.status_code == 201
+        assert first.json()["path"].endswith("/acme-corp")
+
+        second = client.post("/api/workspaces", json=payload)
+        assert second.status_code == 201
+        assert second.json()["path"].endswith("/acme-corp-2")
+
+        third = client.post("/api/workspaces", json=payload)
+        assert third.status_code == 201
+        assert third.json()["path"].endswith("/acme-corp-3")
 
     def test_requires_description(
         self, client: TestClient, tmp_path: Path,
@@ -194,6 +224,64 @@ class TestGetApiKeys:
     ) -> None:
         response = client.get(f"/api/api-keys?path={tmp_path / 'nope'}")
         assert response.status_code == 404
+
+
+class TestGetGlobalApiKeys:
+    """GET /api/api-keys/global — describe screen calls this on mount
+    so users aren't prompted to re-enter keys already saved in
+    ~/.recon/.env from a prior workspace."""
+
+    def test_reports_presence_from_global_env(
+        self,
+        client: TestClient,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        global_dir = tmp_path / ".recon"
+        global_dir.mkdir()
+        (global_dir / ".env").write_text(
+            "ANTHROPIC_API_KEY=sk-ant-global-abc\nGOOGLE_AI_API_KEY=\n",
+        )
+        monkeypatch.setattr("recon.api_keys._DEFAULT_GLOBAL_DIR", global_dir)
+
+        response = client.get("/api/api-keys/global")
+        assert response.status_code == 200
+        body = response.json()
+        assert body == {"anthropic": True, "google_ai": False}
+
+    def test_returns_all_false_when_global_env_missing(
+        self,
+        client: TestClient,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # No global env file at all — endpoint must still return a
+        # clean shape so the describe screen can short-circuit cleanly.
+        monkeypatch.setattr(
+            "recon.api_keys._DEFAULT_GLOBAL_DIR", tmp_path / "nope",
+        )
+        response = client.get("/api/api-keys/global")
+        assert response.status_code == 200
+        assert response.json() == {"anthropic": False, "google_ai": False}
+
+    def test_never_returns_key_values(
+        self,
+        client: TestClient,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Security guard: the endpoint must only ever report booleans.
+        # A leak here would expose keys to anything that reached the
+        # HTTP layer before authentication lands.
+        global_dir = tmp_path / ".recon"
+        global_dir.mkdir()
+        (global_dir / ".env").write_text(
+            "ANTHROPIC_API_KEY=sk-ant-secret-should-not-leak\n",
+        )
+        monkeypatch.setattr("recon.api_keys._DEFAULT_GLOBAL_DIR", global_dir)
+
+        response = client.get("/api/api-keys/global")
+        assert "sk-ant-secret-should-not-leak" not in response.text
 
 
 class TestSaveApiKey:

@@ -469,9 +469,45 @@ function describeScreen() {
     submitting: false,
     error: null,
 
-    init() {
+    // Mirror server-side _heuristic_company_name + _slugify_for_path
+    // so the user sees (roughly) where the workspace will land before
+    // submit. The backend may append `-2`, `-3` suffixes on collision,
+    // so we surface the *base* path as a preview — not a promise.
+    get derivedSlug() {
+      const text = (this.description || '').trim();
+      if (!text) return '';
+      // Take the first meaningful token (skip stop words), lowercase,
+      // strip non-alphanumeric. Matches the server's rough shape
+      // without pulling the full heuristic over; the server is
+      // ultimately authoritative.
+      const first = text.split(/\s+/)[0] || '';
+      return first.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    },
+
+    get pathPreview() {
+      const slug = this.derivedSlug;
+      if (!slug) return '';
+      const home = (window.RECON_HOME || '~').replace(/\/$/, '');
+      return `${home}/recon-workspaces/${slug}`;
+    },
+
+    async init() {
       // Focus the textarea so the user can start typing immediately.
       this.$refs.description?.focus();
+      // Preload saved-key status from the global ~/.recon/.env so users
+      // aren't prompted to re-enter keys they've already stored. We
+      // never fetch the key values — only whether they're set — so
+      // this is safe to call before any workspace exists.
+      try {
+        const res = await fetch('/api/api-keys/global');
+        if (!res.ok) return;
+        const body = await res.json();
+        for (const provider of this.providers) {
+          if (body[provider.name]) {
+            provider.saved = true;
+          }
+        }
+      } catch (_err) { /* non-fatal — user can still type keys */ }
     },
 
     async submit() {

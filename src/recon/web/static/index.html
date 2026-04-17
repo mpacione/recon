@@ -232,16 +232,25 @@
             required></textarea>
         </label>
 
+        <p class="dim describe-path-preview" x-show="pathPreview">
+          <iconify-icon icon="lucide:folder" width="14" height="14" aria-hidden="true"></iconify-icon>
+          Will be created at <code x-text="pathPreview"></code>
+          <span class="dim">&middot; auto-numbered if it exists</span>
+        </p>
+
         <fieldset class="api-keys">
           <legend class="section-divider api-keys-legend">API KEYS</legend>
-          <p class="dim">Stored in <code>.env</code>, persists across sessions.</p>
+          <p class="dim">
+            Stored in <code>~/.recon/.env</code> and reused across projects.
+            <span x-show="providers.some(p => p.saved)">Fill a field below to overwrite an existing key.</span>
+          </p>
           <template x-for="provider in providers" :key="provider.name">
             <label class="field field-row">
               <span class="field-label" x-text="provider.label"></span>
               <input
                 type="password"
                 x-model="provider.value"
-                :placeholder="provider.placeholder"
+                :placeholder="provider.saved ? '\u2022\u2022\u2022\u2022 already saved' : provider.placeholder"
                 autocomplete="off">
               <span class="field-status"
                     :class="{ success: provider.saved, dim: !provider.saved }"

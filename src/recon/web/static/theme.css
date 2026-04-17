@@ -1330,6 +1330,22 @@ iconify-icon {
   border-radius: 999px;
 }
 
+/* Describe-screen path preview — small row showing where the
+ * workspace will land so the user can verify before submit. */
+.describe-path-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: -0.25rem 0 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.describe-path-preview code {
+  background: transparent;
+  padding: 0;
+  color: var(--recon-amber);
+}
+
 /* -----------------------------------------------------------------
  * Alert boxes — info / warn / error / success
  *
