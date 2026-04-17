@@ -139,6 +139,19 @@
 
   <template id="screen-welcome">
     <section class="section" x-data="welcomeScreen()">
+      <!-- ASCII block-letter brand mark. Hidden on narrow viewports
+           via CSS; fall-back is just the existing page chrome. Box
+           drawing chars only — no emoji, so the index.html emoji
+           test stays green. -->
+      <pre class="recon-ascii-logo" aria-hidden="true">
+██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
+██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║
+██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║
+██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
+██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
+╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝</pre>
+      <div class="scan-line" aria-hidden="true"></div>
+
       <div class="welcome-hero">
         <div class="welcome-hero-copy">
           <h2 class="welcome-hero-title">Competitive intelligence, researched for you.</h2>

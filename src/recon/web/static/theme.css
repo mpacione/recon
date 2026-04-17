@@ -1375,6 +1375,51 @@ iconify-icon {
 }
 
 /* -----------------------------------------------------------------
+ * ASCII brand mark + scan-line divider
+ *
+ * Ported from cyberspace-tui-go. The logo uses box-drawing block
+ * chars (U+2500-U+259F) so the emoji-free invariant in the smoke
+ * test still holds. On narrow viewports we hide the logo entirely
+ * — the .recon-title in the header is plenty of brand presence.
+ *
+ * The scan-line strip is a decorative ░-textured rule that mirrors
+ * cyberspace-tui-go's ScanLineDivider. Use it as a poor-man's
+ * section separator anywhere you want a little terminal texture.
+ * ----------------------------------------------------------------- */
+
+.recon-ascii-logo {
+  display: block;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  font-family: var(--recon-font-mono);
+  font-size: 0.5rem;
+  line-height: 1.1;
+  color: var(--recon-amber);
+  white-space: pre;
+  overflow: hidden;
+  /* Let the phosphor glow — a subtle text-shadow reads as CRT bloom
+   * without the Doom-modded look of a heavy shadow. */
+  text-shadow: 0 0 6px color-mix(in oklab, var(--recon-amber) 35%, transparent);
+}
+
+@media (max-width: 560px) {
+  .recon-ascii-logo { display: none; }
+}
+
+.scan-line {
+  height: 0.5rem;
+  margin: 0.25rem 0 1rem;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--recon-border) 0,
+    var(--recon-border) 2px,
+    transparent 2px,
+    transparent 5px
+  );
+  opacity: 0.6;
+}
+
+/* -----------------------------------------------------------------
  * Run screen — live pipeline progress + activity log
  * ----------------------------------------------------------------- */
 

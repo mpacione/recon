@@ -110,6 +110,16 @@ class TestStaticAssets:
         # The cycle helper is what the [t] keybind calls.
         assert "cycle()" in body
 
+    def test_welcome_renders_ascii_logo(self, client: TestClient) -> None:
+        # The welcome hero ships a RECON ASCII logo — if the markup
+        # regresses, the visual landing takes a hit. Box-drawing only;
+        # if any char here creeps into the emoji range the sibling
+        # emoji test will catch it.
+        body = client.get("/").text
+        assert 'class="recon-ascii-logo"' in body
+        # Spot-check one recognizable row of the block art.
+        assert '██████╗ ███████╗' in body
+
     def test_theme_css_defines_alert_variants(self, client: TestClient) -> None:
         # The AlertBox vocabulary (ported from cyberspace-tui-go) drives
         # every notice/error row. If a variant goes missing, callers
