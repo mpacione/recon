@@ -1392,7 +1392,6 @@ iconify-icon {
   margin: 0 0 0.5rem;
   padding: 0;
   font-family: var(--recon-font-mono);
-  font-size: 0.5rem;
   line-height: 1.1;
   color: var(--recon-amber);
   white-space: pre;
@@ -1402,8 +1401,18 @@ iconify-icon {
   text-shadow: 0 0 6px color-mix(in oklab, var(--recon-amber) 35%, transparent);
 }
 
+.recon-ascii-logo-full { font-size: 0.5rem; }
+.recon-ascii-logo-mini {
+  font-size: 0.75rem;
+  display: none;
+}
+
+/* Swap to the 3-row box-drawing logo under 560px so narrow viewports
+ * still get a brand mark — the full block-letter art wraps below
+ * that width. */
 @media (max-width: 560px) {
-  .recon-ascii-logo { display: none; }
+  .recon-ascii-logo-full { display: none; }
+  .recon-ascii-logo-mini { display: block; }
 }
 
 .scan-line {
