@@ -120,6 +120,7 @@
       <div id="screen-slot" x-ref="slot"></div>
     </main>
 
+    <div class="scan-line scan-line-inline" aria-hidden="true"></div>
     <footer class="keybinds" aria-label="keybinds">
       <template x-for="bind in keybinds" :key="bind.key">
         <span class="keybind">
@@ -502,8 +503,8 @@
       <p class="alert alert-error" x-show="error" x-text="error"></p>
 
       <div class="run-header">
-        <div class="run-phase">
-          <span class="dim">phase:</span>
+        <div class="run-phase system-prompt">
+          <span class="system-prompt-label">SYSTEM:</span>
           <span class="amber" x-text="phase"></span>
         </div>
         <div class="run-cost">

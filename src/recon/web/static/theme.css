@@ -1419,6 +1419,34 @@ iconify-icon {
   opacity: 0.6;
 }
 
+/* Scan-line variant sized for inline separators between sibling
+ * elements (footer rule, between subsections). Compact height so it
+ * reads as a rule, not a block. */
+.scan-line.scan-line-inline {
+  height: 0.25rem;
+  margin: 0 0 0.5rem;
+}
+
+/* System prompt prefix — `▶ SYSTEM: <msg>` inline marker ported from
+ * cyberspace-tui-go's SystemPrompt. Use on any text node that should
+ * read as an engine-originated status line rather than user copy.
+ * The prefix is a single-element pseudo so you just add the class. */
+.system-prompt::before {
+  content: "\25B6\00A0";  /* ▶ + non-breaking space */
+  color: var(--recon-amber);
+  font-family: var(--recon-font-mono);
+  font-weight: 700;
+  margin-right: 0.15rem;
+}
+
+.system-prompt-label {
+  color: var(--recon-amber);
+  font-family: var(--recon-font-mono);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 /* -----------------------------------------------------------------
  * Run screen — live pipeline progress + activity log
  * ----------------------------------------------------------------- */
