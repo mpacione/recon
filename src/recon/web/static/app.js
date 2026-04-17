@@ -59,28 +59,6 @@ function applyTheme(key) {
   }
 }
 
-const CRT_STORAGE_KEY = 'recon:crt';
-
-function readPersistedCrt() {
-  try {
-    return localStorage.getItem(CRT_STORAGE_KEY) !== 'off';
-  } catch (_err) { return true; }
-}
-
-function writePersistedCrt(on) {
-  try {
-    localStorage.setItem(CRT_STORAGE_KEY, on ? 'on' : 'off');
-  } catch (_err) { /* noop */ }
-}
-
-function applyCrt(on) {
-  if (on) {
-    document.documentElement.removeAttribute('data-crt');
-  } else {
-    document.documentElement.setAttribute('data-crt', 'off');
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Flow definition (kept in sync with design/v2-spec.md and the TUI
 // FlowProgress widget).
@@ -105,19 +83,21 @@ const NON_FLOW_SCREENS = new Set([
 
 // Per-screen keybind hints. The shell renders these in the footer.
 // Listeners are attached at the document level by the router.
+// Keybind hints shown in the footer. Only advertise shortcuts that
+// are actually wired in handleKey — misleading hints were a real
+// bug report.
 const SCREEN_KEYBINDS = {
   welcome: [
     { key: 'n', label: 'new project' },
     { key: '1-9', label: 'recent project' },
-    { key: 'q', label: 'quit' },
   ],
   describe:  [{ key: 'enter', label: 'continue' }, { key: 'esc', label: 'back' }],
-  discover:  [{ key: 'space', label: 'toggle' }, { key: 's', label: 'search more' }, { key: 'enter', label: 'done' }, { key: 'esc', label: 'back' }],
-  template:  [{ key: 'space', label: 'toggle' }, { key: 'enter', label: 'proceed' }, { key: 'esc', label: 'back' }],
+  discover:  [{ key: 'enter', label: 'done' }, { key: 'esc', label: 'back' }],
+  template:  [{ key: 'enter', label: 'proceed' }, { key: 'esc', label: 'back' }],
   confirm:   [{ key: 'enter', label: 'start run' }, { key: 'esc', label: 'back' }],
   run:       [{ key: 'esc', label: 'back to dashboard' }],
   results:   [{ key: 'b', label: 'dashboard' }, { key: 'h', label: 'home' }],
-  dashboard: [{ key: 'r', label: 'run' }, { key: 'b', label: 'back' }, { key: 'q', label: 'quit' }],
+  dashboard: [{ key: 'h', label: 'home' }],
   curation:  [{ key: 'h', label: 'home' }],
   browser:   [{ key: 'h', label: 'home' }],
   selector:  [{ key: 'h', label: 'home' }],
@@ -167,7 +147,6 @@ document.addEventListener('alpine:init', () => {
   // matches whatever the preflight script already wrote to <html>.
   Alpine.store('theme', {
     active: readPersistedTheme(),
-    crt: readPersistedCrt(),
     options: THEMES,
 
     set(key) {
@@ -181,12 +160,6 @@ document.addEventListener('alpine:init', () => {
       const idx = THEMES.findIndex((t) => t.key === this.active);
       const next = THEMES[(idx + 1) % THEMES.length].key;
       this.set(next);
-    },
-
-    toggleCrt() {
-      this.crt = !this.crt;
-      applyCrt(this.crt);
-      writePersistedCrt(this.crt);
     },
   });
 });
@@ -210,10 +183,6 @@ function themePicker() {
       return Alpine.store('theme').options;
     },
 
-    get crtOn() {
-      return Alpine.store('theme').crt;
-    },
-
     activeLabel() {
       const match = this.options.find((o) => o.key === this.active);
       return match ? match.label : 'Theme';
@@ -221,10 +190,6 @@ function themePicker() {
 
     select(key) {
       Alpine.store('theme').set(key);
-    },
-
-    toggleCrt() {
-      Alpine.store('theme').toggleCrt();
     },
   };
 }

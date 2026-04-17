@@ -33,10 +33,6 @@
         if (allowed.indexOf(saved) !== -1) {
           document.documentElement.setAttribute('data-theme', saved);
         }
-        // CRT overlay: on by default, opt-out via localStorage.
-        if (localStorage.getItem('recon:crt') === 'off') {
-          document.documentElement.setAttribute('data-crt', 'off');
-        }
       } catch (_err) { /* localStorage disabled — fall back to default */ }
     })();
   </script>
@@ -107,19 +103,6 @@
               </button>
             </li>
           </template>
-          <li role="separator" class="theme-picker-separator" aria-hidden="true"></li>
-          <li role="none">
-            <button type="button"
-                    role="menuitemcheckbox"
-                    :aria-checked="crtOn"
-                    class="theme-picker-item"
-                    :class="{ 'active': crtOn }"
-                    @click="toggleCrt()">
-              <span class="theme-picker-marker" x-text="crtOn ? '\u25A0' : '\u25A1'"></span>
-              <span class="theme-picker-name">CRT overlay</span>
-              <span class="dim theme-picker-desc">scan-line phosphor</span>
-            </button>
-          </li>
         </ul>
       </div>
     </header>

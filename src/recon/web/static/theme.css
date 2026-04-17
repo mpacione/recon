@@ -169,38 +169,6 @@ a:focus-visible {
 }
 
 /* -----------------------------------------------------------------
- * CRT scan-line overlay
- *
- * Fixed 1-pixel horizontal rule pattern layered over the entire
- * viewport for a subtle phosphor-glass feel. pointer-events: none
- * keeps it transparent to clicks; very low opacity keeps it from
- * fighting with actual content. Opt out per-user by setting
- * localStorage['recon:crt'] = 'off' before the preflight runs — the
- * [data-crt="off"] attribute suppresses the overlay.
- * ----------------------------------------------------------------- */
-
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1000;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent 2px,
-    rgba(0, 0, 0, 0.22) 2px,
-    rgba(0, 0, 0, 0.22) 3px
-  );
-  mix-blend-mode: multiply;
-  opacity: 0.55;
-}
-
-html[data-crt="off"] body::after {
-  display: none;
-}
-
-/* -----------------------------------------------------------------
  * Layout primitives
  * ----------------------------------------------------------------- */
 
@@ -1674,9 +1642,10 @@ iconify-icon {
 }
 
 .run-activity {
-  max-height: 26rem;
+  max-height: 20rem;
   overflow-y: auto;
   padding: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
   background: var(--recon-surface);
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius-sm);
