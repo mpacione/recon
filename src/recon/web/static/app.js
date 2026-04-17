@@ -583,13 +583,99 @@ function discoverScreen() {
     adding: false,
     competitors: [],
     form: { name: '', url: '', blurb: '' },
+    // Discovery-agent state
+    searching: false,
+    searchMessage: null,
+    searchError: null,
+    discovered: [],          // raw candidate list from /api/discover
+    importedNames: new Set(), // client-side dedupe
 
     get workspacePath() {
       return Alpine.store('router').params.arg[0] || '';
     },
 
+    // Candidates the agent returned that aren't already in the
+    // workspace (either saved or just-imported this session).
+    get pendingDiscovered() {
+      const savedNames = new Set(
+        this.competitors.map((c) => c.name.toLowerCase()),
+      );
+      return this.discovered.filter((c) => {
+        const key = c.name.toLowerCase();
+        return !savedNames.has(key) && !this.importedNames.has(key);
+      });
+    },
+
     async init() {
       await this.refresh();
+    },
+
+    async search() {
+      if (this.searching) return;
+      this.searching = true;
+      this.searchError = null;
+      this.searchMessage = null;
+      try {
+        const res = await fetch('/api/discover', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: this.workspacePath,
+            seeds: this.competitors.map((c) => c.name),
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          this.searchError = body.detail || `search failed (${res.status})`;
+          return;
+        }
+        const body = await res.json();
+        this.discovered = body.candidates || [];
+        if (this.discovered.length === 0) {
+          this.searchMessage = 'no new candidates found';
+        } else {
+          const label = body.used_web_search
+            ? 'from web search'
+            : 'from training-data fallback (no web access)';
+          this.searchMessage = `${this.discovered.length} candidate${this.discovered.length === 1 ? '' : 's'} ${label}`;
+        }
+      } catch (err) {
+        this.searchError = err.message;
+      } finally {
+        this.searching = false;
+      }
+    },
+
+    async accept(candidate) {
+      // Add a discovered candidate to the workspace. On success, mark
+      // it imported locally so it disappears from the pending list
+      // without needing a full /api/competitors refresh.
+      try {
+        const res = await fetch('/api/competitors', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: this.workspacePath,
+            name: candidate.name,
+            url: candidate.url || null,
+            blurb: candidate.blurb || null,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          this.error = body.detail || `could not add (${res.status})`;
+          return;
+        }
+        const created = await res.json();
+        this.competitors = [...this.competitors, created];
+        this.importedNames.add(candidate.name.toLowerCase());
+      } catch (err) {
+        this.error = err.message;
+      }
+    },
+
+    reject(candidate) {
+      this.importedNames.add(candidate.name.toLowerCase());
     },
 
     async refresh() {

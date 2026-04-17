@@ -11,11 +11,13 @@ from __future__ import annotations
 import json
 import os
 import re
-import yaml
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
@@ -31,6 +33,9 @@ from recon.web.schemas import (
     CreateCompetitorRequest,
     CreateWorkspaceRequest,
     DashboardResponse,
+    DiscoverRequest,
+    DiscoverResponse,
+    DiscoveredCandidate,
     HealthResponse,
     ModelOption,
     OutputFileModel,
@@ -409,6 +414,135 @@ def create_app() -> FastAPI:
             "research_status": "scaffold",
         }
         return _profile_to_model(meta, url=payload.url, blurb=payload.blurb)
+
+    @app.post("/api/discover", response_model=DiscoverResponse)
+    async def discover_competitors(payload: DiscoverRequest) -> DiscoverResponse:
+        """Run the LLM competitor-discovery agent and return candidates.
+
+        This is the missing link the web UI used to lack: the welcome
+        copy promises "recon discovers competitors" but the discover
+        screen was manual-add-only. This endpoint drives
+        :class:`recon.discovery.DiscoveryAgent` (or
+        :class:`recon.gemini_discovery.GeminiDiscoveryAgent`) with
+        whatever API keys the user has saved.
+
+        Priority:
+          1. fake LLM client if ``use_fake_llm`` is set (prototype
+             escape hatch; useful for UI demos)
+          2. Gemini if ``GOOGLE_AI_API_KEY`` is available
+          3. Anthropic if ``ANTHROPIC_API_KEY`` is available
+
+        Returns the candidate list as plain JSON — the caller decides
+        which ones to keep. No state is persisted here; the existing
+        POST /api/competitors endpoint is still the write path.
+        """
+        ws = _open_workspace(payload.path)
+
+        from recon.api_keys import load_api_keys
+        from recon.discovery import DiscoveryAgent, DiscoveryState
+
+        schema = ws.schema
+        domain = ""
+        if schema is not None:
+            domain = schema.domain or (
+                schema.identity.company_name if schema.identity else ""
+            )
+        if not domain:
+            domain = "unknown domain"
+
+        if payload.use_fake_llm:
+            # Fake path — useful for UI demos without spending API budget.
+            from recon.web.fake_llm import FakeLLMClient
+
+            agent: Any = DiscoveryAgent(
+                llm_client=FakeLLMClient(),
+                domain=domain,
+                seed_competitors=payload.seeds or None,
+                use_web_search=False,
+            )
+            used_web_search = False
+        else:
+            keys = load_api_keys(ws.root)
+            google_key = keys.get("google_ai")
+            anthropic_key = keys.get("anthropic")
+            agent = None
+            used_web_search = False
+
+            if google_key:
+                try:
+                    from recon.gemini_discovery import GeminiDiscoveryAgent
+
+                    agent = GeminiDiscoveryAgent(
+                        api_key=google_key,
+                        domain=domain,
+                        seed_competitors=payload.seeds or None,
+                    )
+                    used_web_search = True
+                except Exception:  # noqa: BLE001 -- non-fatal
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).exception(
+                        "Gemini discovery agent init failed",
+                    )
+                    agent = None
+
+            if agent is None and anthropic_key:
+                from recon.client_factory import create_llm_client
+
+                os.environ["ANTHROPIC_API_KEY"] = anthropic_key
+                try:
+                    client = create_llm_client()
+                except Exception as exc:  # noqa: BLE001
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"could not create LLM client: {exc}",
+                    ) from exc
+                agent = DiscoveryAgent(
+                    llm_client=client,
+                    domain=domain,
+                    seed_competitors=payload.seeds or None,
+                )
+                used_web_search = True
+
+            if agent is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "No API key configured. Save an Anthropic or "
+                        "Google AI key in the describe step (or set "
+                        "ANTHROPIC_API_KEY / GOOGLE_AI_API_KEY in your "
+                        "environment) before running discovery."
+                    ),
+                )
+
+        try:
+            state = DiscoveryState()
+            results = await agent.search(state)
+        except Exception as exc:  # noqa: BLE001 -- surface to the UI
+            import logging as _logging
+
+            _logging.getLogger(__name__).exception(
+                "discovery agent failed for workspace=%s", ws.root,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"discovery failed: {exc}",
+            ) from exc
+
+        candidates = [
+            DiscoveredCandidate(
+                name=c.name,
+                url=c.url or None,
+                blurb=c.blurb or None,
+                tier=str(c.suggested_tier) if c.suggested_tier else "competitor",
+            )
+            for c in results
+        ]
+        return DiscoverResponse(
+            candidates=candidates,
+            domain=domain,
+            used_web_search=used_web_search,
+        )
 
     @app.delete("/api/competitors/{slug}", status_code=204)
     async def delete_competitor(slug: str, path: str = Query(..., description="Workspace directory path")):

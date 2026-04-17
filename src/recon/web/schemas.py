@@ -171,6 +171,37 @@ class CreateCompetitorRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# /api/discover — LLM-powered competitor search
+# ---------------------------------------------------------------------------
+
+
+class DiscoverRequest(BaseModel):
+    path: str
+    # Optional seed names the agent should steer toward / away from.
+    seeds: list[str] = Field(default_factory=list)
+    # If true, use the fake LLM client (same mode as the run screen).
+    # Lets us exercise the endpoint without consuming API budget.
+    use_fake_llm: bool = False
+
+
+class DiscoveredCandidate(BaseModel):
+    name: str
+    url: str | None = None
+    blurb: str | None = None
+    tier: str = "competitor"
+
+
+class DiscoverResponse(BaseModel):
+    candidates: list[DiscoveredCandidate] = Field(default_factory=list)
+    domain: str = ""
+    # Whether the agent actually used web search or fell back to
+    # training-data mode. Surfaced so the UI can tell the user
+    # "these may be stale" when web search was unavailable.
+    used_web_search: bool = True
+    message: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # /api/template
 # ---------------------------------------------------------------------------
 

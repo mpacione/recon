@@ -279,6 +279,72 @@
       <p class="dim" x-show="loading">Loading competitors&hellip;</p>
       <p class="alert alert-error" x-show="error" x-text="error"></p>
 
+      <!-- LLM search: primary way to populate the list. Runs the
+           DiscoveryAgent with whatever API key is saved and returns
+           candidates the user can accept/reject individually. -->
+      <div class="discover-search" x-show="!loading">
+        <div class="discover-search-header">
+          <div>
+            <label class="field-label">Find competitors</label>
+            <p class="dim discover-search-hint">
+              Ask recon to search for competitors in your space. Uses your
+              saved Gemini / Anthropic key.
+            </p>
+          </div>
+          <button type="button" class="primary"
+                  @click="search()"
+                  :disabled="searching">
+            <iconify-icon icon="lucide:sparkles" width="14" height="14" aria-hidden="true"></iconify-icon>
+            <span x-show="!searching">Search</span>
+            <span x-show="searching">Searching&hellip;</span>
+          </button>
+        </div>
+
+        <p class="alert alert-error" x-show="searchError" x-text="searchError"></p>
+        <p class="dim discover-search-message"
+           x-show="!searching && searchMessage && !searchError"
+           x-text="searchMessage"></p>
+
+        <ul class="discovered-list" x-show="pendingDiscovered.length > 0">
+          <template x-for="cand in pendingDiscovered" :key="cand.name">
+            <li class="discovered-row">
+              <div class="discovered-body">
+                <div class="discovered-headline">
+                  <span class="discovered-name" x-text="cand.name"></span>
+                  <template x-if="cand.url">
+                    <a class="candidate-url"
+                       :href="cand.url"
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       :title="cand.url"
+                       @click.stop>
+                      <iconify-icon icon="lucide:external-link" width="13" height="13" aria-hidden="true"></iconify-icon>
+                      <span class="candidate-url-host" x-text="candidateHost(cand.url)"></span>
+                    </a>
+                  </template>
+                </div>
+                <template x-if="cand.blurb">
+                  <p class="candidate-blurb dim" x-text="cand.blurb"></p>
+                </template>
+              </div>
+              <div class="discovered-actions">
+                <button type="button" class="primary"
+                        @click="accept(cand)"
+                        aria-label="Add to workspace">
+                  <iconify-icon icon="lucide:plus" width="14" height="14" aria-hidden="true"></iconify-icon>
+                  Add
+                </button>
+                <button type="button"
+                        @click="reject(cand)"
+                        aria-label="Ignore this candidate">
+                  Skip
+                </button>
+              </div>
+            </li>
+          </template>
+        </ul>
+      </div>
+
       <form @submit.prevent="add()" class="add-competitor" x-show="!loading">
         <label class="field-label">Add manually</label>
         <div class="add-row">
