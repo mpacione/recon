@@ -158,6 +158,17 @@ class TestStaticAssets:
         # the preflight silently ignores valid persisted values.
         for key in ('amber', 'dark', 'matrix', 'crypt'):
             assert f"'{key}'" in body, f'theme {key} missing from preflight allowlist'
+        # CRT overlay opt-out also runs in the preflight so the
+        # overlay doesn't flash for users who've turned it off.
+        assert "'recon:crt'" in body
+
+    def test_theme_css_defines_crt_overlay(self, client: TestClient) -> None:
+        # The CRT scan-line overlay is painted by body::after; the
+        # opt-out toggles via html[data-crt="off"]. Guard both so a
+        # refactor can't silently drop the phosphor texture.
+        body = client.get("/static/theme.css").text
+        assert "body::after" in body
+        assert 'html[data-crt="off"]' in body
 
     def test_app_js_served(self, client: TestClient) -> None:
         response = client.get("/static/app.js")

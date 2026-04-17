@@ -165,6 +165,38 @@ a:focus-visible {
 }
 
 /* -----------------------------------------------------------------
+ * CRT scan-line overlay
+ *
+ * Fixed 1-pixel horizontal rule pattern layered over the entire
+ * viewport for a subtle phosphor-glass feel. pointer-events: none
+ * keeps it transparent to clicks; very low opacity keeps it from
+ * fighting with actual content. Opt out per-user by setting
+ * localStorage['recon:crt'] = 'off' before the preflight runs — the
+ * [data-crt="off"] attribute suppresses the overlay.
+ * ----------------------------------------------------------------- */
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1000;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 2px,
+    rgba(0, 0, 0, 0.22) 2px,
+    rgba(0, 0, 0, 0.22) 3px
+  );
+  mix-blend-mode: multiply;
+  opacity: 0.55;
+}
+
+html[data-crt="off"] body::after {
+  display: none;
+}
+
+/* -----------------------------------------------------------------
  * Layout primitives
  * ----------------------------------------------------------------- */
 
@@ -304,6 +336,14 @@ a:focus-visible {
 .theme-picker-desc {
   font-size: 0.75rem;
   white-space: nowrap;
+}
+
+.theme-picker-separator {
+  list-style: none;
+  height: 1px;
+  margin: 0.35rem 0.1rem;
+  background: var(--recon-border);
+  opacity: 0.5;
 }
 
 /* Section card — mirrors cyberspace.online's .terminal-box: pure black
@@ -605,7 +645,17 @@ h1, h2, h3, h4 {
 .recent-item:hover,
 .recent-item:focus-within {
   background: var(--recon-surface);
-  border-color: var(--recon-border);
+  border-color: var(--recon-amber);
+  /* Subtle phosphor bloom on hover — reads as a "selected" terminal
+   * row without being loud. The glow matches the theme's accent so
+   * every palette lights up in its own voice. */
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--recon-amber) 35%, transparent),
+              0 0 12px -4px color-mix(in oklab, var(--recon-amber) 45%, transparent);
+}
+
+.recent-item:hover .recent-name,
+.recent-item:focus-within .recent-name {
+  color: var(--recon-amber);
 }
 
 .recent-item-missing {
@@ -758,10 +808,20 @@ button {
   border-radius: var(--recon-radius-sm);
   cursor: pointer;
   line-height: 1.5;
+  transition: border-color 120ms ease-out, box-shadow 120ms ease-out,
+              background 120ms ease-out, color 120ms ease-out;
 }
 
 button:hover {
-  border-color: var(--recon-fg);
+  border-color: var(--recon-amber);
+  color: var(--recon-amber);
+}
+
+button:focus-visible {
+  outline: none;
+  border-color: var(--recon-amber);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--recon-amber) 50%, transparent),
+              0 0 10px -2px color-mix(in oklab, var(--recon-amber) 55%, transparent);
 }
 
 /* Primary — solid cream fill with dark text. Lifted directly from
@@ -776,6 +836,7 @@ button.primary:hover {
   background: var(--recon-amber);
   border-color: var(--recon-amber);
   color: var(--recon-bg);
+  box-shadow: 0 0 14px -2px color-mix(in oklab, var(--recon-amber) 55%, transparent);
 }
 
 button[disabled] {

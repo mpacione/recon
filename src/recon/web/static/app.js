@@ -59,6 +59,28 @@ function applyTheme(key) {
   }
 }
 
+const CRT_STORAGE_KEY = 'recon:crt';
+
+function readPersistedCrt() {
+  try {
+    return localStorage.getItem(CRT_STORAGE_KEY) !== 'off';
+  } catch (_err) { return true; }
+}
+
+function writePersistedCrt(on) {
+  try {
+    localStorage.setItem(CRT_STORAGE_KEY, on ? 'on' : 'off');
+  } catch (_err) { /* noop */ }
+}
+
+function applyCrt(on) {
+  if (on) {
+    document.documentElement.removeAttribute('data-crt');
+  } else {
+    document.documentElement.setAttribute('data-crt', 'off');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Flow definition (kept in sync with design/v2-spec.md and the TUI
 // FlowProgress widget).
@@ -145,6 +167,7 @@ document.addEventListener('alpine:init', () => {
   // matches whatever the preflight script already wrote to <html>.
   Alpine.store('theme', {
     active: readPersistedTheme(),
+    crt: readPersistedCrt(),
     options: THEMES,
 
     set(key) {
@@ -158,6 +181,12 @@ document.addEventListener('alpine:init', () => {
       const idx = THEMES.findIndex((t) => t.key === this.active);
       const next = THEMES[(idx + 1) % THEMES.length].key;
       this.set(next);
+    },
+
+    toggleCrt() {
+      this.crt = !this.crt;
+      applyCrt(this.crt);
+      writePersistedCrt(this.crt);
     },
   });
 });
@@ -181,6 +210,10 @@ function themePicker() {
       return Alpine.store('theme').options;
     },
 
+    get crtOn() {
+      return Alpine.store('theme').crt;
+    },
+
     activeLabel() {
       const match = this.options.find((o) => o.key === this.active);
       return match ? match.label : 'Theme';
@@ -188,6 +221,10 @@ function themePicker() {
 
     select(key) {
       Alpine.store('theme').set(key);
+    },
+
+    toggleCrt() {
+      Alpine.store('theme').toggleCrt();
     },
   };
 }
