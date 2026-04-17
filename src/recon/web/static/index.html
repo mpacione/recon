@@ -526,7 +526,7 @@
       <div class="run-header">
         <div class="run-phase system-prompt">
           <span class="system-prompt-label">SYSTEM:</span>
-          <span class="amber" x-text="phase"></span>
+          <span class="amber" :class="{ 'cursor-blink': !isTerminal }" x-text="phase"></span>
         </div>
         <div class="run-cost">
           <span class="dim">cost:</span>

@@ -1608,6 +1608,26 @@ iconify-icon {
   text-transform: uppercase;
 }
 
+/* Blinking block cursor — add .cursor-blink to any element whose
+ * text is "live" (currently processing). The ▌ block pulses at the
+ * 1.1s CRT-authentic rate. Respects prefers-reduced-motion. */
+.cursor-blink::after {
+  content: "\2590";  /* ▐ right half block — reads as a caret */
+  color: var(--recon-amber);
+  font-family: var(--recon-font-mono);
+  margin-left: 0.15rem;
+  animation: cursor-blink 1.1s steps(2, end) infinite;
+  text-shadow: 0 0 6px color-mix(in oklab, var(--recon-amber) 50%, transparent);
+}
+
+@keyframes cursor-blink {
+  to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor-blink::after { animation: none; }
+}
+
 /* -----------------------------------------------------------------
  * Run screen — live pipeline progress + activity log
  * ----------------------------------------------------------------- */
