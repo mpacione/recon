@@ -112,13 +112,17 @@ class TestStaticAssets:
 
     def test_welcome_renders_ascii_logo(self, client: TestClient) -> None:
         # The welcome hero ships a RECON ASCII logo — if the markup
-        # regresses, the visual landing takes a hit. Box-drawing only;
-        # if any char here creeps into the emoji range the sibling
-        # emoji test will catch it.
+        # regresses, the visual landing takes a hit. Both the full
+        # block art and the narrow-viewport mini logo should be
+        # present; CSS swaps between them by breakpoint. Box-drawing
+        # only; if any char here creeps into the emoji range the
+        # sibling emoji test will catch it.
         body = client.get("/").text
-        assert 'class="recon-ascii-logo"' in body
-        # Spot-check one recognizable row of the block art.
-        assert '██████╗ ███████╗' in body
+        assert 'recon-ascii-logo-full' in body
+        assert 'recon-ascii-logo-mini' in body
+        # Spot-check one recognizable row of each variant.
+        assert '██████╗ ███████╗' in body  # full block art
+        assert '╦═╗╔═╗╔═╗╔═╗╔╗╔' in body   # mini mark
 
     def test_theme_css_defines_alert_variants(self, client: TestClient) -> None:
         # The AlertBox vocabulary (ported from cyberspace-tui-go) drives
