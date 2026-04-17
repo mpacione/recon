@@ -4,9 +4,28 @@
  * Tokens ported from src/recon/tui/theme.py. When that file changes,
  * mirror the changes here. (Phase 2 may extract a shared
  * recon/branding.py both layers read from; see web-ui-spec.md §9.)
+ *
+ * Theme system
+ * ------------
+ * The 10 --recon-* color tokens form a palette vocabulary inspired by
+ * unremarkablegarden/cyberspace-tui-go. Each theme is an override of
+ * those tokens on a [data-theme="<name>"] block — rule bodies below
+ * never hardcode colors, so a single attribute flip retints the UI.
+ *
+ * Themes shipped:
+ *   amber   (default) — cyberspace.online VT320 phosphor
+ *   dark    — warm cream on black, low contrast
+ *   matrix  — green-on-black hacker terminal
+ *   crypt   — emergency-red terminal mode
+ *
+ * Selection order: <html data-theme="..."> wins; falling back to :root
+ * (amber) when the attribute is missing. app.js reads the persisted
+ * choice from localStorage and writes the attribute before Alpine
+ * mounts, so there is no flash of default-theme content.
  */
 
-:root {
+:root,
+[data-theme="amber"] {
   --recon-bg:       #000000;  /* tui/theme.py: background */
   --recon-fg:       #efe5c0;  /* tui/theme.py: foreground */
   --recon-dim:      #a89984;  /* tui/theme.py: dim */
@@ -36,6 +55,51 @@
   --recon-radius: 5px;
   --recon-radius-sm: 2px;
   --recon-gap: 1rem;
+}
+
+/* Dark: warm cream on near-black. Less saturated than amber — easier
+ * on the eyes for long sessions but still unmistakably "terminal". */
+[data-theme="dark"] {
+  --recon-bg:       #0a0a0a;
+  --recon-fg:       #ffffaf;
+  --recon-dim:      #af875f;
+  --recon-border:   #3a3a3a;
+  --recon-amber:    #ffd7af;
+  --recon-error:    #ff5f5f;
+  --recon-success:  #afd787;
+  --recon-warn:     #ffd787;
+  --recon-surface:  #1a1a1a;
+  --recon-panel:    #0d0d0d;
+}
+
+/* Matrix: green-on-black hacker terminal. Error stays red for
+ * contrast; everything else rides the green ramp. */
+[data-theme="matrix"] {
+  --recon-bg:       #000000;
+  --recon-fg:       #87d75f;
+  --recon-dim:      #5faf00;
+  --recon-border:   #003a00;
+  --recon-amber:    #87ff00;
+  --recon-error:    #ff5f5f;
+  --recon-success:  #00ff00;
+  --recon-warn:     #87ff00;
+  --recon-surface:  #001a00;
+  --recon-panel:    #000d00;
+}
+
+/* Crypt: emergency red terminal. Inspired by SCP / Fallout consoles.
+ * Use sparingly — this one is intense. */
+[data-theme="crypt"] {
+  --recon-bg:       #000000;
+  --recon-fg:       #d75f5f;
+  --recon-dim:      #875f5f;
+  --recon-border:   #3a1a1a;
+  --recon-amber:    #ff5f5f;
+  --recon-error:    #ff0000;
+  --recon-success:  #d78700;
+  --recon-warn:     #ff8700;
+  --recon-surface:  #1a0000;
+  --recon-panel:    #0d0000;
 }
 
 /* -----------------------------------------------------------------
@@ -147,6 +211,99 @@ a:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 2rem;
+}
+
+/* -----------------------------------------------------------------
+ * Theme picker (header popover)
+ * ----------------------------------------------------------------- */
+
+.theme-picker {
+  position: relative;
+  margin-left: auto;  /* push to the right edge of the header */
+}
+
+.theme-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.55rem;
+  background: var(--recon-panel);
+  color: var(--recon-dim);
+  border: 1px solid var(--recon-border);
+  border-radius: var(--recon-radius-sm);
+  font-family: var(--recon-font-mono);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.theme-picker-trigger:hover,
+.theme-picker-trigger[aria-expanded="true"] {
+  color: var(--recon-amber);
+  border-color: var(--recon-amber);
+}
+
+.theme-picker-label {
+  text-transform: lowercase;
+}
+
+.theme-picker-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 20;
+  min-width: 16rem;
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  background: var(--recon-panel);
+  border: 1px solid var(--recon-border);
+  border-radius: var(--recon-radius-sm);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.theme-picker-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  background: transparent;
+  color: var(--recon-fg);
+  border: none;
+  border-radius: var(--recon-radius-sm);
+  font-family: var(--recon-font);
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-picker-item:hover,
+.theme-picker-item:focus-visible {
+  background: var(--recon-surface);
+  outline: none;
+}
+
+.theme-picker-item.active {
+  color: var(--recon-amber);
+}
+
+.theme-picker-marker {
+  font-family: var(--recon-font-mono);
+  color: var(--recon-amber);
+}
+
+.theme-picker-item:not(.active) .theme-picker-marker {
+  color: var(--recon-dim);
+}
+
+.theme-picker-desc {
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 
 /* Section card — mirrors cyberspace.online's .terminal-box: pure black

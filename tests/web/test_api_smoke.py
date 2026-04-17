@@ -91,6 +91,36 @@ class TestStaticAssets:
         assert "#e0a044" in body  # amber accent
         assert "--recon-amber" in body  # CSS custom property naming
 
+    def test_theme_css_defines_alternate_themes(self, client: TestClient) -> None:
+        # Four themes must be selectable via <html data-theme="..."> —
+        # if one goes missing the picker's options and the CSS fall out
+        # of sync and rows silently become no-ops.
+        body = client.get("/static/theme.css").text
+        for key in ('amber', 'dark', 'matrix', 'crypt'):
+            assert f'[data-theme="{key}"]' in body, f'missing theme block: {key}'
+
+    def test_app_js_exposes_theme_catalog(self, client: TestClient) -> None:
+        # The THEMES constant is the single source of truth the picker
+        # renders against. Guard the labels so rename regressions
+        # surface here rather than as a silent UI change.
+        body = client.get("/static/app.js").text
+        assert "const THEMES" in body
+        for label in ("'amber'", "'dark'", "'matrix'", "'crypt'"):
+            assert label in body, f'theme {label} missing from THEMES catalog'
+        # The cycle helper is what the [t] keybind calls.
+        assert "cycle()" in body
+
+    def test_index_html_has_theme_preflight(self, client: TestClient) -> None:
+        # The preflight script must run before Alpine + before first
+        # paint. If it's absent, users with a non-default theme flash
+        # amber for a frame on every navigation.
+        body = client.get("/").text
+        assert "localStorage.getItem('recon:theme')" in body
+        # The allowlist must mirror THEMES in app.js. If either drifts,
+        # the preflight silently ignores valid persisted values.
+        for key in ('amber', 'dark', 'matrix', 'crypt'):
+            assert f"'{key}'" in body, f'theme {key} missing from preflight allowlist'
+
     def test_app_js_served(self, client: TestClient) -> None:
         response = client.get("/static/app.js")
         assert response.status_code == 200

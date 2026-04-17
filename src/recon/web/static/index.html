@@ -19,6 +19,23 @@
        (and future config values). Kept as a comment in the static
        file so `file://` previews still load without syntax errors. -->
   <!--RECON_CONFIG-->
+  <!-- Theme preflight: read the persisted theme from localStorage and
+       set <html data-theme="..."> before paint. Without this, the
+       default palette flashes for a frame whenever a non-default theme
+       is active. Kept inline + synchronous so it runs before first
+       paint; the allowlist keeps the attribute write safe against
+       tampered storage values. -->
+  <script>
+    (function () {
+      var allowed = ['amber', 'dark', 'matrix', 'crypt'];
+      try {
+        var saved = localStorage.getItem('recon:theme');
+        if (allowed.indexOf(saved) !== -1) {
+          document.documentElement.setAttribute('data-theme', saved);
+        }
+      } catch (_err) { /* localStorage disabled — fall back to default */ }
+    })();
+  </script>
   <script defer src="/static/app.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <!-- Lucide icons via Iconify. Used for functional UI chrome (remove
@@ -60,6 +77,34 @@
           </span>
         </template>
       </nav>
+
+      <div class="theme-picker" x-data="themePicker()" @click.outside="open = false">
+        <button type="button"
+                class="theme-picker-trigger"
+                @click="open = !open"
+                :aria-expanded="open"
+                aria-haspopup="menu"
+                aria-label="Switch theme">
+          <iconify-icon icon="lucide:palette" width="14" height="14" aria-hidden="true"></iconify-icon>
+          <span class="theme-picker-label" x-text="activeLabel()"></span>
+        </button>
+        <ul class="theme-picker-menu" role="menu" x-show="open" x-cloak x-transition.opacity>
+          <template x-for="opt in options" :key="opt.key">
+            <li role="none">
+              <button type="button"
+                      role="menuitemradio"
+                      :aria-checked="active === opt.key"
+                      class="theme-picker-item"
+                      :class="{ 'active': active === opt.key }"
+                      @click="select(opt.key); open = false">
+                <span class="theme-picker-marker" x-text="active === opt.key ? '\u25C9' : '\u25CB'"></span>
+                <span class="theme-picker-name" x-text="opt.label"></span>
+                <span class="dim theme-picker-desc" x-text="opt.description"></span>
+              </button>
+            </li>
+          </template>
+        </ul>
+      </div>
     </header>
 
     <main class="recon-body">

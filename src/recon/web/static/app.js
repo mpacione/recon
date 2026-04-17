@@ -10,6 +10,56 @@
 // there are enough of them to warrant the file boundaries.
 
 // ---------------------------------------------------------------------------
+// Theme system
+// ---------------------------------------------------------------------------
+//
+// Palette vocabulary inspired by unremarkablegarden/cyberspace-tui-go.
+// The catalog below is the single source of truth for:
+//   - the picker menu shown in the header
+//   - the [t] global keybind (cycles in array order)
+//   - the preflight allowlist (mirrored inline in index.html; both
+//     lists must agree)
+//
+// Rendering is CSS-only: each entry's `key` is written to
+// <html data-theme="..."> and theme.css overrides the --recon-* tokens
+// for that attribute. No re-render or class swap is needed.
+
+const THEMES = [
+  { key: 'amber',  label: 'Amber',  description: 'VT320 phosphor (default)' },
+  { key: 'dark',   label: 'Dark',   description: 'Warm cream on black' },
+  { key: 'matrix', label: 'Matrix', description: 'Green-on-black terminal' },
+  { key: 'crypt',  label: 'Crypt',  description: 'Emergency red console' },
+];
+
+const THEME_STORAGE_KEY = 'recon:theme';
+const DEFAULT_THEME = 'amber';
+
+function readPersistedTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    if (THEMES.some((t) => t.key === saved)) return saved;
+  } catch (_err) { /* localStorage disabled */ }
+  return DEFAULT_THEME;
+}
+
+function writePersistedTheme(key) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, key);
+  } catch (_err) { /* localStorage disabled — theme applies for the
+                      current page only */ }
+}
+
+function applyTheme(key) {
+  // Keep :root clean when the default is active so CSS debugging via
+  // devtools shows the canonical values rather than an override.
+  if (key === DEFAULT_THEME) {
+    document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', key);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Flow definition (kept in sync with design/v2-spec.md and the TUI
 // FlowProgress widget).
 // ---------------------------------------------------------------------------
@@ -88,7 +138,59 @@ document.addEventListener('alpine:init', () => {
       }
     },
   });
+
+  // Theme store: the picker component and the [t] keybind both reach
+  // in here so the header trigger, popover, and keyboard all stay in
+  // sync. Seed from localStorage via readPersistedTheme so the store
+  // matches whatever the preflight script already wrote to <html>.
+  Alpine.store('theme', {
+    active: readPersistedTheme(),
+    options: THEMES,
+
+    set(key) {
+      if (!THEMES.some((t) => t.key === key)) return;
+      this.active = key;
+      applyTheme(key);
+      writePersistedTheme(key);
+    },
+
+    cycle() {
+      const idx = THEMES.findIndex((t) => t.key === this.active);
+      const next = THEMES[(idx + 1) % THEMES.length].key;
+      this.set(next);
+    },
+  });
 });
+
+// ---------------------------------------------------------------------------
+// Theme picker
+// ---------------------------------------------------------------------------
+//
+// Small popover in the header. The store owns the state; this factory
+// is a thin view over it so the template stays declarative.
+
+function themePicker() {
+  return {
+    open: false,
+
+    get active() {
+      return Alpine.store('theme').active;
+    },
+
+    get options() {
+      return Alpine.store('theme').options;
+    },
+
+    activeLabel() {
+      const match = this.options.find((o) => o.key === this.active);
+      return match ? match.label : 'Theme';
+    },
+
+    select(key) {
+      Alpine.store('theme').set(key);
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Top-level shell component
@@ -199,7 +301,11 @@ function reconShell() {
     },
 
     get keybinds() {
-      return SCREEN_KEYBINDS[this.activeScreen] || [];
+      // [t] is a universal theme-cycle shortcut. Appending it here
+      // (rather than inside every SCREEN_KEYBINDS entry) keeps the
+      // registry focused on screen-specific actions.
+      const base = SCREEN_KEYBINDS[this.activeScreen] || [];
+      return [...base, { key: 't', label: 'theme' }];
     },
 
     // -------------------------------------------------------------
@@ -240,6 +346,15 @@ function reconShell() {
       const reservesH = ['describe', 'discover', 'template', 'confirm', 'run'].includes(screen);
       if (key === 'h' && !reservesH) {
         router.navigate('#/welcome');
+        event.preventDefault();
+        return;
+      }
+
+      // `t` is the universal theme-cycle shortcut. Works on every
+      // screen (no screen currently reserves it) so users can retint
+      // mid-flow without losing their place.
+      if (key === 't') {
+        Alpine.store('theme').cycle();
         event.preventDefault();
         return;
       }
