@@ -240,7 +240,7 @@
           <button type="button" @click="back()">Back</button>
         </div>
 
-        <p class="error" x-show="error" x-text="error"></p>
+        <p class="alert alert-error" x-show="error" x-text="error"></p>
       </form>
     </section>
   </template>
@@ -250,7 +250,7 @@
       <h2 class="section-divider">COMPETITOR DISCOVERY</h2>
 
       <p class="dim" x-show="loading">Loading competitors&hellip;</p>
-      <p class="error" x-show="error" x-text="error"></p>
+      <p class="alert alert-error" x-show="error" x-text="error"></p>
 
       <form @submit.prevent="add()" class="add-competitor" x-show="!loading">
         <label class="field-label">Add manually</label>
@@ -354,7 +354,7 @@
       </p>
 
       <p class="dim" x-show="loading">Loading template&hellip;</p>
-      <p class="error" x-show="error" x-text="error"></p>
+      <p class="alert alert-error" x-show="error" x-text="error"></p>
 
       <div class="template-controls" x-show="!loading">
         <button type="button" @click="selectAll()">Select all</button>
@@ -395,7 +395,7 @@
       <h2 class="section-divider">READY TO RESEARCH</h2>
 
       <p class="dim" x-show="loading">Loading estimate&hellip;</p>
-      <p class="error" x-show="error" x-text="error"></p>
+      <p class="alert alert-error" x-show="error" x-text="error"></p>
 
       <div x-show="!loading && data">
         <p>
@@ -453,15 +453,14 @@
           <span class="dim">parallel workers</span>
         </div>
 
-        <p class="notice" role="note">
-          <iconify-icon icon="lucide:info" width="16" height="16" aria-hidden="true"></iconify-icon>
+        <p class="alert alert-info" role="note">
           <span>
             Preview run &mdash; uses a deterministic fake LLM so no API charges are incurred.
             Real-LLM mode lands in a follow-up release.
           </span>
         </p>
 
-        <p class="error" x-show="error" x-text="error"></p>
+        <p class="alert alert-error" x-show="error" x-text="error"></p>
 
         <div class="actions">
           <button type="button" class="primary"
@@ -487,7 +486,7 @@
     <section class="section" x-data="runScreen()">
       <h2 class="section-divider">RESEARCH RUN</h2>
 
-      <p class="error" x-show="error" x-text="error"></p>
+      <p class="alert alert-error" x-show="error" x-text="error"></p>
 
       <div class="run-header">
         <div class="run-phase">
@@ -537,7 +536,7 @@
       <h2 class="section-divider">RESEARCH COMPLETE</h2>
 
       <p class="dim" x-show="loading">Loading results&hellip;</p>
-      <p class="error" x-show="error" x-text="error"></p>
+      <p class="alert alert-error" x-show="error" x-text="error"></p>
 
       <!-- No artifacts yet: the workspace was set up but no run has
            produced an exec summary or theme files. Point the user
@@ -625,7 +624,7 @@
       </h2>
 
       <p class="dim" x-show="loading">Loading workspace&hellip;</p>
-      <p class="error" x-show="error" x-text="error"></p>
+      <p class="alert alert-error" x-show="error" x-text="error"></p>
 
       <div x-show="!loading && workspace">
         <p>

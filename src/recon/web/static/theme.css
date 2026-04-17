@@ -1210,27 +1210,79 @@ iconify-icon {
   border-radius: 999px;
 }
 
-/* Inline banner used on the Confirm screen (and anywhere else that
- * needs a muted "heads up" row without a full empty-state layout). */
-.notice {
+/* -----------------------------------------------------------------
+ * Alert boxes — info / warn / error / success
+ *
+ * Ported from unremarkablegarden/cyberspace-tui-go AlertBox. Each
+ * variant renders a leading glyph via ::before so callers only have
+ * to set the class; no iconify-icon child, no extra DOM. The marker
+ * characters live in CSS (not in index.html) so the emoji-free
+ * invariant enforced in test_api_smoke.py still holds.
+ *
+ *   .alert                   base layout (flex + padding + border)
+ *   .alert-info              amber tint, ℹ marker
+ *   .alert-warn              warn tint, ▲ marker
+ *   .alert-error             error tint, ✖ marker
+ *   .alert-success           success tint, ✔ marker
+ * ----------------------------------------------------------------- */
+
+.alert {
   display: flex;
   align-items: flex-start;
-  gap: 0.6rem;
-  padding: 0.6rem 0.75rem;
+  gap: 0.55rem;
+  padding: 0.55rem 0.75rem;
   margin: 0.75rem 0 0.25rem;
-  border: 1px solid color-mix(in oklab, var(--recon-amber) 35%, transparent);
-  background: color-mix(in oklab, var(--recon-amber) 7%, transparent);
-  border-radius: var(--recon-radius);
+  border: 1px solid var(--recon-border);
+  border-radius: var(--recon-radius-sm);
   color: var(--recon-fg);
   font-size: 0.875rem;
   line-height: 1.5;
 }
 
-.notice iconify-icon {
-  color: var(--recon-amber);
+.alert::before {
   flex: 0 0 auto;
-  margin-top: 0.15rem;
+  font-family: var(--recon-font-mono);
+  font-weight: 700;
+  line-height: 1.25;
+  margin-top: 0.05rem;
 }
+
+.alert-info {
+  border-color: color-mix(in oklab, var(--recon-amber) 35%, transparent);
+  background: color-mix(in oklab, var(--recon-amber) 7%, transparent);
+}
+.alert-info::before {
+  content: "\2139";  /* ℹ — information source (outside emoji range) */
+  color: var(--recon-amber);
+}
+
+.alert-warn {
+  border-color: color-mix(in oklab, var(--recon-warn) 40%, transparent);
+  background: color-mix(in oklab, var(--recon-warn) 8%, transparent);
+}
+.alert-warn::before {
+  content: "\25B2";  /* ▲ — black up-pointing triangle */
+  color: var(--recon-warn);
+}
+
+.alert-error {
+  border-color: color-mix(in oklab, var(--recon-error) 45%, transparent);
+  background: color-mix(in oklab, var(--recon-error) 8%, transparent);
+}
+.alert-error::before {
+  content: "\2716";  /* ✖ — heavy multiplication X */
+  color: var(--recon-error);
+}
+
+.alert-success {
+  border-color: color-mix(in oklab, var(--recon-success) 45%, transparent);
+  background: color-mix(in oklab, var(--recon-success) 8%, transparent);
+}
+.alert-success::before {
+  content: "\2714";  /* ✔ — heavy check mark */
+  color: var(--recon-success);
+}
+
 
 /* -----------------------------------------------------------------
  * Results screen

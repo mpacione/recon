@@ -110,6 +110,30 @@ class TestStaticAssets:
         # The cycle helper is what the [t] keybind calls.
         assert "cycle()" in body
 
+    def test_theme_css_defines_alert_variants(self, client: TestClient) -> None:
+        # The AlertBox vocabulary (ported from cyberspace-tui-go) drives
+        # every notice/error row. If a variant goes missing, callers
+        # silently render unstyled.
+        body = client.get("/static/theme.css").text
+        for cls in ('.alert', '.alert-info', '.alert-warn', '.alert-error', '.alert-success'):
+            assert cls in body, f'missing alert variant: {cls}'
+        # ::before markers must carry the expected glyph escapes so
+        # renaming the codepoints (or dropping them entirely) fails
+        # loudly here rather than shipping iconless alerts.
+        assert '\\2139' in body  # ℹ info
+        assert '\\25B2' in body  # ▲ warn
+        assert '\\2716' in body  # ✖ error
+        assert '\\2714' in body  # ✔ success
+
+    def test_index_html_uses_alert_classes_for_errors(self, client: TestClient) -> None:
+        # Inline form errors used to render as <p class="error"> — they
+        # now use the alert vocabulary so they pick up the styled box +
+        # marker. If a screen regresses to the old class, the flash of
+        # unstyled text will land here.
+        body = client.get("/").text
+        assert 'class="alert alert-error"' in body
+        assert 'class="error" x-show="error"' not in body
+
     def test_index_html_has_theme_preflight(self, client: TestClient) -> None:
         # The preflight script must run before Alpine + before first
         # paint. If it's absent, users with a non-default theme flash
