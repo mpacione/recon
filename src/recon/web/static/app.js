@@ -229,6 +229,27 @@ function reconShell() {
       slot.innerHTML = '';
       slot.appendChild(tpl.content.cloneNode(true));
       this.activeScreen = resolvedKey;
+      this._enhanceTitledSections(slot);
+    },
+
+    // Wrap the first .section-divider inside each .section in a span
+    // so the theme CSS can carve a gap in the section's top border at
+    // the title position (TitledBox effect, ported from
+    // cyberspace-tui-go). Kept in JS rather than baked into every
+    // template so the markup stays clean and future screens pick it
+    // up for free.
+    _enhanceTitledSections(root) {
+      const dividers = root.querySelectorAll(
+        '.section > .section-divider:first-child',
+      );
+      for (const el of dividers) {
+        // Idempotent — skip re-wrapping if a prior mount already did.
+        if (el.querySelector(':scope > .section-divider-title')) continue;
+        const wrapper = document.createElement('span');
+        wrapper.className = 'section-divider-title';
+        while (el.firstChild) wrapper.appendChild(el.firstChild);
+        el.appendChild(wrapper);
+      }
     },
 
     // -------------------------------------------------------------

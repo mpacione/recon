@@ -4,8 +4,8 @@
     {
       "name": "recon-web",
       "runtimeExecutable": ".venv/bin/recon",
-      "runtimeArgs": ["serve", "--no-open"],
-      "port": 8787
+      "runtimeArgs": ["serve", "--no-open", "--port", "8799"],
+      "port": 8799
     }
   ]
 }

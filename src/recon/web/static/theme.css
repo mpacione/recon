@@ -341,6 +341,75 @@ a:focus-visible {
   border-top: 1px solid var(--recon-border);
 }
 
+/* -----------------------------------------------------------------
+ * TitledBox — ported from cyberspace-tui-go
+ *
+ * The first section-divider inside each section is lifted up so its
+ * horizontal strokes align with the section's own top border. The
+ * inner title span carries a matching background, carving a gap in
+ * the border line so the title appears embedded:
+ *
+ *   ┌── RESEARCH RUN ────────────────────┐
+ *   │                                    │
+ *   │ content                            │
+ *   └────────────────────────────────────┘
+ *
+ * `app.js _enhanceTitledSections` wraps the title text in a
+ * .section-divider-title span on mount so the "carve" bg can be
+ * scoped to just the text, not the flanking strokes. Inner h3
+ * dividers keep the default dash-flanked look because the selector
+ * is scoped to :first-child only.
+ * ----------------------------------------------------------------- */
+
+.section > .section-divider:first-child {
+  /* Lift so the vertical center of the title row sits on the
+   * section's top border. The numbers assume section padding-top
+   * 0.875rem + h2 line-height ~1.3rem; tuned visually. */
+  margin: -1.5rem -0.25rem 1rem;
+  padding: 0;
+}
+
+.section-divider-title {
+  padding: 0 0.55rem;
+  /* Background matches the section background so the title cuts a
+   * gap in the top border line. When the theme changes, --recon-bg
+   * re-tints automatically so this stays coherent. */
+  background: var(--recon-bg);
+  color: var(--recon-amber);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* A soft phosphor glow on the title reads as the bright "label"
+   * of a TitledBox without going overboard. */
+  text-shadow: 0 0 6px color-mix(in oklab, var(--recon-amber) 30%, transparent);
+}
+
+/* The NOT FOUND section keeps its .error text color; we just swap
+ * the glow to red so it reads as an alarm label. */
+.section > .section-divider.error:first-child .section-divider-title {
+  color: var(--recon-error);
+  text-shadow: 0 0 6px color-mix(in oklab, var(--recon-error) 30%, transparent);
+}
+
+/* Nested fieldset titles (e.g. the API KEYS fieldset inside the
+ * describe screen) get the same amber glow. Browsers natively
+ * render <legend> embedded in the fieldset border, so we just
+ * retint and nudge the padding; no markup wrapping needed. */
+legend.section-divider {
+  padding: 0 0.55rem;
+  color: var(--recon-amber);
+  text-shadow: 0 0 6px color-mix(in oklab, var(--recon-amber) 30%, transparent);
+}
+
+legend.section-divider::before,
+legend.section-divider::after {
+  /* Suppress the flanking strokes inside legends — the fieldset
+   * border already handles the horizontal rule, so the extra
+   * dashes double-up and look noisy. */
+  display: none;
+}
+
 h1, h2, h3, h4 {
   font-family: var(--recon-font);
   font-weight: 600;
