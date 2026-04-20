@@ -12,6 +12,12 @@
         as="font"
         type="font/woff2"
         crossorigin="anonymous">
+  <!-- primitives.css defines the design vocabulary (box, row, bar,
+       alert, keybar, etc). theme.css is loaded after it for legacy
+       screen-specific rules that haven't been migrated yet. As each
+       screen moves to primitives the matching theme.css block is
+       deleted. -->
+  <link rel="stylesheet" href="/static/primitives.css">
   <link rel="stylesheet" href="/static/theme.css">
   <!-- Server-injected runtime config. The FastAPI root route swaps
        this comment for a <script> block setting window.RECON_HOME
@@ -138,11 +144,9 @@
        =========================================================== -->
 
   <template id="screen-welcome">
-    <section class="section" x-data="welcomeScreen()">
-      <!-- ASCII block-letter brand mark. Hidden on narrow viewports
-           via CSS; fall-back is just the existing page chrome. Box
-           drawing chars only — no emoji, so the index.html emoji
-           test stays green. -->
+    <section class="box box-loose stack" x-data="welcomeScreen()">
+      <!-- ASCII block-letter brand mark. Box-drawing chars only —
+           no emoji. The mini variant swaps in under 560px. -->
       <pre class="recon-ascii-logo recon-ascii-logo-full" aria-hidden="true">
 ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
 ██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║
@@ -154,61 +158,54 @@
 ╦═╗╔═╗╔═╗╔═╗╔╗╔
 ╠╦╝║╣ ║  ║ ║║║║
 ╩╚═╚═╝╚═╝╚═╝╝╚╝</pre>
-      <div class="scan-line" aria-hidden="true"></div>
 
-      <div class="welcome-hero">
-        <div class="welcome-hero-copy">
-          <h2 class="welcome-hero-title">Competitive intelligence, researched for you.</h2>
-          <p class="dim welcome-hero-lede">
-            Describe your space once &mdash; recon discovers competitors, researches each
-            section, verifies the claims, and ships a structured brief.
-          </p>
-        </div>
-        <a class="welcome-hero-cta" href="#/describe">
-          <iconify-icon icon="lucide:plus" width="16" height="16" aria-hidden="true"></iconify-icon>
-          New project
-          <span class="welcome-hero-cta-kbd" aria-hidden="true">
-            <kbd>n</kbd>
-          </span>
-        </a>
-      </div>
-
-      <h3 class="section-divider welcome-recents-heading">RECENT PROJECTS</h3>
-
-      <p class="dim" x-show="loading">Loading recent projects&hellip;</p>
-      <div class="empty-state welcome-empty" x-show="!loading && projects.length === 0">
-        <iconify-icon class="empty-state-icon" icon="lucide:folder-plus" width="32" height="32" aria-hidden="true"></iconify-icon>
-        <p class="empty-state-title">No projects yet.</p>
-        <p class="empty-state-body">
-          Start one by pressing <kbd>n</kbd> or clicking <strong>New project</strong> above.
+      <div class="stack stack-tight">
+        <p>Competitive intelligence, researched for you.</p>
+        <p class="dim">
+          Describe your space once &mdash; recon discovers competitors, researches each
+          section, verifies the claims, and ships a structured brief.
         </p>
       </div>
 
-      <ul class="recents" x-show="!loading && projects.length > 0">
-        <template x-for="(project, i) in projects" :key="project.path">
-          <li class="recent-item"
-              :class="{ 'recent-item-missing': project.status === 'missing' }"
-              @click="open(project)"
-              :title="project.status === 'missing'
-                        ? 'This directory is no longer on disk'
-                        : ('Open ' + project.name)">
-            <span class="recent-index" x-text="(i + 1) + '.'"></span>
-            <span class="recent-marker mono"
-                  :class="recentStatusClass(project.status)"
-                  :title="recentStatusLabel(project.status)"
-                  x-text="recentStatusMarker(project.status)"></span>
-            <span class="recent-name" x-text="project.name"></span>
-            <span class="recent-status mono"
-                  :class="recentStatusClass(project.status)"
-                  x-text="recentStatusLabel(project.status)"></span>
-            <span class="dim recent-meta">
-              <span x-text="formatDate(project.last_opened)"></span>
-              &middot;
-              <span x-text="shortPath(project.path)"></span>
-            </span>
-          </li>
-        </template>
-      </ul>
+      <div class="inline inline-tight">
+        <a class="btn btn-primary" href="#/describe">+ New project <kbd>n</kbd></a>
+      </div>
+
+      <section class="box box-tight box-nested">
+        <h2 class="box-title">RECENT</h2>
+
+        <p class="dim" x-show="loading">Loading recent projects&hellip;</p>
+
+        <div class="stack stack-tight" x-show="!loading && projects.length === 0">
+          <p class="dim">No projects yet.</p>
+          <p class="dim">Press <kbd>n</kbd> to start one.</p>
+        </div>
+
+        <ul class="rows-numbered" x-show="!loading && projects.length > 0">
+          <template x-for="(project, i) in projects" :key="project.path">
+            <li class="row row-hover"
+                :class="{ 'trunc': true, dim: project.status === 'missing' }"
+                @click="open(project)"
+                :title="project.status === 'missing'
+                          ? 'This directory is no longer on disk'
+                          : ('Open ' + project.name)">
+              <span class="col-num" x-text="(i + 1) + '.'"></span>
+              <span class="col-mark"
+                    :class="recentStatusClass(project.status)"
+                    :title="recentStatusLabel(project.status)"
+                    x-text="recentStatusMarker(project.status)"></span>
+              <span class="col-name"
+                    :class="{ 'recent-item-missing': project.status === 'missing' }"
+                    x-text="project.name"></span>
+              <span class="col-stat"
+                    :class="recentStatusClass(project.status)"
+                    x-text="recentStatusLabel(project.status)"></span>
+              <span class="col-meta trunc"
+                    x-text="formatDate(project.last_opened) + ' · ' + shortPath(project.path)"></span>
+            </li>
+          </template>
+        </ul>
+      </section>
     </section>
   </template>
 
