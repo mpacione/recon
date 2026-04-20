@@ -81,25 +81,12 @@
   --recon-radius-sm: 2px;
   --recon-gap: 1rem;
 
-  /* Type scale — pixel-aligned for Departure Mono
-   *
-   * Pixel fonts only render crisp at integer multiples of their
-   * design grid. Sub-pixel sizes (e.g. 0.875rem = 13.125px at a 15px
-   * root) blur the bitmap. These five tokens are the only sizes
-   * anything in the UI should use. Keeping the set small also
-   * collapses 9+ "close enough" sizes into a real hierarchy.
-   *
-   *   xs    11px — badges, meta, footnotes, table pricing
-   *   sm    13px — secondary body, hints, descriptions
-   *   base  15px — default body + form fields
-   *   lg    18px — hero lede, section titles when emphasized
-   *   xl    22px — hero headline
-   */
-  --font-size-xs:   11px;
-  --font-size-sm:   13px;
+  /* Type is ONE size, ONE weight — like a real terminal. Every
+   * character in the UI renders at --font-size-base in the Departure
+   * Mono regular face. Hierarchy comes from color (amber / fg /
+   * dim), uppercase + letter-spacing, and spacing — never from
+   * bigger/heavier type. */
   --font-size-base: 15px;
-  --font-size-lg:   18px;
-  --font-size-xl:   22px;
 }
 
 /* Dark: warm cream on near-black. Less saturated than amber — easier
@@ -164,7 +151,7 @@ body {
   background: var(--recon-bg);
   color: var(--recon-fg);
   font-family: var(--recon-font);
-  font-size: 15px;
+  font-size: var(--font-size-base);
   line-height: 1.55;
   min-height: 100vh;
   /* Pixel fonts stay crisp with antialiasing off; smoothing makes
@@ -239,7 +226,6 @@ a:focus-visible {
   color: var(--recon-fg);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  font-size: var(--font-size-base);
 }
 
 .recon-divider {
@@ -275,7 +261,6 @@ a:focus-visible {
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius-sm);
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-sm);
   cursor: pointer;
   transition: color 120ms ease-out, border-color 120ms ease-out;
 }
@@ -320,7 +305,6 @@ a:focus-visible {
   border: none;
   border-radius: var(--recon-radius-sm);
   font-family: var(--recon-font);
-  font-size: var(--font-size-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -345,7 +329,6 @@ a:focus-visible {
 }
 
 .theme-picker-desc {
-  font-size: var(--font-size-xs);
   white-space: nowrap;
 }
 
@@ -392,7 +375,6 @@ a:focus-visible {
  * rules so section headers still read as "terminal banner". */
 .section-divider {
   font-family: var(--recon-font);
-  font-size: var(--font-size-sm);
   color: var(--recon-fg);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -512,7 +494,6 @@ h1, h2, h3, h4 {
   flex-wrap: wrap;
   gap: 0.25rem;
   margin-left: auto;
-  font-size: var(--font-size-sm);
 }
 
 .flow-step-wrap {
@@ -586,7 +567,6 @@ h1, h2, h3, h4 {
 
 .welcome-hero-title {
   margin: 0;
-  font-size: var(--font-size-lg);
   letter-spacing: 0.01em;
   text-transform: none;
   color: var(--recon-fg);
@@ -703,7 +683,6 @@ h1, h2, h3, h4 {
 }
 
 .recent-marker {
-  font-size: var(--font-size-base);
   line-height: 1.4;
   text-align: center;
 }
@@ -712,14 +691,12 @@ h1, h2, h3, h4 {
 }
 
 .recent-status {
-  font-size: var(--font-size-sm);
   letter-spacing: 0.04em;
   text-transform: lowercase;
 }
 
 .recent-meta {
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-sm);
   color: var(--recon-dim);
   justify-self: end;
   text-align: right;
@@ -750,7 +727,6 @@ h1, h2, h3, h4 {
   /* Plain cream instead of amber — matches cyberspace.online's all-cream
    * form labels. Inter + uppercase + heavier tracking matches headers. */
   color: var(--recon-fg);
-  font-size: var(--font-size-sm);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -764,7 +740,6 @@ h1, h2, h3, h4 {
 
 .field-status {
   text-align: right;
-  font-size: var(--font-size-sm);
 }
 
 textarea,
@@ -779,7 +754,6 @@ input[type="password"] {
    * all read better with fixed-width character cells, and it reinforces
    * the terminal feel where the user is typing structured data. */
   font-family: var(--recon-font-mono);
-  font-size: inherit;
   line-height: 1.5;
   resize: vertical;
 }
@@ -825,7 +799,6 @@ button {
   background: transparent;
   color: var(--recon-fg);
   font-family: var(--recon-font);
-  font-size: inherit;
   padding: 0.25rem 1rem;
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius-sm);
@@ -919,12 +892,10 @@ p.error {
 
 .discover-search-hint {
   margin: 0.25rem 0 0;
-  font-size: var(--font-size-sm);
 }
 
 .discover-search-message {
   margin: 0;
-  font-size: var(--font-size-sm);
 }
 
 .discovered-list {
@@ -973,7 +944,6 @@ p.error {
 
 .discovered-actions button {
   padding: 0.2rem 0.7rem;
-  font-size: var(--font-size-sm);
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -1002,8 +972,6 @@ p.error {
 
 .candidates-count {
   margin-left: auto;
-  font-size: var(--font-size-sm);
-  font-weight: 400;
   letter-spacing: 0;
 }
 
@@ -1040,7 +1008,6 @@ p.error {
 
 .candidate-marker {
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-base);
   line-height: 1.4; /* match headline line so marker sits on its cap-line */
 }
 
@@ -1072,7 +1039,6 @@ p.error {
   align-items: center;
   padding: 0.05rem 0.45rem;
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--recon-dim);
@@ -1096,7 +1062,6 @@ p.error {
   gap: 0.3rem;
   color: var(--recon-dim);
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-sm);
   text-decoration: none;
   text-decoration-color: transparent;
   max-width: 20rem;
@@ -1122,7 +1087,6 @@ p.error {
 }
 
 .candidate-blurb {
-  font-size: var(--font-size-sm);
   line-height: 1.45;
   margin: 0;
   /* Clamp long blurbs to two lines so rows stay comparable in height
@@ -1135,7 +1099,6 @@ p.error {
 
 .candidate-status {
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-sm);
   letter-spacing: 0.04em;
   text-transform: lowercase;
   text-align: right;
@@ -1185,7 +1148,6 @@ iconify-icon {
 
 .template-count {
   margin-left: auto;
-  font-size: var(--font-size-sm);
 }
 
 .checklist {
@@ -1213,7 +1175,6 @@ iconify-icon {
 
 .checklist-marker {
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-base);
   line-height: 1;
   align-self: start;
   padding-top: 0.2rem;
@@ -1229,7 +1190,6 @@ iconify-icon {
 }
 
 .checklist-desc {
-  font-size: var(--font-size-sm);
   line-height: 1.45;
 }
 
@@ -1320,7 +1280,6 @@ iconify-icon {
 
 .radio-marker {
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-base);
   line-height: 1;
 }
 
@@ -1329,7 +1288,6 @@ iconify-icon {
 
 .radio-price {
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-sm);
   color: var(--recon-dim);
 }
 
@@ -1341,7 +1299,6 @@ iconify-icon {
 }
 
 .radio-desc {
-  font-size: var(--font-size-sm);
 }
 
 .workers-control {
@@ -1358,7 +1315,6 @@ iconify-icon {
 
 .workers-value {
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-xl);
   min-width: 3ch;
   text-align: center;
 }
@@ -1439,7 +1395,6 @@ iconify-icon {
   gap: 0.35rem;
   padding: 0.1rem 0.5rem;
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--recon-amber);
@@ -1455,7 +1410,6 @@ iconify-icon {
   align-items: center;
   gap: 0.4rem;
   margin: -0.25rem 0 0.75rem;
-  font-size: var(--font-size-sm);
 }
 
 .describe-path-preview code {
@@ -1489,7 +1443,6 @@ iconify-icon {
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius-sm);
   color: var(--recon-fg);
-  font-size: var(--font-size-sm);
   line-height: 1.5;
 }
 
@@ -1551,7 +1504,6 @@ iconify-icon {
 
 .results-summary-path {
   margin: 0.25rem 0 0.5rem;
-  font-size: var(--font-size-sm);
 }
 
 .results-summary-preview {
@@ -1564,7 +1516,6 @@ iconify-icon {
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius-sm);
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -1609,7 +1560,6 @@ iconify-icon {
 }
 
 .results-theme-path {
-  font-size: var(--font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1618,7 +1568,6 @@ iconify-icon {
 .results-theme-badge {
   flex: 0 0 auto;
   padding: 0.05rem 0.45rem;
-  font-size: var(--font-size-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--recon-dim);
@@ -1656,7 +1605,6 @@ iconify-icon {
 
 .recon-ascii-logo-full { font-size: 0.5rem; }
 .recon-ascii-logo-mini {
-  font-size: var(--font-size-xs);
   display: none;
 }
 
@@ -1742,7 +1690,6 @@ iconify-icon {
 .run-phase,
 .run-cost {
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-sm);
   display: flex;
   gap: 0.4rem;
 }
@@ -1753,7 +1700,6 @@ iconify-icon {
   gap: 0.75rem;
   margin: 0.5rem 0 0.75rem;
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-sm);
   line-height: 1;
 }
 
@@ -1768,7 +1714,6 @@ iconify-icon {
 
 .run-progress-percent {
   font-variant-numeric: tabular-nums;
-  font-size: var(--font-size-sm);
   white-space: pre;
 }
 
@@ -1781,7 +1726,6 @@ iconify-icon {
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius-sm);
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-sm);
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
@@ -1795,7 +1739,6 @@ iconify-icon {
 
 .run-activity-stamp {
   flex: 0 0 auto;
-  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1811,7 +1754,6 @@ iconify-icon {
 .keybinds {
   border-top: 1px solid var(--recon-border);
   padding-top: 0.75rem;
-  font-size: var(--font-size-sm);
   color: var(--recon-dim);
   display: flex;
   flex-wrap: wrap;
@@ -1825,7 +1767,6 @@ iconify-icon {
 .keybinds kbd,
 kbd {
   font-family: var(--recon-font-mono);
-  font-size: var(--font-size-sm);
   color: var(--recon-amber);
   background: var(--recon-surface);
   border: 1px solid var(--recon-border);
@@ -1838,7 +1779,7 @@ kbd {
  * tint — matches cyberspace.online's inline-code treatment. */
 code {
   font-family: var(--recon-font-mono);
-  font-size: 0.875em;
+  font-size: inherit;
   background: hsla(0, 0%, 100%, 0.07);
   padding: 0.05em 0.35em;
   border-radius: var(--recon-radius-sm);
