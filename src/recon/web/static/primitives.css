@@ -534,6 +534,46 @@ kbd, .kbd {
 }
 
 /* ===================================================================
+ * Overlays — slide-over (run) + palette (cmd-K)
+ * =================================================================== */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+}
+
+.overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.overlay-sheet {
+  position: relative;
+  margin-left: auto;
+  width: min(72ch, 100%);
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--recon-bg);
+  border-left: 1px solid var(--recon-border);
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  border-radius: 0;
+}
+
+.palette {
+  position: relative;
+  margin: 8vh auto 0;
+  width: min(80ch, 90%);
+  height: fit-content;
+  background: var(--recon-panel);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+}
+
+/* ===================================================================
  * Scrollbar — thin amber-on-dark
  * =================================================================== */
 

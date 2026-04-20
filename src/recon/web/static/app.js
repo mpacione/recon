@@ -60,49 +60,49 @@ function applyTheme(key) {
 }
 
 // ---------------------------------------------------------------------------
-// Flow definition (kept in sync with design/v2-spec.md and the TUI
-// FlowProgress widget).
+// Paradigm: workspace, not wizard
 // ---------------------------------------------------------------------------
+//
+// Routes:
+//   #/                          Home — project list + first-run panel
+//   #/p/<path>/<tab>            Project — one of 6 tabs active
+//   #/p/<path>/runs/<run_id>    Project · Runs with slide-over open
+//
+// Legacy #/welcome, #/describe, #/discover/<path>, #/template/<path>,
+// #/confirm/<path>, #/run/<path>/<run_id>, #/results/<path>,
+// #/dashboard/<path> all forward to the new shape in parse() so old
+// bookmarks keep working.
 
-const FLOW_STEPS = [
-  { key: 'describe',  label: 'describe' },
-  { key: 'discover',  label: 'discovery' },
-  { key: 'template',  label: 'template' },
-  { key: 'confirm',   label: 'confirm' },
-  { key: 'run',       label: 'run' },
-  { key: 'results',   label: 'results' },
+const TABS = [
+  { key: 'overview',    label: 'Overview',    number: 1 },
+  { key: 'competitors', label: 'Competitors', number: 2 },
+  { key: 'template',    label: 'Template',    number: 3 },
+  { key: 'runs',        label: 'Runs',        number: 4 },
+  { key: 'brief',       label: 'Brief',       number: 5 },
+  { key: 'settings',    label: 'Settings',    number: 6 },
 ];
 
-// Screens that are *not* part of the linear flow. They suppress the
-// flow-progress breadcrumb. curation/browser/selector are currently
-// TUI-only placeholders; see web-ui-spec.md for the porting plan.
-const NON_FLOW_SCREENS = new Set([
-  'welcome', 'dashboard', 'not-found',
-  'curation', 'browser', 'selector',
-]);
+const TAB_KEYS = new Set(TABS.map((t) => t.key));
 
-// Per-screen keybind hints. The shell renders these in the footer.
-// Listeners are attached at the document level by the router.
-// Keybind hints shown in the footer. Only advertise shortcuts that
-// are actually wired in handleKey — misleading hints were a real
-// bug report.
-const SCREEN_KEYBINDS = {
-  welcome: [
-    { key: 'n', label: 'new project' },
-    { key: '1-9', label: 'recent project' },
-  ],
-  describe:  [{ key: 'enter', label: 'continue' }, { key: 'esc', label: 'back' }],
-  discover:  [{ key: 'enter', label: 'done' }, { key: 'esc', label: 'back' }],
-  template:  [{ key: 'enter', label: 'proceed' }, { key: 'esc', label: 'back' }],
-  confirm:   [{ key: 'enter', label: 'start run' }, { key: 'esc', label: 'back' }],
-  run:       [{ key: 'esc', label: 'back to dashboard' }],
-  results:   [{ key: 'b', label: 'dashboard' }, { key: 'h', label: 'home' }],
-  dashboard: [{ key: 'h', label: 'home' }],
-  curation:  [{ key: 'h', label: 'home' }],
-  browser:   [{ key: 'h', label: 'home' }],
-  selector:  [{ key: 'h', label: 'home' }],
-  'not-found': [{ key: 'h', label: 'home' }],
-};
+// Keybind hints for the footer. Tabs share the project-scoped set;
+// home has its own.
+const HOME_KEYBINDS = [
+  { key: 'n',     label: 'new project' },
+  { key: 'j/k',   label: 'select' },
+  { key: 'enter', label: 'open' },
+  { key: '/',     label: 'filter' },
+  { key: '⌘K',    label: 'palette' },
+  { key: 't',     label: 'theme' },
+];
+
+const PROJECT_KEYBINDS = [
+  { key: '1-6',   label: 'tab' },
+  { key: 'r',     label: 'run' },
+  { key: '/',     label: 'filter' },
+  { key: 'esc',   label: 'home' },
+  { key: '⌘K',    label: 'palette' },
+  { key: 't',     label: 'theme' },
+];
 
 // ---------------------------------------------------------------------------
 // Router store
@@ -110,34 +110,87 @@ const SCREEN_KEYBINDS = {
 
 document.addEventListener('alpine:init', () => {
   Alpine.store('router', {
-    hash: location.hash || '#/welcome',
-    screen: 'welcome',
-    params: {},
+    hash: '',
+    screen: 'home',
+    params: { path: '', tab: 'overview', runId: '', arg: [] },
 
     parse() {
-      const raw = location.hash || '#/welcome';
+      const raw = location.hash || '#/';
       this.hash = raw;
-      // Format: #/<screen>(/<param>)*
-      const path = raw.replace(/^#\/?/, '').split('/');
-      const screen = path[0] || 'welcome';
-      const params = {};
-      // Param decoding: every screen owns its own param schema. For
-      // now we surface a generic `arg` array that screens can pull
-      // from. (Welcome ignores params; dashboard reads params.path.)
-      params.arg = path.slice(1).map(decodeURIComponent);
-      this.screen = screen;
-      this.params = params;
+      const segs = raw.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
+
+      // Home
+      if (segs.length === 0) {
+        this.screen = 'home';
+        this.params = { path: '', tab: 'overview', runId: '', arg: [] };
+        return;
+      }
+
+      // Project: #/p/<path>/<tab>[/<runId>]
+      if (segs[0] === 'p' && segs.length >= 2) {
+        const path = segs[1];
+        let tab = segs[2] || 'overview';
+        let runId = '';
+        // #/p/<path>/runs/<run_id> keeps tab='runs' and captures the id
+        if (tab === 'runs' && segs[3]) {
+          runId = segs[3];
+        } else if (!TAB_KEYS.has(tab)) {
+          tab = 'overview';
+        }
+        this.screen = 'project';
+        this.params = { path, tab, runId, arg: [path] };
+        return;
+      }
+
+      // Legacy redirects — keep old bookmarks working.
+      const legacyTabMap = {
+        discover: 'competitors',
+        template: 'template',
+        confirm: 'overview',
+        results: 'brief',
+        dashboard: 'overview',
+      };
+      if (segs[0] === 'welcome' || segs[0] === 'describe') {
+        location.hash = '#/';
+        return;
+      }
+      if (legacyTabMap[segs[0]] && segs[1]) {
+        location.hash = `#/p/${encodeURIComponent(segs[1])}/${legacyTabMap[segs[0]]}`;
+        return;
+      }
+      if (segs[0] === 'run' && segs[1] && segs[2]) {
+        location.hash = `#/p/${encodeURIComponent(segs[1])}/runs/${encodeURIComponent(segs[2])}`;
+        return;
+      }
+
+      // Unknown route — not-found view
+      this.screen = 'not-found';
+      this.params = { path: '', tab: '', runId: '', arg: [] };
     },
 
     navigate(hash) {
       if (location.hash === hash) {
-        // Manually re-trigger so re-clicking the active link still
-        // reloads the screen (useful for refresh-style nav).
         this.parse();
         document.dispatchEvent(new CustomEvent('recon:route'));
       } else {
         location.hash = hash;
       }
+    },
+
+    // Helpers used all over the place. Encode-safe.
+    home() { this.navigate('#/'); },
+    project(path, tab) {
+      const t = tab && TAB_KEYS.has(tab) ? tab : 'overview';
+      this.navigate(`#/p/${encodeURIComponent(path)}/${t}`);
+    },
+    tab(t) {
+      if (this.screen !== 'project' || !this.params.path) return;
+      if (!TAB_KEYS.has(t)) return;
+      this.navigate(`#/p/${encodeURIComponent(this.params.path)}/${t}`);
+    },
+    runDetail(runId) {
+      if (this.screen !== 'project' || !this.params.path) return;
+      this.navigate(`#/p/${encodeURIComponent(this.params.path)}/runs/${encodeURIComponent(runId)}`);
     },
   });
 
@@ -161,6 +214,53 @@ document.addEventListener('alpine:init', () => {
       const next = THEMES[(idx + 1) % THEMES.length].key;
       this.set(next);
     },
+  });
+
+  // Run slide-over: the overlay UI for starting a run AND watching
+  // progress. State lives in a store so the header "● Run in progress"
+  // pill can react from anywhere and reopen/reattach works across
+  // tab navigation without losing the live connection.
+  Alpine.store('runOverlay', {
+    visible: false,
+    mode: 'closed',   // 'closed' | 'plan' | 'live' | 'terminal'
+    path: '',
+    runId: '',
+
+    openPlan(path) {
+      this.path = path;
+      this.runId = '';
+      this.mode = 'plan';
+      this.visible = true;
+    },
+
+    openLive(path, runId) {
+      this.path = path;
+      this.runId = runId;
+      this.mode = 'live';
+      this.visible = true;
+    },
+
+    close() {
+      this.visible = false;
+    },
+  });
+
+  // Command palette — Cmd-K / Ctrl-K driven action menu.
+  Alpine.store('palette', {
+    open: false,
+    query: '',
+    show() { this.open = true; this.query = ''; },
+    hide() { this.open = false; },
+  });
+
+  // Project scope: holds the currently-loaded workspace so every tab
+  // reads from the same snapshot. projectScreen populates this on
+  // mount; tabs consume it via $store.project.
+  Alpine.store('project', {
+    path: '',
+    workspace: null,
+    loading: true,
+    error: null,
   });
 });
 
@@ -200,235 +300,152 @@ function themePicker() {
 
 function reconShell() {
   return {
-    activeScreen: null,
-    flowSteps: FLOW_STEPS,
+    activeScreen: null,   // 'home' | 'project' | 'not-found'
+    activeTab: '',        // when activeScreen === 'project'
+    tabs: TABS,
 
     init() {
       const router = Alpine.store('router');
       router.parse();
-      this.mount(router.screen);
+      this.mount();
       const onHashChange = () => {
         router.parse();
-        this.mount(router.screen);
+        this.mount();
       };
       window.addEventListener('hashchange', onHashChange);
       document.addEventListener('recon:route', onHashChange);
       document.addEventListener('keydown', (e) => this.handleKey(e));
     },
 
-    mount(screenKey) {
-      // When the requested screen isn't registered, fall back to the
-      // not-found template AND mark the shell's activeScreen as
-      // 'not-found' so chrome derived from activeScreen (flow nav,
-      // keybinds, subtitle) reflects the actual rendered screen.
-      let tpl = document.getElementById(`screen-${screenKey}`);
-      let resolvedKey = screenKey;
-      if (!tpl) {
-        tpl = document.getElementById('screen-not-found');
-        resolvedKey = 'not-found';
-      }
+    mount() {
+      const router = Alpine.store('router');
+      const screen = router.screen;
+      this.activeScreen = screen;
+      this.activeTab = screen === 'project' ? router.params.tab : '';
+
+      // Screen template lookup:
+      //   home → #screen-home
+      //   project → #screen-project (which reads the tab param itself)
+      //   not-found → #screen-not-found
+      const tplKey = screen === 'project' ? 'project' : screen;
+      let tpl = document.getElementById(`screen-${tplKey}`);
+      if (!tpl) tpl = document.getElementById('screen-not-found');
       const slot = this.$refs.slot;
       slot.innerHTML = '';
       slot.appendChild(tpl.content.cloneNode(true));
-      this.activeScreen = resolvedKey;
-    },
 
-    // -------------------------------------------------------------
-    // Header / footer derived state
-    // -------------------------------------------------------------
-
-    get headerSubtitle() {
-      switch (this.activeScreen) {
-        case 'welcome':   return 'competitive intelligence';
-        case 'describe':  return 'new project';
-        case 'discover':  return 'discovery';
-        case 'template':  return 'research template';
-        case 'confirm':   return 'ready to research';
-        case 'run':       return 'researching';
-        case 'results':   return 'complete';
-        case 'dashboard': return 'dashboard';
-        case 'curation':  return 'theme curation';
-        case 'browser':   return 'competitor browser';
-        case 'selector':  return 'competitor selector';
-        case 'not-found': return 'not found';
-        default:          return '';
+      // If the project route includes a run_id, tell the overlay to
+      // attach to that run. Run slide-over state survives across tabs.
+      if (screen === 'project' && router.params.runId) {
+        Alpine.store('runOverlay').openLive(router.params.path, router.params.runId);
       }
     },
 
-    get flowVisible() {
-      return !NON_FLOW_SCREENS.has(this.activeScreen);
+    get headerSubtitle() {
+      if (this.activeScreen === 'home') return 'projects';
+      if (this.activeScreen === 'project') {
+        const tab = TABS.find((t) => t.key === this.activeTab);
+        return tab ? tab.label.toLowerCase() : '';
+      }
+      if (this.activeScreen === 'not-found') return 'not found';
+      return '';
     },
 
-    get flowIndex() {
-      return FLOW_STEPS.findIndex((s) => s.key === this.activeScreen);
-    },
-
-    get flowStepLabel() {
-      const idx = this.flowIndex;
-      if (idx < 0) return '';
-      return `Step ${idx + 1} of ${FLOW_STEPS.length}: `;
-    },
-
-    // Workspace path travels through the hash on every flow screen
-    // after /describe. Used to compose nav targets when the user
-    // clicks back to a completed step.
     get workspacePath() {
-      return Alpine.store('router').params.arg[0] || '';
-    },
-
-    flowStepState(idx) {
-      const current = this.flowIndex;
-      if (idx < current) return 'completed';
-      if (idx === current) return 'current';
-      return 'future';
-    },
-
-    flowStepHash(stepKey) {
-      // /describe is the workspace-creation entry point; all other
-      // steps hang workspace path off the hash.
-      if (stepKey === 'describe') return '#/describe';
-      const path = this.workspacePath;
-      if (!path) return null;
-      return `#/${stepKey}/${encodeURIComponent(path)}`;
-    },
-
-    navigateFlowStep(idx) {
-      const state = this.flowStepState(idx);
-      // Only completed steps navigate; current is a no-op, future is
-      // disabled entirely.
-      if (state !== 'completed') return;
-      const hash = this.flowStepHash(FLOW_STEPS[idx].key);
-      if (!hash) return;
-      Alpine.store('router').navigate(hash);
+      return Alpine.store('router').params.path || '';
     },
 
     get keybinds() {
-      // [t] is a universal theme-cycle shortcut. Appending it here
-      // (rather than inside every SCREEN_KEYBINDS entry) keeps the
-      // registry focused on screen-specific actions.
-      const base = SCREEN_KEYBINDS[this.activeScreen] || [];
-      return [...base, { key: 't', label: 'theme' }];
+      const base = this.activeScreen === 'project' ? PROJECT_KEYBINDS : HOME_KEYBINDS;
+      return base;
     },
 
-    // -------------------------------------------------------------
-    // Global keyboard shortcuts
-    // -------------------------------------------------------------
-
-    // Grab the Alpine reactive proxy for the currently-mounted screen
-    // so we can invoke its factory methods (proceed/back/etc) from
-    // global keybinds.
+    // Read the currently-mounted screen's factory state so keybinds
+    // can invoke its methods (open/search/proceed/etc).
     screenData() {
       const slot = this.$refs.slot;
       const root = slot && slot.firstElementChild;
       if (!root) return null;
-      try {
-        return Alpine.$data(root);
-      } catch (_) {
-        return null;
-      }
+      try { return Alpine.$data(root); } catch (_) { return null; }
+    },
+
+    // Tab jumps from anywhere in the project.
+    goTab(key) {
+      if (this.activeScreen !== 'project') return;
+      Alpine.store('router').tab(key);
     },
 
     handleKey(event) {
       const tag = (event.target && event.target.tagName) || '';
       const isFormField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-      // Escape always escapes — even from inputs. Other keys yield to
-      // form-field focus so users can type normally.
-      if (isFormField && event.key !== 'Escape') {
+
+      const router = Alpine.store('router');
+      const palette = Alpine.store('palette');
+
+      // Cmd-K / Ctrl-K always opens the palette, even from inputs.
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        palette.show();
+        event.preventDefault();
         return;
       }
+
+      // Escape closes overlays first, then form fields can still
+      // keep their native handling.
+      if (event.key === 'Escape') {
+        if (palette.open) { palette.hide(); event.preventDefault(); return; }
+        const overlay = Alpine.store('runOverlay');
+        if (overlay.visible) { overlay.close(); event.preventDefault(); return; }
+        if (this.activeScreen === 'project' && !isFormField) {
+          router.home();
+          event.preventDefault();
+          return;
+        }
+      }
+
+      // Form-field focus yields all other non-modifier keys.
+      if (isFormField) return;
 
       const key = event.key;
-      const screen = this.activeScreen;
-      const data = this.screenData();
-      const router = Alpine.store('router');
 
-      // Flow screens reserve Enter/Escape for proceed/back. Outside
-      // the flow (and on the terminal 'results' screen), `h` is the
-      // universal "home" shortcut.
-      const reservesH = ['describe', 'discover', 'template', 'confirm', 'run'].includes(screen);
-      if (key === 'h' && !reservesH) {
-        router.navigate('#/welcome');
-        event.preventDefault();
+      // Universal shortcuts
+      if (key === 't') { Alpine.store('theme').cycle(); event.preventDefault(); return; }
+
+      // Home-screen shortcuts
+      if (this.activeScreen === 'home') {
+        if (key === 'n') {
+          document.dispatchEvent(new CustomEvent('recon:home-new'));
+          event.preventDefault();
+        } else if (/^[1-9]$/.test(key)) {
+          document.dispatchEvent(new CustomEvent('recon:home-pick', { detail: { index: Number(key) - 1 } }));
+          event.preventDefault();
+        } else if (key === '/') {
+          document.dispatchEvent(new CustomEvent('recon:home-filter'));
+          event.preventDefault();
+        }
         return;
       }
 
-      // `t` is the universal theme-cycle shortcut. Works on every
-      // screen (no screen currently reserves it) so users can retint
-      // mid-flow without losing their place.
-      if (key === 't') {
-        Alpine.store('theme').cycle();
-        event.preventDefault();
-        return;
-      }
-
-      switch (screen) {
-        case 'welcome':
-          if (key === 'n') {
-            router.navigate('#/describe');
-            event.preventDefault();
-          } else if (/^[1-9]$/.test(key)) {
-            document.dispatchEvent(new CustomEvent('recon:welcome-pick', {
-              detail: { index: Number(key) - 1 },
-            }));
+      // Project-screen shortcuts
+      if (this.activeScreen === 'project') {
+        // Number keys 1-6 jump tabs.
+        if (/^[1-6]$/.test(key)) {
+          const idx = Number(key) - 1;
+          if (idx < TABS.length) {
+            this.goTab(TABS[idx].key);
             event.preventDefault();
           }
-          break;
-
-        case 'describe':
-          if (key === 'Escape' && data && typeof data.back === 'function') {
-            data.back();
-            event.preventDefault();
-          }
-          // Enter submits via the form's native @submit.prevent, so
-          // no extra handling is needed here.
-          break;
-
-        case 'discover':
-          if (key === 'Enter' && data && typeof data.proceed === 'function') {
-            data.proceed();
-            event.preventDefault();
-          } else if (key === 'Escape' && data && typeof data.back === 'function') {
-            data.back();
-            event.preventDefault();
-          }
-          break;
-
-        case 'template':
-          if (key === 'Enter' && data && typeof data.proceed === 'function') {
-            data.proceed();
-            event.preventDefault();
-          } else if (key === 'Escape' && data && typeof data.back === 'function') {
-            data.back();
-            event.preventDefault();
-          }
-          break;
-
-        case 'confirm':
-          if (key === 'Escape' && data && typeof data.back === 'function') {
-            data.back();
-            event.preventDefault();
-          } else if (key === 'Enter' && data && typeof data.start === 'function') {
-            data.start();
-            event.preventDefault();
-          }
-          break;
-
-        case 'run':
-          if (key === 'Escape' && this.workspacePath) {
-            router.navigate(`#/dashboard/${encodeURIComponent(this.workspacePath)}`);
-            event.preventDefault();
-          }
-          break;
-
-        case 'results':
-          if (key === 'b' && this.workspacePath) {
-            router.navigate(`#/dashboard/${encodeURIComponent(this.workspacePath)}`);
-            event.preventDefault();
-          }
-          break;
-
-        default:
-          break;
+          return;
+        }
+        if (key === 'r') {
+          Alpine.store('runOverlay').openPlan(this.workspacePath);
+          event.preventDefault();
+          return;
+        }
+        if (key === '/') {
+          document.dispatchEvent(new CustomEvent('recon:tab-filter'));
+          event.preventDefault();
+          return;
+        }
       }
     },
   };
@@ -508,9 +525,9 @@ function describeScreen() {
         // discovery/research stages downstream can pick them up via
         // recon.api_keys.load_api_keys.
         await this.persistKeys(ws.path);
-        Alpine.store('router').navigate(
-          `#/discover/${encodeURIComponent(ws.path)}`,
-        );
+        // Land inside the new workspace at the Overview tab. Discovery
+        // is now a tab (/competitors) the user can enter whenever.
+        Alpine.store('router').project(ws.path, 'overview');
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -546,7 +563,7 @@ function describeScreen() {
     },
 
     back() {
-      Alpine.store('router').navigate('#/welcome');
+      Alpine.store('router').home();
     },
   };
 }
@@ -722,14 +739,13 @@ function discoverScreen() {
     },
 
     proceed() {
-      if (this.competitors.length === 0) return;
-      Alpine.store('router').navigate(
-        `#/template/${encodeURIComponent(this.workspacePath)}`,
-      );
+      // In the workspace paradigm, Competitors is just a tab — no
+      // next step. "proceed" from here = jump to Template tab.
+      Alpine.store('router').tab('template');
     },
 
     back() {
-      Alpine.store('router').navigate('#/describe');
+      Alpine.store('router').tab('overview');
     },
 
     // -------------------------------------------------------------
@@ -844,9 +860,10 @@ function templateScreen() {
           this.error = body.detail || `could not save (${res.status})`;
           return;
         }
-        Alpine.store('router').navigate(
-          `#/confirm/${encodeURIComponent(this.workspacePath)}`,
-        );
+        // Template saved — nothing to "proceed" to in the tab world.
+        // Opening the run slide-over (plan mode) is the natural next
+        // step; users can also ignore this and keep navigating tabs.
+        Alpine.store('runOverlay').openPlan(this.workspacePath);
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -855,15 +872,13 @@ function templateScreen() {
     },
 
     back() {
-      Alpine.store('router').navigate(
-        `#/discover/${encodeURIComponent(this.workspacePath)}`,
-      );
+      Alpine.store('router').tab('competitors');
     },
   };
 }
 
 // ---------------------------------------------------------------------------
-// Confirm screen
+// Confirm screen (now rendered inside the Run slide-over)
 // ---------------------------------------------------------------------------
 
 function confirmScreen() {
@@ -876,7 +891,9 @@ function confirmScreen() {
     starting: false,
 
     get workspacePath() {
-      return Alpine.store('router').params.arg[0] || '';
+      return Alpine.store('runOverlay').path
+          || Alpine.store('router').params.path
+          || '';
     },
 
     async init() {
@@ -933,9 +950,10 @@ function confirmScreen() {
           return;
         }
         const body = await res.json();
-        Alpine.store('router').navigate(
-          `#/run/${encodeURIComponent(this.workspacePath)}/${encodeURIComponent(body.run_id)}`,
-        );
+        // Flip the overlay from plan → live mode. Navigating also
+        // encodes the run_id in the URL so the user can share it.
+        Alpine.store('runOverlay').openLive(this.workspacePath, body.run_id);
+        Alpine.store('router').runDetail(body.run_id);
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -944,9 +962,7 @@ function confirmScreen() {
     },
 
     back() {
-      Alpine.store('router').navigate(
-        `#/template/${encodeURIComponent(this.workspacePath)}`,
-      );
+      Alpine.store('runOverlay').close();
     },
   };
 }
@@ -992,11 +1008,18 @@ function runScreen() {
     error: null,
 
     get workspacePath() {
-      return Alpine.store('router').params.arg[0] || '';
+      // In the workspace paradigm the path lives on the router. For
+      // the run overlay we read it from the overlay store so we can
+      // be opened without a router change.
+      return Alpine.store('runOverlay').path
+          || Alpine.store('router').params.path
+          || '';
     },
 
     get runId() {
-      return Alpine.store('router').params.arg[1] || '';
+      return Alpine.store('runOverlay').runId
+          || Alpine.store('router').params.runId
+          || '';
     },
 
     get progressPercent() {
@@ -1173,15 +1196,13 @@ function runScreen() {
     },
 
     goToResults() {
-      Alpine.store('router').navigate(
-        `#/results/${encodeURIComponent(this.workspacePath)}`,
-      );
+      Alpine.store('runOverlay').close();
+      Alpine.store('router').tab('brief');
     },
 
     goToDashboard() {
-      Alpine.store('router').navigate(
-        `#/dashboard/${encodeURIComponent(this.workspacePath)}`,
-      );
+      Alpine.store('runOverlay').close();
+      Alpine.store('router').tab('overview');
     },
   };
 }
@@ -1289,64 +1310,59 @@ function dashboardScreen() {
 // Welcome screen
 // ---------------------------------------------------------------------------
 
-function welcomeScreen() {
+function homeScreen() {
   return {
     loading: true,
     projects: [],
     error: null,
+    filter: '',
+    showFirstRun: false,    // the inline new-project form
+    selectedIndex: 0,       // for j/k nav
+
+    get filteredProjects() {
+      const q = this.filter.trim().toLowerCase();
+      if (!q) return this.projects;
+      return this.projects.filter((p) =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.path || '').toLowerCase().includes(q),
+      );
+    },
 
     async init() {
       try {
         const response = await fetch('/api/recents');
-        if (!response.ok) {
-          this.error = `server returned ${response.status}`;
-          this.loading = false;
-          return;
+        if (response.ok) {
+          const body = await response.json();
+          this.projects = body.projects || [];
         }
-        const body = await response.json();
-        this.projects = body.projects || [];
       } catch (err) {
         this.error = err.message;
       } finally {
         this.loading = false;
       }
-      // Hook keyboard pick events forwarded from the shell.
-      document.addEventListener('recon:welcome-pick', (e) => {
+
+      // Hook keyboard events forwarded from the shell.
+      document.addEventListener('recon:home-new', () => {
+        this.showFirstRun = true;
+      });
+      document.addEventListener('recon:home-pick', (e) => {
         const idx = e.detail && e.detail.index;
-        if (typeof idx === 'number' && idx >= 0 && idx < this.projects.length) {
-          this.open(this.projects[idx]);
+        const list = this.filteredProjects;
+        if (typeof idx === 'number' && idx >= 0 && idx < list.length) {
+          this.open(list[idx]);
         }
+      });
+      document.addEventListener('recon:home-filter', () => {
+        this.$refs.filterInput?.focus();
       });
     },
 
     open(project) {
-      // Route by on-disk state so the user lands somewhere useful:
-      //   missing  → no-op (directory is gone; the row is dimmed
-      //              and the click should feel inert, not routed to
-      //              a broken dashboard)
-      //   new      → describe flow (no recon.yaml yet)
-      //   ready    → resume discovery (workspace exists, no output)
-      //   done     → dashboard (has output)
-      // Path is URL-encoded so it survives the hash router round-trip.
-      if (project.status === 'missing') {
-        return;
-      }
-      const router = Alpine.store('router');
-      const encoded = encodeURIComponent(project.path);
-      let hash;
-      switch (project.status) {
-        case 'new':
-          hash = '#/describe';
-          break;
-        case 'ready':
-          hash = `#/discover/${encoded}`;
-          break;
-        case 'done':
-        default:
-          hash = `#/dashboard/${encoded}`;
-          break;
-      }
-      router.navigate(hash);
+      if (project.status === 'missing') return;
+      // In the workspace paradigm, every valid project lands at its
+      // Overview tab. Edge cases (missing recon.yaml, etc) are handled
+      // by the tab rendering, not by routing to a different screen.
+      Alpine.store('router').project(project.path, 'overview');
     },
 
     formatDate(iso) {
@@ -1421,3 +1437,245 @@ function welcomeScreen() {
     },
   };
 }
+
+
+// ===========================================================================
+// Project shell + tab factories
+// ===========================================================================
+
+// Bridges the router to the active tab template. Each tab is defined
+// in index.html as <template id="tab-<key>">. When the route changes
+// tab, we clone the matching template into #tab-slot.
+function projectScreen() {
+  return {
+    activeTab: '',
+
+    get path() {
+      return Alpine.store('router').params.path || '';
+    },
+
+    async init() {
+      this.activeTab = Alpine.store('router').params.tab || 'overview';
+
+      // Seed the project store for this workspace. Tabs read from it.
+      const store = Alpine.store('project');
+      store.path = this.path;
+      store.workspace = null;
+      store.loading = true;
+      store.error = null;
+
+      this.mountTab();
+
+      const onRoute = () => {
+        const t = Alpine.store('router').params.tab || 'overview';
+        if (t !== this.activeTab) { this.activeTab = t; this.mountTab(); }
+      };
+      document.addEventListener('recon:route', onRoute);
+      window.addEventListener('hashchange', onRoute);
+
+      await this.loadWorkspace();
+    },
+
+    async loadWorkspace() {
+      const store = Alpine.store('project');
+      if (!this.path) { store.loading = false; return; }
+      try {
+        const qs = new URLSearchParams({ path: this.path });
+        const res = await fetch(`/api/workspace?${qs}`);
+        if (res.ok) store.workspace = await res.json();
+        else store.error = `could not load workspace (${res.status})`;
+      } catch (err) {
+        store.error = err.message;
+      } finally {
+        store.loading = false;
+      }
+    },
+
+    mountTab() {
+      const slot = this.$refs.tabSlot;
+      if (!slot) return;
+      const tpl = document.getElementById(`tab-${this.activeTab}`);
+      if (!tpl) return;
+      slot.innerHTML = '';
+      slot.appendChild(tpl.content.cloneNode(true));
+    },
+
+    isActive(tab) { return tab === this.activeTab; },
+    goTab(tab) { Alpine.store('router').tab(tab); },
+  };
+}
+
+// Runs tab — lists all past runs for this workspace with status,
+// cost, task counts. Click a row to open the slide-over for that
+// run.
+function runsTab() {
+  return {
+    loading: true,
+    runs: [],
+    error: null,
+    filter: '',
+
+    get path() {
+      return Alpine.store('router').params.path || '';
+    },
+
+    get filteredRuns() {
+      const q = this.filter.trim().toLowerCase();
+      if (!q) return this.runs;
+      return this.runs.filter((r) =>
+        r.run_id.toLowerCase().includes(q) ||
+        r.status.toLowerCase().includes(q) ||
+        (r.model || '').toLowerCase().includes(q),
+      );
+    },
+
+    async init() {
+      try {
+        const qs = new URLSearchParams({ path: this.path });
+        const res = await fetch(`/api/runs?${qs}`);
+        if (!res.ok) { this.error = `could not load runs (${res.status})`; return; }
+        const body = await res.json();
+        this.runs = body.runs || [];
+      } catch (err) {
+        this.error = err.message;
+      } finally {
+        this.loading = false;
+      }
+
+      document.addEventListener('recon:tab-filter', () => {
+        this.$refs.filterInput?.focus();
+      });
+    },
+
+    openRun(run) {
+      Alpine.store('runOverlay').openLive(this.path, run.run_id);
+      Alpine.store('router').runDetail(run.run_id);
+    },
+
+    formatDate(iso) {
+      try {
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return iso;
+        return d.toLocaleString(undefined, {
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+        });
+      } catch (_) { return iso; }
+    },
+
+    formatCost(v) { return '$' + (Number(v) || 0).toFixed(4); },
+  };
+}
+
+// Keys popover — global API-key management from the header.
+function keysPopover() {
+  return {
+    open: false,
+    loading: false,
+    providers: [
+      { name: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-...', value: '', saved: false },
+      { name: 'google_ai', label: 'Google AI', placeholder: 'AIza...',     value: '', saved: false },
+    ],
+    message: '',
+
+    async toggle() {
+      if (this.open) { this.open = false; return; }
+      this.open = true;
+      await this.refresh();
+    },
+
+    async refresh() {
+      this.loading = true;
+      try {
+        const res = await fetch('/api/api-keys/global');
+        if (res.ok) {
+          const body = await res.json();
+          for (const p of this.providers) p.saved = !!body[p.name];
+        }
+      } catch (_) { /* non-fatal */ }
+      finally { this.loading = false; }
+    },
+
+    async save() {
+      this.loading = true;
+      this.message = '';
+      for (const p of this.providers) {
+        const val = (p.value || '').trim();
+        if (!val) continue;
+        try {
+          await fetch('/api/api-keys', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: p.name, value: val }),
+          });
+          p.saved = true;
+          p.value = '';
+        } catch (_) { /* non-fatal */ }
+      }
+      this.loading = false;
+      this.message = 'Saved.';
+      setTimeout(() => { this.message = ''; }, 2000);
+    },
+  };
+}
+
+// Command palette — Cmd-K / Ctrl-K global actions.
+function cmdPalette() {
+  return {
+    get open() { return Alpine.store('palette').open; },
+    query: '',
+    selectedIndex: 0,
+
+    get actions() {
+      const router = Alpine.store('router');
+      const inProject = router.screen === 'project';
+      const list = [
+        { id: 'home', label: 'Go home', hint: 'home', run: () => router.home() },
+      ];
+      if (inProject) {
+        for (const t of TABS) {
+          list.push({
+            id: 'tab-' + t.key,
+            label: `Go to ${t.label}`,
+            hint: t.number + ' · ' + t.key,
+            run: () => router.tab(t.key),
+          });
+        }
+        list.push({ id: 'run', label: 'Run research', hint: 'r', run: () => Alpine.store('runOverlay').openPlan(router.params.path) });
+      }
+      for (const th of THEMES) {
+        list.push({
+          id: 'theme-' + th.key,
+          label: `Theme: ${th.label}`,
+          hint: th.description,
+          run: () => Alpine.store('theme').set(th.key),
+        });
+      }
+      const q = this.query.trim().toLowerCase();
+      if (!q) return list;
+      return list.filter((a) => a.label.toLowerCase().includes(q));
+    },
+
+    init() {
+      document.addEventListener('keydown', (e) => {
+        if (!this.open) return;
+        if (e.key === 'ArrowDown') {
+          this.selectedIndex = Math.min(this.selectedIndex + 1, this.actions.length - 1);
+          e.preventDefault();
+        } else if (e.key === 'ArrowUp') {
+          this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
+          e.preventDefault();
+        } else if (e.key === 'Enter') {
+          const a = this.actions[this.selectedIndex];
+          if (a) { a.run(); Alpine.store('palette').hide(); }
+          e.preventDefault();
+        }
+      });
+    },
+
+    choose(action) {
+      action.run();
+      Alpine.store('palette').hide();
+    },
+  };
+}
+

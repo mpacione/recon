@@ -110,19 +110,17 @@ class TestStaticAssets:
         # The cycle helper is what the [t] keybind calls.
         assert "cycle()" in body
 
-    def test_welcome_renders_ascii_logo(self, client: TestClient) -> None:
-        # The welcome hero ships a RECON ASCII logo — if the markup
-        # regresses, the visual landing takes a hit. Both the full
-        # block art and the narrow-viewport mini logo should be
-        # present; CSS swaps between them by breakpoint. Box-drawing
-        # only; if any char here creeps into the emoji range the
-        # sibling emoji test will catch it.
+    def test_home_template_registered(self, client: TestClient) -> None:
+        # The v3 paradigm replaces the welcome screen with a workspace-
+        # oriented Home that lists projects. Guard that the Home
+        # template exists and the Project template does too — regressing
+        # either breaks the whole router.
         body = client.get("/").text
-        assert 'recon-ascii-logo-full' in body
-        assert 'recon-ascii-logo-mini' in body
-        # Spot-check one recognizable row of each variant.
-        assert '██████╗ ███████╗' in body  # full block art
-        assert '╦═╗╔═╗╔═╗╔═╗╔╗╔' in body   # mini mark
+        assert 'id="screen-home"' in body
+        assert 'id="screen-project"' in body
+        # Six tabs exist as templates.
+        for tab in ('overview', 'competitors', 'template', 'runs', 'brief', 'settings'):
+            assert f'id="tab-{tab}"' in body, f'missing tab template: {tab}'
 
     def test_theme_css_defines_alert_variants(self, client: TestClient) -> None:
         # The AlertBox vocabulary (ported from cyberspace-tui-go) drives
