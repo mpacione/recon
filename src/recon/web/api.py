@@ -43,6 +43,9 @@ from recon.web.schemas import (
     RecentProjectModel,
     RecentProjectsResponse,
     ResultsResponse,
+    RunListResponse,
+    RunStateResponse,
+    RunSummary,
     SaveApiKeyRequest,
     SectionStatusModel,
     StartRunRequest,
@@ -809,6 +812,80 @@ def create_app() -> FastAPI:
         so connections survive idle browsers and local proxies.
         """
         return EventSourceResponse(bridge.subscribe())
+
+    @app.get("/api/runs", response_model=RunListResponse)
+    async def list_runs(
+        path: str = Query(..., description="Workspace directory path"),
+    ) -> RunListResponse:
+        """History of every run for a workspace, most recent first.
+
+        Drives the Runs tab timeline. Each summary includes enough to
+        render a one-line row — status, cost, task counts — without a
+        second round-trip per run."""
+        from recon.state import StateStore
+
+        ws = _open_workspace(path)
+        store = StateStore(db_path=ws.root / ".recon" / "state.db")
+        await store.initialize()
+
+        rows = await store.list_runs()
+        summaries: list[RunSummary] = []
+        for row in rows:
+            run_id = row["run_id"]
+            tasks = await store.list_tasks(run_id)
+            completed = sum(1 for t in tasks if t["status"] == "researched")
+            failed = sum(1 for t in tasks if t["status"] == "failed")
+            cost = await store.get_run_total_cost(run_id)
+            summaries.append(RunSummary(
+                run_id=run_id,
+                status=row.get("status", "unknown"),
+                created_at=str(row.get("created_at", "")),
+                updated_at=str(row.get("updated_at", "")),
+                total_cost_usd=float(cost),
+                task_count=len(tasks),
+                completed_tasks=completed,
+                failed_tasks=failed,
+                model=row.get("model", "") or "",
+            ))
+        return RunListResponse(runs=summaries)
+
+    @app.get("/api/runs/{run_id}", response_model=RunStateResponse)
+    async def get_run_state(
+        run_id: str,
+        path: str = Query(..., description="Workspace directory path"),
+    ) -> RunStateResponse:
+        """Current snapshot of a single run — used for slide-over
+        reattach when the user reloads mid-run. Pair with the SSE
+        stream for live updates."""
+        from recon.state import StateStore
+
+        ws = _open_workspace(path)
+        store = StateStore(db_path=ws.root / ".recon" / "state.db")
+        await store.initialize()
+
+        row = await store.get_run(run_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"run {run_id} not found")
+
+        tasks = await store.list_tasks(run_id)
+        completed = sum(1 for t in tasks if t["status"] == "researched")
+        failed = sum(1 for t in tasks if t["status"] == "failed")
+        running = sum(1 for t in tasks if t["status"] == "researching")
+        cost = await store.get_run_total_cost(run_id)
+
+        return RunStateResponse(
+            run_id=run_id,
+            status=row.get("status", "unknown"),
+            created_at=str(row.get("created_at", "")),
+            updated_at=str(row.get("updated_at", "")),
+            total_cost_usd=float(cost),
+            task_count=len(tasks),
+            completed_tasks=completed,
+            failed_tasks=failed,
+            running_tasks=running,
+            model=row.get("model", "") or "",
+            events_url=f"/api/runs/{run_id}/events",
+        )
 
     @app.get("/api/runs/{run_id}/events")
     async def run_events(run_id: str) -> EventSourceResponse:

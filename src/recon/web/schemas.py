@@ -254,6 +254,45 @@ class StartRunResponse(BaseModel):
     use_fake_llm: bool = True
 
 
+# ---------------------------------------------------------------------------
+# Run history + state
+# ---------------------------------------------------------------------------
+
+
+class RunSummary(BaseModel):
+    """One entry in the run history list shown on the Runs tab."""
+    run_id: str
+    status: str  # "planned" | "running" | "complete" | "failed" | "cancelled"
+    created_at: str
+    updated_at: str
+    total_cost_usd: float = 0.0
+    task_count: int = 0
+    completed_tasks: int = 0
+    failed_tasks: int = 0
+    model: str = ""
+
+
+class RunListResponse(BaseModel):
+    runs: list[RunSummary] = Field(default_factory=list)
+
+
+class RunStateResponse(BaseModel):
+    """Current state of a single run — used by the slide-over to reattach
+    when the user reloads mid-run. The frontend subscribes to the SSE
+    stream for live updates but this endpoint gives the snapshot."""
+    run_id: str
+    status: str
+    created_at: str
+    updated_at: str
+    total_cost_usd: float = 0.0
+    task_count: int = 0
+    completed_tasks: int = 0
+    failed_tasks: int = 0
+    running_tasks: int = 0
+    model: str = ""
+    events_url: str = ""
+
+
 class ConfirmResponse(BaseModel):
     competitor_count: int
     section_keys: list[str] = Field(default_factory=list)
