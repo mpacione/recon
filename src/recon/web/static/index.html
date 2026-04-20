@@ -373,9 +373,11 @@
         <ul class="stack stack-tight">
           <template x-for="(project, i) in filteredProjects" :key="project.path">
             <li class="row row-hover"
-                style="grid-template-columns: 2ch 2ch minmax(0, 1fr) 10ch minmax(0, 1fr) auto;"
-                :class="{ dim: project.status === 'missing' }"
-                @click="open(project)">
+                style="grid-template-columns: 2ch 2ch 2ch minmax(0, 1fr) 10ch minmax(0, 1fr);"
+                :class="{ dim: project.status === 'missing', amber: i === selectedIndex }"
+                @click="selectedIndex = i; open(project)"
+                @mouseover="selectedIndex = i">
+              <span x-text="i === selectedIndex ? '\u25B8' : ''"></span>
               <span class="col-num" x-text="(i + 1) + '.'"></span>
               <span class="col-mark"
                     :class="recentStatusClass(project.status)"
@@ -462,6 +464,15 @@
         <div class="row" style="grid-template-columns: 14ch minmax(0, 1fr);">
           <span class="label">Total cost</span>
           <span class="amber" x-text="'$' + ($store.project.workspace?.total_cost || 0).toFixed(4)"></span>
+        </div>
+        <div class="row" style="grid-template-columns: 14ch minmax(0, 1fr);"
+             x-show="$store.project.runs.length > 0">
+          <span class="label">Cost trend</span>
+          <span>
+            <span class="bar" x-text="$store.project.costSparkline"></span>
+            <span class="dim" style="margin-left: 1ch;"
+                  x-text="$store.project.runs.length + ' run' + ($store.project.runs.length === 1 ? '' : 's')"></span>
+          </span>
         </div>
       </section>
 
@@ -642,8 +653,11 @@
       <ul class="stack stack-tight" x-show="!loading && filteredRuns.length > 0">
         <template x-for="(run, i) in filteredRuns" :key="run.run_id">
           <li class="row row-hover"
-              style="grid-template-columns: 2ch 2ch minmax(0, 1fr) 10ch 10ch 10ch;"
-              @click="openRun(run)">
+              style="grid-template-columns: 2ch 2ch 2ch minmax(0, 1fr) 10ch 10ch 10ch;"
+              :class="{ amber: i === selectedIndex }"
+              @click="selectedIndex = i; openRun(run)"
+              @mouseover="selectedIndex = i">
+            <span x-text="i === selectedIndex ? '\u25B8' : ''"></span>
             <span class="col-num" x-text="'#' + (filteredRuns.length - i)"></span>
             <span class="col-mark"
                   :class="{ 'marker-ok': run.status === 'completed',
@@ -690,10 +704,17 @@
           <section class="box box-tight box-nested stack stack-tight">
             <h3 class="box-title">
               <span>THEMES</span>
-              <span class="dim" style="margin-left: 1ch;" x-text="data.theme_files.length + ' total'"></span>
+              <span class="dim" style="margin-left: 1ch;"
+                    x-text="filteredThemes.length + ' / ' + data.theme_files.length"></span>
             </h3>
+            <div class="inline inline-tight">
+              <span class="dim">/</span>
+              <input type="text" x-model="filter" x-ref="filterInput"
+                     placeholder="filter themes by title or path"
+                     style="border: none; padding: 0; background: transparent;">
+            </div>
             <ul class="stack stack-tight">
-              <template x-for="(t, idx) in data.theme_files" :key="t.name || t.path || idx">
+              <template x-for="(t, idx) in filteredThemes" :key="t.name || t.path || idx">
                 <li class="row" style="grid-template-columns: 2ch minmax(0, 1fr) auto;">
                   <span class="marker marker-ok">■</span>
                   <span class="trunc">
@@ -705,6 +726,9 @@
                   </template>
                 </li>
               </template>
+              <li class="dim" x-show="filteredThemes.length === 0 && data.theme_files.length > 0">
+                No matches for "<span x-text="filter"></span>".
+              </li>
             </ul>
           </section>
         </template>

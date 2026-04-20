@@ -261,8 +261,27 @@ document.addEventListener('alpine:init', () => {
     workspace: null,
     loading: true,
     error: null,
+    runs: [],
+    costSparkline: '',
   });
 });
+
+// Render a series of numbers as an 8-level block-char sparkline.
+// Returns a string of ▁▂▃▄▅▆▇█ characters. Used on Overview for the
+// cost-per-run trend. Empty/identical arrays return an empty string.
+function renderSparkline(values) {
+  if (!Array.isArray(values) || values.length === 0) return '';
+  const glyphs = ['\u2581', '\u2582', '\u2583', '\u2584', '\u2585', '\u2586', '\u2587', '\u2588'];
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  const range = max - min;
+  if (range === 0) return glyphs[4].repeat(values.length);
+  return values.map((v) => {
+    const norm = (v - min) / range;
+    const idx = Math.min(glyphs.length - 1, Math.floor(norm * glyphs.length));
+    return glyphs[idx];
+  }).join('');
+}
 
 // ---------------------------------------------------------------------------
 // Theme picker
@@ -421,6 +440,15 @@ function reconShell() {
         } else if (key === '/') {
           document.dispatchEvent(new CustomEvent('recon:home-filter'));
           event.preventDefault();
+        } else if (key === 'j' || key === 'ArrowDown') {
+          document.dispatchEvent(new CustomEvent('recon:list-down'));
+          event.preventDefault();
+        } else if (key === 'k' || key === 'ArrowUp') {
+          document.dispatchEvent(new CustomEvent('recon:list-up'));
+          event.preventDefault();
+        } else if (key === 'Enter') {
+          document.dispatchEvent(new CustomEvent('recon:list-enter'));
+          event.preventDefault();
         }
         return;
       }
@@ -443,6 +471,21 @@ function reconShell() {
         }
         if (key === '/') {
           document.dispatchEvent(new CustomEvent('recon:tab-filter'));
+          event.preventDefault();
+          return;
+        }
+        if (key === 'j' || key === 'ArrowDown') {
+          document.dispatchEvent(new CustomEvent('recon:list-down'));
+          event.preventDefault();
+          return;
+        }
+        if (key === 'k' || key === 'ArrowUp') {
+          document.dispatchEvent(new CustomEvent('recon:list-up'));
+          event.preventDefault();
+          return;
+        }
+        if (key === 'Enter') {
+          document.dispatchEvent(new CustomEvent('recon:list-enter'));
           event.preventDefault();
           return;
         }
@@ -1055,13 +1098,42 @@ function runScreen() {
       return this.status !== 'running';
     },
 
-    init() {
+    async init() {
       if (!this.runId) {
         this.error = 'no run_id in URL';
         this.status = 'failed';
         return;
       }
+      // Reattach: fetch the current snapshot so cost / phase /
+      // progress are accurate even if the user reloaded mid-run.
+      // SSE picks up from here; past events are NOT replayed, which
+      // is why we need the snapshot at all.
+      await this._hydrateState();
       this._connect();
+    },
+
+    async _hydrateState() {
+      try {
+        const qs = new URLSearchParams({ path: this.workspacePath });
+        const res = await fetch(`/api/runs/${encodeURIComponent(this.runId)}?${qs}`);
+        if (!res.ok) return;
+        const snap = await res.json();
+        // Map server statuses to client ones: "completed" → done,
+        // "failed"/"cancelled" flow straight through.
+        if (snap.status === 'completed') this.status = 'done';
+        else if (snap.status === 'failed') this.status = 'failed';
+        else if (snap.status === 'cancelled') this.status = 'cancelled';
+        else this.status = 'running';
+        this.cost = snap.total_cost_usd || 0;
+        if (snap.task_count > 0) {
+          // Approximate progress from completed / total. Stage-based
+          // progress takes over once SSE events land.
+          this.progress = snap.completed_tasks / snap.task_count;
+        }
+        if (this.status === 'done') this.progress = 1;
+        this.phase = snap.status;
+        this._pushActivity(`reattached to ${this.runId} (${snap.status})`);
+      } catch (_err) { /* non-fatal — SSE will populate */ }
     },
 
     destroy() {
@@ -1222,9 +1294,12 @@ function resultsScreen() {
     loading: true,
     error: null,
     data: null,
+    filter: '',
 
     get workspacePath() {
-      return Alpine.store('router').params.arg[0] || '';
+      return Alpine.store('router').params.path
+          || Alpine.store('router').params.arg[0]
+          || '';
     },
 
     async init() {
@@ -1246,6 +1321,21 @@ function resultsScreen() {
       } finally {
         this.loading = false;
       }
+
+      document.addEventListener('recon:tab-filter', () => {
+        this.$refs.filterInput?.focus();
+      });
+    },
+
+    get filteredThemes() {
+      const q = this.filter.trim().toLowerCase();
+      const list = this.data?.theme_files || [];
+      if (!q) return list;
+      return list.filter((t) =>
+        (t.title || '').toLowerCase().includes(q) ||
+        (t.name || '').toLowerCase().includes(q) ||
+        (t.path || '').toLowerCase().includes(q),
+      );
     },
 
     get hasSummary() {
@@ -1355,6 +1445,21 @@ function homeScreen() {
       document.addEventListener('recon:home-filter', () => {
         this.$refs.filterInput?.focus();
       });
+
+      // j/k selection + Enter-to-open. These fire from the shell's
+      // handleKey so we can share the plumbing with other list tabs.
+      document.addEventListener('recon:list-down', () => {
+        const max = this.filteredProjects.length - 1;
+        if (max < 0) return;
+        this.selectedIndex = Math.min(this.selectedIndex + 1, max);
+      });
+      document.addEventListener('recon:list-up', () => {
+        this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
+      });
+      document.addEventListener('recon:list-enter', () => {
+        const item = this.filteredProjects[this.selectedIndex];
+        if (item) this.open(item);
+      });
     },
 
     open(project) {
@@ -1463,6 +1568,8 @@ function projectScreen() {
       store.workspace = null;
       store.loading = true;
       store.error = null;
+      store.runs = [];
+      store.costSparkline = '';
 
       this.mountTab();
 
@@ -1473,7 +1580,21 @@ function projectScreen() {
       document.addEventListener('recon:route', onRoute);
       window.addEventListener('hashchange', onRoute);
 
-      await this.loadWorkspace();
+      await Promise.all([this.loadWorkspace(), this.loadRuns()]);
+    },
+
+    async loadRuns() {
+      const store = Alpine.store('project');
+      try {
+        const qs = new URLSearchParams({ path: this.path });
+        const res = await fetch(`/api/runs?${qs}`);
+        if (!res.ok) return;
+        const body = await res.json();
+        store.runs = body.runs || [];
+        store.costSparkline = renderSparkline(
+          [...store.runs].reverse().map((r) => r.total_cost_usd || 0),
+        );
+      } catch (_err) { /* non-fatal */ }
     },
 
     async loadWorkspace() {
@@ -1514,6 +1635,7 @@ function runsTab() {
     runs: [],
     error: null,
     filter: '',
+    selectedIndex: 0,
 
     get path() {
       return Alpine.store('router').params.path || '';
@@ -1544,6 +1666,18 @@ function runsTab() {
 
       document.addEventListener('recon:tab-filter', () => {
         this.$refs.filterInput?.focus();
+      });
+      document.addEventListener('recon:list-down', () => {
+        const max = this.filteredRuns.length - 1;
+        if (max < 0) return;
+        this.selectedIndex = Math.min(this.selectedIndex + 1, max);
+      });
+      document.addEventListener('recon:list-up', () => {
+        this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
+      });
+      document.addEventListener('recon:list-enter', () => {
+        const r = this.filteredRuns[this.selectedIndex];
+        if (r) this.openRun(r);
       });
     },
 
