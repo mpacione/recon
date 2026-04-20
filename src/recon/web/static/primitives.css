@@ -36,10 +36,18 @@
   --recon-surface:  #1a1a1a;
   --recon-panel:    #0d0d0d;
 
-  /* Typography — one face, one size, one weight. See reset below. */
+  /* Typography — one face, one size, one weight. See reset below.
+   *
+   * ui-monospace is the CSS Fonts Module 4 generic that resolves to
+   * the OS's own monospace face: SF Mono on macOS/iOS, Cascadia Code
+   * on Windows 11, Cantarell Mono on GNOME, etc. We layer explicit
+   * names in front (SF Mono, SFMono-Regular) so browsers that don't
+   * yet support ui-monospace (older Chromium, Firefox <140) still
+   * hit the right face on Apple platforms. */
   --recon-font:
-    "Departure Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
-  --font-size-base: 15px;
+    "SF Mono", "SFMono-Regular", ui-monospace,
+    "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-size-base: 13px;
 
   /* Spacing — ch units snap to the monospace grid. These are the
    * ONLY spacing values any primitive should use. */
@@ -99,14 +107,6 @@
  * Font
  * =================================================================== */
 
-@font-face {
-  font-family: "Departure Mono";
-  src: url("/static/fonts/DepartureMono-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
 /* ===================================================================
  * Reset
  * =================================================================== */
@@ -122,9 +122,12 @@ html, body {
   font-size: var(--font-size-base);
   line-height: 1.5;
   min-height: 100vh;
-  -webkit-font-smoothing: none;
-  font-smooth: never;
-  text-rendering: geometricPrecision;
+  /* SF Mono renders best with antialiasing. The old pixel face
+   * wanted `none` to stay crisp on the bitmap grid; restore the
+   * smoothed defaults here. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* Kill browser heading / form-control type scale. Everything renders
