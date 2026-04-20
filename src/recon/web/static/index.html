@@ -4,15 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>recon</title>
-  <!-- Inter 4.0 (body + headings) and JetBrains Mono (data/markers).
-       See theme.css for the token split; Inter ships via rsms.me,
-       JetBrains Mono via Google Fonts. -->
-  <link rel="preconnect" href="https://rsms.me">
-  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <!-- Departure Mono (CC0 pixel face by Helena Zhang) is self-hosted
+       under /static/fonts/. @font-face lives in theme.css; preloading
+       here keeps the bitmap crisp before paint. -->
+  <link rel="preload"
+        href="/static/fonts/DepartureMono-Regular.woff2"
+        as="font"
+        type="font/woff2"
+        crossorigin="anonymous">
   <link rel="stylesheet" href="/static/theme.css">
   <!-- Server-injected runtime config. The FastAPI root route swaps
        this comment for a <script> block setting window.RECON_HOME

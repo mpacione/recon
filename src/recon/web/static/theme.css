@@ -4,7 +4,30 @@
  * Tokens ported from src/recon/tui/theme.py. When that file changes,
  * mirror the changes here. (Phase 2 may extract a shared
  * recon/branding.py both layers read from; see web-ui-spec.md §9.)
+ */
+
+/* -----------------------------------------------------------------
+ * Pixel terminal face — Departure Mono
  *
+ * Self-hosted CC0 pixel font by Helena Zhang. Same face cyberspace.
+ * online ships, same file (DepartureMono-Regular.woff2). Loaded via
+ * @font-face so the FastAPI StaticFiles mount can serve it with
+ * long cache headers; no external webfont dependency.
+ *
+ * font-display: swap lets the page render in the fallback stack
+ * (JetBrains Mono → Menlo → monospace) while the pixel font streams
+ * in, so there's no invisible-text flash on slow networks.
+ * ----------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Departure Mono";
+  src: url("/static/fonts/DepartureMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
  * Theme system
  * ------------
  * The 10 --recon-* color tokens form a palette vocabulary inspired by
@@ -37,17 +60,19 @@
   --recon-surface:  #1a1a1a;  /* tui/theme.py: surface */
   --recon-panel:    #0d0d0d;  /* tui/theme.py: panel */
 
-  /* Sans — Inter 4.0. Used for body prose, headings, buttons, form
-   * labels. Uppercase + tracking on headings supplies the retro CLI
-   * feel without leaning on a display face. */
+  /* Body — Departure Mono. cyberspace.online uses the same pixel face
+   * for body, headings, chrome, and data; we follow suit so the whole
+   * UI reads as a CRT terminal rather than mixing a sans with pixel
+   * mono. Inter stays in the fallback stack in case the font file
+   * fails to load. */
   --recon-font:
-    "Inter", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    "Departure Mono", "Inter", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
 
-  /* Mono — JetBrains Mono. Reserved for data: costs, paths, keybinds,
-   * status markers, code, tabular numbers. Applied via the .mono
-   * utility class and component-level overrides. */
+  /* Mono — same face as body. Kept as a separate token so future
+   * callers that need tabular digits or a bolder data-specific face
+   * can diverge without touching body type. */
   --recon-font-mono:
-    "JetBrains Mono", "IBM Plex Mono", "Menlo", "Consolas", monospace;
+    "Departure Mono", "JetBrains Mono", "IBM Plex Mono", "Menlo", "Consolas", monospace;
 
   /* 5px matches cyberspace.online's .terminal-box radius. Keep 2px
    * available for small controls (buttons, inputs) where the terminal
@@ -119,21 +144,16 @@ body {
   background: var(--recon-bg);
   color: var(--recon-fg);
   font-family: var(--recon-font);
-  /* Inter 4.0: enable contextual alternates + cv11 (single-storey a)
-   * for a slightly more geometric feel that plays nicely with
-   * JetBrains Mono in mixed content. */
-  font-feature-settings: "cv11", "ss03", "calt";
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 15px;
+  line-height: 1.55;
   min-height: 100vh;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* Use Inter's variable instance where available; graceful fallback
- * for browsers that don't accept variable font-family. */
-@supports (font-variation-settings: normal) {
-  html, body { font-family: "InterVariable", "Inter", system-ui, sans-serif; }
+  /* Pixel fonts stay crisp with antialiasing off; smoothing makes
+   * the bitmap edges read as fuzzy. Browsers that don't honor
+   * these hints will just antialias — nothing breaks. */
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: auto;
+  font-smooth: never;
+  text-rendering: geometricPrecision;
 }
 
 /* Mono utility — apply to any element that should render in
