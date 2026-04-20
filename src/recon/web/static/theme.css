@@ -80,6 +80,26 @@
   --recon-radius: 5px;
   --recon-radius-sm: 2px;
   --recon-gap: 1rem;
+
+  /* Type scale — pixel-aligned for Departure Mono
+   *
+   * Pixel fonts only render crisp at integer multiples of their
+   * design grid. Sub-pixel sizes (e.g. 0.875rem = 13.125px at a 15px
+   * root) blur the bitmap. These five tokens are the only sizes
+   * anything in the UI should use. Keeping the set small also
+   * collapses 9+ "close enough" sizes into a real hierarchy.
+   *
+   *   xs    11px — badges, meta, footnotes, table pricing
+   *   sm    13px — secondary body, hints, descriptions
+   *   base  15px — default body + form fields
+   *   lg    18px — hero lede, section titles when emphasized
+   *   xl    22px — hero headline
+   */
+  --font-size-xs:   11px;
+  --font-size-sm:   13px;
+  --font-size-base: 15px;
+  --font-size-lg:   18px;
+  --font-size-xl:   22px;
 }
 
 /* Dark: warm cream on near-black. Less saturated than amber — easier
@@ -217,10 +237,9 @@ a:focus-visible {
    * CLI feel without pulling in a display face. */
   font-family: var(--recon-font);
   color: var(--recon-fg);
-  font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  font-size: 1rem;
+  font-size: var(--font-size-base);
 }
 
 .recon-divider {
@@ -256,7 +275,7 @@ a:focus-visible {
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius-sm);
   font-family: var(--recon-font-mono);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   cursor: pointer;
   transition: color 120ms ease-out, border-color 120ms ease-out;
 }
@@ -301,7 +320,7 @@ a:focus-visible {
   border: none;
   border-radius: var(--recon-radius-sm);
   font-family: var(--recon-font);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -326,7 +345,7 @@ a:focus-visible {
 }
 
 .theme-picker-desc {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   white-space: nowrap;
 }
 
@@ -373,8 +392,7 @@ a:focus-visible {
  * rules so section headers still read as "terminal banner". */
 .section-divider {
   font-family: var(--recon-font);
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--font-size-sm);
   color: var(--recon-fg);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -462,7 +480,6 @@ legend.section-divider::after {
 
 h1, h2, h3, h4 {
   font-family: var(--recon-font);
-  font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--recon-fg);
   text-transform: uppercase;
@@ -495,7 +512,7 @@ h1, h2, h3, h4 {
   flex-wrap: wrap;
   gap: 0.25rem;
   margin-left: auto;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
 }
 
 .flow-step-wrap {
@@ -569,8 +586,7 @@ h1, h2, h3, h4 {
 
 .welcome-hero-title {
   margin: 0;
-  font-size: 1.125rem;
-  font-weight: 600;
+  font-size: var(--font-size-lg);
   letter-spacing: 0.01em;
   text-transform: none;
   color: var(--recon-fg);
@@ -596,7 +612,6 @@ h1, h2, h3, h4 {
   border: 1px solid var(--recon-fg);
   border-radius: var(--recon-radius-sm);
   text-decoration: none;
-  font-weight: 600;
   letter-spacing: 0.02em;
   white-space: nowrap;
   transition: background 120ms ease, border-color 120ms ease;
@@ -688,24 +703,23 @@ h1, h2, h3, h4 {
 }
 
 .recent-marker {
-  font-size: 1rem;
+  font-size: var(--font-size-base);
   line-height: 1.4;
   text-align: center;
 }
 
 .recent-name {
-  font-weight: 600;
 }
 
 .recent-status {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   letter-spacing: 0.04em;
   text-transform: lowercase;
 }
 
 .recent-meta {
   font-family: var(--recon-font-mono);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   color: var(--recon-dim);
   justify-self: end;
   text-align: right;
@@ -736,8 +750,7 @@ h1, h2, h3, h4 {
   /* Plain cream instead of amber — matches cyberspace.online's all-cream
    * form labels. Inter + uppercase + heavier tracking matches headers. */
   color: var(--recon-fg);
-  font-size: 0.8125rem;
-  font-weight: 600;
+  font-size: var(--font-size-sm);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -751,7 +764,7 @@ h1, h2, h3, h4 {
 
 .field-status {
   text-align: right;
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
 }
 
 textarea,
@@ -906,12 +919,12 @@ p.error {
 
 .discover-search-hint {
   margin: 0.25rem 0 0;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
 }
 
 .discover-search-message {
   margin: 0;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
 }
 
 .discovered-list {
@@ -950,7 +963,6 @@ p.error {
 
 .discovered-name {
   color: var(--recon-fg);
-  font-weight: 600;
 }
 
 .discovered-actions {
@@ -961,7 +973,7 @@ p.error {
 
 .discovered-actions button {
   padding: 0.2rem 0.7rem;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -990,7 +1002,7 @@ p.error {
 
 .candidates-count {
   margin-left: auto;
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   font-weight: 400;
   letter-spacing: 0;
 }
@@ -1028,7 +1040,7 @@ p.error {
 
 .candidate-marker {
   font-family: var(--recon-font-mono);
-  font-size: 1rem;
+  font-size: var(--font-size-base);
   line-height: 1.4; /* match headline line so marker sits on its cap-line */
 }
 
@@ -1048,7 +1060,6 @@ p.error {
 }
 
 .candidate-name {
-  font-weight: 600;
   /* Name is the scanning anchor — keep it in the body font, not mono.
    * Brand names read much more naturally in Inter than monospace. */
 }
@@ -1061,7 +1072,7 @@ p.error {
   align-items: center;
   padding: 0.05rem 0.45rem;
   font-family: var(--recon-font-mono);
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--recon-dim);
@@ -1085,7 +1096,7 @@ p.error {
   gap: 0.3rem;
   color: var(--recon-dim);
   font-family: var(--recon-font-mono);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   text-decoration: none;
   text-decoration-color: transparent;
   max-width: 20rem;
@@ -1111,7 +1122,7 @@ p.error {
 }
 
 .candidate-blurb {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
   margin: 0;
   /* Clamp long blurbs to two lines so rows stay comparable in height
@@ -1124,7 +1135,7 @@ p.error {
 
 .candidate-status {
   font-family: var(--recon-font-mono);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   letter-spacing: 0.04em;
   text-transform: lowercase;
   text-align: right;
@@ -1174,7 +1185,7 @@ iconify-icon {
 
 .template-count {
   margin-left: auto;
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
 }
 
 .checklist {
@@ -1202,7 +1213,7 @@ iconify-icon {
 
 .checklist-marker {
   font-family: var(--recon-font-mono);
-  font-size: 1rem;
+  font-size: var(--font-size-base);
   line-height: 1;
   align-self: start;
   padding-top: 0.2rem;
@@ -1215,11 +1226,10 @@ iconify-icon {
 }
 
 .checklist-title {
-  font-weight: 600;
 }
 
 .checklist-desc {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   line-height: 1.45;
 }
 
@@ -1267,7 +1277,6 @@ iconify-icon {
 }
 
 .cost-total {
-  font-weight: 600;
 }
 
 .cost-total td {
@@ -1311,17 +1320,16 @@ iconify-icon {
 
 .radio-marker {
   font-family: var(--recon-font-mono);
-  font-size: 1rem;
+  font-size: var(--font-size-base);
   line-height: 1;
 }
 
 .radio-label {
-  font-weight: 600;
 }
 
 .radio-price {
   font-family: var(--recon-font-mono);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   color: var(--recon-dim);
 }
 
@@ -1333,7 +1341,7 @@ iconify-icon {
 }
 
 .radio-desc {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
 }
 
 .workers-control {
@@ -1350,8 +1358,7 @@ iconify-icon {
 
 .workers-value {
   font-family: var(--recon-font-mono);
-  font-size: 1.5rem;
-  font-weight: 600;
+  font-size: var(--font-size-xl);
   min-width: 3ch;
   text-align: center;
 }
@@ -1383,7 +1390,6 @@ iconify-icon {
 }
 
 .empty-state-title {
-  font-weight: 600;
   color: var(--recon-fg);
   margin: 0;
 }
@@ -1433,7 +1439,7 @@ iconify-icon {
   gap: 0.35rem;
   padding: 0.1rem 0.5rem;
   font-family: var(--recon-font-mono);
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--recon-amber);
@@ -1449,7 +1455,7 @@ iconify-icon {
   align-items: center;
   gap: 0.4rem;
   margin: -0.25rem 0 0.75rem;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
 }
 
 .describe-path-preview code {
@@ -1483,14 +1489,13 @@ iconify-icon {
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius-sm);
   color: var(--recon-fg);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
 }
 
 .alert::before {
   flex: 0 0 auto;
   font-family: var(--recon-font-mono);
-  font-weight: 700;
   line-height: 1.25;
   margin-top: 0.05rem;
 }
@@ -1546,7 +1551,7 @@ iconify-icon {
 
 .results-summary-path {
   margin: 0.25rem 0 0.5rem;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
 }
 
 .results-summary-preview {
@@ -1559,7 +1564,7 @@ iconify-icon {
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius-sm);
   font-family: var(--recon-font-mono);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -1604,7 +1609,7 @@ iconify-icon {
 }
 
 .results-theme-path {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1613,7 +1618,7 @@ iconify-icon {
 .results-theme-badge {
   flex: 0 0 auto;
   padding: 0.05rem 0.45rem;
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--recon-dim);
@@ -1651,7 +1656,7 @@ iconify-icon {
 
 .recon-ascii-logo-full { font-size: 0.5rem; }
 .recon-ascii-logo-mini {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   display: none;
 }
 
@@ -1692,14 +1697,12 @@ iconify-icon {
   content: "\25B6\00A0";  /* ▶ + non-breaking space */
   color: var(--recon-amber);
   font-family: var(--recon-font-mono);
-  font-weight: 700;
   margin-right: 0.15rem;
 }
 
 .system-prompt-label {
   color: var(--recon-amber);
   font-family: var(--recon-font-mono);
-  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -1739,7 +1742,7 @@ iconify-icon {
 .run-phase,
 .run-cost {
   font-family: var(--recon-font-mono);
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
   display: flex;
   gap: 0.4rem;
 }
@@ -1750,7 +1753,7 @@ iconify-icon {
   gap: 0.75rem;
   margin: 0.5rem 0 0.75rem;
   font-family: var(--recon-font-mono);
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
   line-height: 1;
 }
 
@@ -1765,7 +1768,7 @@ iconify-icon {
 
 .run-progress-percent {
   font-variant-numeric: tabular-nums;
-  font-size: 0.85rem;
+  font-size: var(--font-size-sm);
   white-space: pre;
 }
 
@@ -1778,7 +1781,7 @@ iconify-icon {
   border: 1px solid var(--recon-border);
   border-radius: var(--recon-radius-sm);
   font-family: var(--recon-font-mono);
-  font-size: 0.85rem;
+  font-size: var(--font-size-sm);
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
@@ -1792,7 +1795,7 @@ iconify-icon {
 
 .run-activity-stamp {
   flex: 0 0 auto;
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1808,7 +1811,7 @@ iconify-icon {
 .keybinds {
   border-top: 1px solid var(--recon-border);
   padding-top: 0.75rem;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   color: var(--recon-dim);
   display: flex;
   flex-wrap: wrap;
@@ -1822,7 +1825,7 @@ iconify-icon {
 .keybinds kbd,
 kbd {
   font-family: var(--recon-font-mono);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   color: var(--recon-amber);
   background: var(--recon-surface);
   border: 1px solid var(--recon-border);
