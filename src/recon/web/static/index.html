@@ -12,13 +12,11 @@
         as="font"
         type="font/woff2"
         crossorigin="anonymous">
-  <!-- primitives.css defines the design vocabulary (box, row, bar,
-       alert, keybar, etc). theme.css is loaded after it for legacy
-       screen-specific rules that haven't been migrated yet. As each
-       screen moves to primitives the matching theme.css block is
-       deleted. -->
+  <!-- primitives.css is the one-and-only stylesheet. Vocabulary:
+       .box / .box-title / .box-nested for panels, .row + .col-*
+       for list items, .stack / .inline for flex layout, .btn /
+       .alert / .badge / .bar / .marker / .keybar for chrome. -->
   <link rel="stylesheet" href="/static/primitives.css">
-  <link rel="stylesheet" href="/static/theme.css">
   <!-- Server-injected runtime config. The FastAPI root route swaps
        this comment for a <script> block setting window.RECON_HOME
        (and future config values). Kept as a comment in the static
@@ -52,24 +50,19 @@
 </head>
 <body x-data="reconShell()" x-cloak>
   <div class="page">
-    <header class="recon-header">
-      <span class="recon-title">recon</span>
-      <span class="recon-divider">|</span>
-      <span class="recon-subtitle" x-text="headerSubtitle"></span>
+    <header class="inline" style="border-bottom: 1px solid var(--recon-border); padding-bottom: 1ch; flex-wrap: wrap;">
+      <span class="amber ucase">recon</span>
+      <span class="dim">|</span>
+      <span class="dim" x-text="headerSubtitle"></span>
 
-      <nav class="flow-progress" x-show="flowVisible" aria-label="flow progress">
-        <span class="dim" x-text="flowStepLabel"></span>
+      <nav class="inline inline-tight"
+           x-show="flowVisible"
+           style="margin-left: 2ch;"
+           aria-label="flow progress">
         <template x-for="(step, idx) in flowSteps" :key="step.key">
-          <span class="flow-step-wrap">
-            <span class="flow-sep" x-show="idx > 0" aria-hidden="true">&#8594;</span>
-            <span class="flow-step"
-                  :class="{
-                    'amber': flowIndex === idx,
-                    'flow-step-completed': flowIndex > idx,
-                    'flow-step-current': flowIndex === idx,
-                    'flow-step-future': flowIndex < idx,
-                    'dim': flowIndex < idx,
-                  }"
+          <span class="inline inline-tight">
+            <span class="dim" x-show="idx > 0" aria-hidden="true">&rarr;</span>
+            <span :class="flowIndex === idx ? 'amber' : 'dim'"
                   :role="flowStepState(idx) === 'completed' ? 'link' : null"
                   :tabindex="flowStepState(idx) === 'completed' ? 0 : null"
                   :aria-current="flowIndex === idx ? 'step' : null"
@@ -77,34 +70,43 @@
                   @click="navigateFlowStep(idx)"
                   @keydown.enter.prevent="navigateFlowStep(idx)"
                   @keydown.space.prevent="navigateFlowStep(idx)"
+                  style="cursor: pointer;"
                   x-text="flowIndex === idx ? '[' + step.label + ']' : step.label">
             </span>
           </span>
         </template>
       </nav>
 
-      <div class="theme-picker" x-data="themePicker()" @click.outside="open = false">
+      <div class="theme-picker"
+           x-data="themePicker()"
+           @click.outside="open = false"
+           style="position: relative; margin-left: auto;">
         <button type="button"
-                class="theme-picker-trigger"
                 @click="open = !open"
                 :aria-expanded="open"
                 aria-haspopup="menu"
                 aria-label="Switch theme">
-          <iconify-icon icon="lucide:palette" width="14" height="14" aria-hidden="true"></iconify-icon>
-          <span class="theme-picker-label" x-text="activeLabel()"></span>
+          <span class="dim" x-text="activeLabel()"></span>
         </button>
-        <ul class="theme-picker-menu" role="menu" x-show="open" x-cloak x-transition.opacity>
+        <ul role="menu"
+            x-show="open"
+            x-cloak
+            x-transition.opacity
+            class="box box-tight"
+            style="position: absolute; top: calc(100% + 0.5ch); right: 0; z-index: 20; min-width: 32ch; background: var(--recon-panel);">
           <template x-for="opt in options" :key="opt.key">
             <li role="none">
               <button type="button"
                       role="menuitemradio"
                       :aria-checked="active === opt.key"
-                      class="theme-picker-item"
-                      :class="{ 'active': active === opt.key }"
-                      @click="select(opt.key); open = false">
-                <span class="theme-picker-marker" x-text="active === opt.key ? '\u25C9' : '\u25CB'"></span>
-                <span class="theme-picker-name" x-text="opt.label"></span>
-                <span class="dim theme-picker-desc" x-text="opt.description"></span>
+                      @click="select(opt.key); open = false"
+                      class="row row-hover"
+                      style="grid-template-columns: 2ch minmax(0, 1fr) auto; width: 100%; border: none; background: transparent; text-align: left;">
+                <span class="col-mark"
+                      :class="active === opt.key ? 'marker-amber' : 'marker-dim'"
+                      x-text="active === opt.key ? '\u25C9' : '\u25CB'"></span>
+                <span :class="active === opt.key ? 'amber' : ''" x-text="opt.label"></span>
+                <span class="dim" x-text="opt.description"></span>
               </button>
             </li>
           </template>
@@ -112,23 +114,17 @@
       </div>
     </header>
 
-    <main class="recon-body">
-      <!-- Loading state shown while no screen is registered yet. -->
-      <section class="section" x-show="!activeScreen">
-        <h2 class="section-divider">LOADING</h2>
+    <main>
+      <section class="box stack" x-show="!activeScreen">
+        <h2 class="box-title">LOADING</h2>
         <p class="dim">Initializing recon shell&hellip;</p>
       </section>
-
-      <!-- Active screen is mounted here by the router. Each screen is
-           a pre-defined <template> element above; the router copies
-           one into the slot whenever the hash changes. -->
       <div id="screen-slot" x-ref="slot"></div>
     </main>
 
-    <div class="scan-line scan-line-inline" aria-hidden="true"></div>
-    <footer class="keybinds" aria-label="keybinds">
+    <footer class="keybar" aria-label="keybinds">
       <template x-for="bind in keybinds" :key="bind.key">
-        <span class="keybind">
+        <span>
           <kbd x-text="bind.key"></kbd>
           <span x-text="bind.label"></span>
         </span>
@@ -210,16 +206,16 @@
   </template>
 
   <template id="screen-describe">
-    <section class="section" x-data="describeScreen()">
-      <h2 class="section-divider">DESCRIBE YOUR SPACE</h2>
+    <section class="box stack" x-data="describeScreen()">
+      <h2 class="box-title">DESCRIBE</h2>
       <p class="dim">
         Describe your company, product, or the competitive space you want to
         research. A sentence or two is enough &mdash; we&rsquo;ll figure out the rest.
       </p>
 
-      <form @submit.prevent="submit()" class="describe-form">
+      <form @submit.prevent="submit()" class="stack">
         <label class="field">
-          <span class="field-label">Description</span>
+          <span class="label">Description</span>
           <textarea
             x-model="description"
             x-ref="description"
@@ -228,35 +224,36 @@
             required></textarea>
         </label>
 
-        <p class="dim describe-path-preview" x-show="pathPreview">
-          <iconify-icon icon="lucide:folder" width="14" height="14" aria-hidden="true"></iconify-icon>
-          Will be created at <code x-text="pathPreview"></code>
+        <p class="dim" x-show="pathPreview">
+          <span class="label">Path</span>
+          <code x-text="pathPreview"></code>
           <span class="dim">&middot; auto-numbered if it exists</span>
         </p>
 
-        <fieldset class="api-keys">
-          <legend class="section-divider api-keys-legend">API KEYS</legend>
+        <section class="box box-tight box-nested">
+          <h3 class="box-title">API KEYS</h3>
           <p class="dim">
             Stored in <code>~/.recon/.env</code> and reused across projects.
             <span x-show="providers.some(p => p.saved)">Fill a field below to overwrite an existing key.</span>
           </p>
-          <template x-for="provider in providers" :key="provider.name">
-            <label class="field field-row">
-              <span class="field-label" x-text="provider.label"></span>
-              <input
-                type="password"
-                x-model="provider.value"
-                :placeholder="provider.saved ? '\u2022\u2022\u2022\u2022 already saved' : provider.placeholder"
-                autocomplete="off">
-              <span class="field-status"
-                    :class="{ success: provider.saved, dim: !provider.saved }"
-                    x-text="provider.saved ? 'saved' : 'not set'"></span>
-            </label>
-          </template>
-        </fieldset>
+          <div class="stack stack-tight">
+            <template x-for="provider in providers" :key="provider.name">
+              <label class="field field-row">
+                <span class="label" x-text="provider.label"></span>
+                <input
+                  type="password"
+                  x-model="provider.value"
+                  :placeholder="provider.saved ? '\u2022\u2022\u2022\u2022 already saved' : provider.placeholder"
+                  autocomplete="off">
+                <span :class="provider.saved ? 'success' : 'dim'"
+                      x-text="provider.saved ? 'saved' : 'not set'"></span>
+              </label>
+            </template>
+          </div>
+        </section>
 
-        <div class="actions">
-          <button type="submit" class="primary" :disabled="submitting">
+        <div class="inline">
+          <button type="submit" class="btn-primary" :disabled="submitting">
             <span x-show="!submitting">Continue</span>
             <span x-show="submitting">Creating workspace&hellip;</span>
           </button>
@@ -269,165 +266,122 @@
   </template>
 
   <template id="screen-discover">
-    <section class="section" x-data="discoverScreen()">
-      <h2 class="section-divider">COMPETITOR DISCOVERY</h2>
+    <section class="box stack" x-data="discoverScreen()">
+      <h2 class="box-title">DISCOVERY</h2>
 
       <p class="dim" x-show="loading">Loading competitors&hellip;</p>
       <p class="alert alert-error" x-show="error" x-text="error"></p>
 
-      <!-- LLM search: primary way to populate the list. Runs the
-           DiscoveryAgent with whatever API key is saved and returns
-           candidates the user can accept/reject individually. -->
-      <div class="discover-search" x-show="!loading">
-        <div class="discover-search-header">
-          <div>
-            <label class="field-label">Find competitors</label>
-            <p class="dim discover-search-hint">
-              Ask recon to search for competitors in your space. Uses your
-              saved Gemini / Anthropic key.
-            </p>
-          </div>
-          <button type="button" class="primary"
+      <!-- LLM search -->
+      <section class="box box-tight box-nested stack stack-tight" x-show="!loading">
+        <h3 class="box-title">FIND</h3>
+        <div class="inline inline-loose" style="justify-content: space-between;">
+          <p class="dim">
+            Ask recon to search for competitors in your space.
+            Uses your saved Gemini / Anthropic key.
+          </p>
+          <button type="button" class="btn-primary"
                   @click="search()"
                   :disabled="searching">
-            <iconify-icon icon="lucide:sparkles" width="14" height="14" aria-hidden="true"></iconify-icon>
             <span x-show="!searching">Search</span>
             <span x-show="searching">Searching&hellip;</span>
           </button>
         </div>
 
         <p class="alert alert-error" x-show="searchError" x-text="searchError"></p>
-        <p class="dim discover-search-message"
+        <p class="dim"
            x-show="!searching && searchMessage && !searchError"
            x-text="searchMessage"></p>
 
-        <ul class="discovered-list" x-show="pendingDiscovered.length > 0">
+        <ul class="stack stack-tight" x-show="pendingDiscovered.length > 0">
           <template x-for="cand in pendingDiscovered" :key="cand.name">
-            <li class="discovered-row">
-              <div class="discovered-body">
-                <div class="discovered-headline">
-                  <span class="discovered-name" x-text="cand.name"></span>
+            <li class="row" style="grid-template-columns: minmax(0, 1fr) auto;">
+              <div class="stack stack-tight" style="min-width: 0;">
+                <span class="inline inline-tight">
+                  <span class="amber" x-text="cand.name"></span>
                   <template x-if="cand.url">
-                    <a class="candidate-url"
-                       :href="cand.url"
-                       target="_blank"
-                       rel="noopener noreferrer"
-                       :title="cand.url"
-                       @click.stop>
-                      <iconify-icon icon="lucide:external-link" width="13" height="13" aria-hidden="true"></iconify-icon>
-                      <span class="candidate-url-host" x-text="candidateHost(cand.url)"></span>
-                    </a>
+                    <a :href="cand.url" target="_blank" rel="noopener noreferrer"
+                       :title="cand.url" @click.stop
+                       class="dim"
+                       x-text="candidateHost(cand.url)"></a>
                   </template>
-                </div>
+                </span>
                 <template x-if="cand.blurb">
-                  <p class="candidate-blurb dim" x-text="cand.blurb"></p>
+                  <p class="dim trunc" x-text="cand.blurb"></p>
                 </template>
               </div>
-              <div class="discovered-actions">
-                <button type="button" class="primary"
-                        @click="accept(cand)"
-                        aria-label="Add to workspace">
-                  <iconify-icon icon="lucide:plus" width="14" height="14" aria-hidden="true"></iconify-icon>
-                  Add
-                </button>
-                <button type="button"
-                        @click="reject(cand)"
-                        aria-label="Ignore this candidate">
-                  Skip
-                </button>
+              <div class="inline inline-tight">
+                <button type="button" class="btn-primary" @click="accept(cand)">Add</button>
+                <button type="button" @click="reject(cand)">Skip</button>
               </div>
             </li>
           </template>
         </ul>
-      </div>
+      </section>
 
-      <form @submit.prevent="add()" class="add-competitor" x-show="!loading">
-        <label class="field-label">Add manually</label>
-        <div class="add-row">
-          <input type="text"
-                 x-model="form.name"
-                 placeholder="Company name"
-                 required>
-          <input type="text"
-                 x-model="form.url"
-                 placeholder="https://example.com (optional)">
-          <button type="submit" class="primary" :disabled="!form.name || adding">
+      <!-- Manual add -->
+      <form @submit.prevent="add()" class="stack stack-tight" x-show="!loading">
+        <span class="label">Add manually</span>
+        <div class="inline inline-tight">
+          <input type="text" x-model="form.name" placeholder="Company name" required>
+          <input type="text" x-model="form.url" placeholder="https://example.com (optional)">
+          <button type="submit" class="btn-primary" :disabled="!form.name || adding">
             <span x-show="!adding">Add</span>
             <span x-show="adding">Adding&hellip;</span>
           </button>
         </div>
-        <textarea x-model="form.blurb"
-                  rows="2"
+        <textarea x-model="form.blurb" rows="2"
                   placeholder="Short blurb (optional) &mdash; why this competitor matters"></textarea>
       </form>
 
-      <div class="candidates" x-show="!loading">
-        <h3 class="section-divider">
+      <!-- Candidates list -->
+      <section class="box box-tight box-nested stack stack-tight" x-show="!loading">
+        <h3 class="box-title">
           <span>CANDIDATES</span>
-          <span class="dim candidates-count"
+          <span class="dim" style="margin-left: 1ch;"
                 x-text="competitors.length + ' total'"></span>
         </h3>
         <p class="dim" x-show="competitors.length === 0">
           No competitors yet. Add at least one above to continue.
         </p>
-        <ul class="candidate-list" x-show="competitors.length > 0">
+        <ul class="stack stack-tight" x-show="competitors.length > 0">
           <template x-for="(c, idx) in competitors" :key="c.slug || c.name || idx">
-            <li class="candidate-row"
-                :class="{ 'candidate-row-own': c.type === 'own_product' }">
-              <!-- Progressive-fill status marker, drawn with circles
-                   to avoid confusion with the square checkbox glyphs
-                   used by the research template screen:
-                     \u25CB empty (waiting) \u2192 \u25D0 half (researching) \u2192 \u25CF full (ready).
-                   Colors reinforce the same progression: dim/amber/success. -->
-              <span class="candidate-marker"
-                    :class="{ success: c.status === 'researched', amber: c.status !== 'scaffold' && c.status !== 'researched', dim: c.status === 'scaffold' }"
+            <li class="row" style="grid-template-columns: 2ch minmax(0, 1fr) 14ch 2ch;">
+              <span class="col-mark"
+                    :class="{ 'marker-ok': c.status === 'researched',
+                              'marker-amber': c.status !== 'scaffold' && c.status !== 'researched',
+                              'marker-dim': c.status === 'scaffold' }"
                     :title="candidateStatusLabel(c.status)"
                     x-text="c.status === 'researched' ? '\u25CF' : (c.status === 'scaffold' ? '\u25CB' : '\u25D0')"></span>
-
-              <div class="candidate-body">
-                <div class="candidate-headline">
-                  <span class="candidate-name" x-text="c.name"></span>
-                  <span class="candidate-tier"
-                        :class="'candidate-tier-' + (c.type || 'competitor')"
-                        x-text="candidateTierLabel(c.type)"></span>
-                  <template x-if="c.url">
-                    <a class="candidate-url"
-                       :href="c.url"
-                       target="_blank"
-                       rel="noopener noreferrer"
-                       :title="c.url"
-                       :aria-label="'Open ' + c.name + ' website in a new tab'"
-                       @click.stop>
-                      <iconify-icon icon="lucide:external-link" width="13" height="13" aria-hidden="true"></iconify-icon>
-                      <span class="candidate-url-host" x-text="candidateHost(c.url)"></span>
-                    </a>
-                  </template>
-                </div>
-                <template x-if="c.blurb">
-                  <p class="candidate-blurb dim" x-text="c.blurb"></p>
+              <span class="trunc">
+                <span class="amber" x-text="c.name"></span>
+                <template x-if="c.url">
+                  <a :href="c.url" target="_blank" rel="noopener noreferrer"
+                     :title="c.url" @click.stop class="dim"
+                     style="margin-left: 1ch;"
+                     x-text="candidateHost(c.url)"></a>
                 </template>
-              </div>
-
-              <span class="candidate-status"
-                    :class="{ success: c.status === 'researched', amber: c.status !== 'scaffold' && c.status !== 'researched', dim: c.status === 'scaffold' }"
+              </span>
+              <span class="col-stat right"
+                    :class="{ success: c.status === 'researched',
+                              amber: c.status !== 'scaffold' && c.status !== 'researched',
+                              dim: c.status === 'scaffold' }"
                     x-text="candidateStatusLabel(c.status)"></span>
-
-              <button type="button" class="candidate-remove"
+              <button type="button" class="dim"
+                      style="border: none; padding: 0;"
                       @click="remove(c)"
                       :aria-label="'Remove ' + c.name"
-                      :title="'Remove ' + c.name">
-                <iconify-icon icon="lucide:x" width="14" height="14"></iconify-icon>
-              </button>
+                      :title="'Remove ' + c.name">×</button>
             </li>
           </template>
         </ul>
-      </div>
+      </section>
 
-      <div class="actions">
-        <button type="button" class="primary"
+      <div class="inline">
+        <button type="button" class="btn-primary"
                 :disabled="competitors.length === 0"
                 @click="proceed()">
-          Done (<span x-text="competitors.length"></span> competitors)
+          Done (<span x-text="competitors.length"></span>)
         </button>
         <button type="button" @click="back()">Back</button>
       </div>
@@ -435,8 +389,8 @@
   </template>
 
   <template id="screen-template">
-    <section class="section" x-data="templateScreen()">
-      <h2 class="section-divider">RESEARCH TEMPLATE</h2>
+    <section class="box stack" x-data="templateScreen()">
+      <h2 class="box-title">TEMPLATE</h2>
       <p class="dim">
         Each selected section will be researched for every competitor. Toggle
         what you want; you can always come back and adjust later.
@@ -445,33 +399,33 @@
       <p class="dim" x-show="loading">Loading template&hellip;</p>
       <p class="alert alert-error" x-show="error" x-text="error"></p>
 
-      <div class="template-controls" x-show="!loading">
+      <div class="inline" x-show="!loading">
         <button type="button" @click="selectAll()">Select all</button>
         <button type="button" @click="deselectAll()">Deselect all</button>
-        <span class="dim template-count">
+        <span class="dim" style="margin-left: auto;">
           <span x-text="selectedCount"></span> of <span x-text="sections.length"></span> selected
         </span>
       </div>
 
-      <ul class="checklist" x-show="!loading">
+      <ul class="stack stack-tight" x-show="!loading">
         <template x-for="section in sections" :key="section.key">
-          <li class="checklist-item" @click="toggle(section)">
-            <span class="checklist-marker"
-                  :class="section.selected ? 'amber' : 'dim'"
+          <li class="row row-hover" style="grid-template-columns: 2ch minmax(0, 1fr);" @click="toggle(section)">
+            <span class="col-mark"
+                  :class="section.selected ? 'marker-amber' : 'marker-dim'"
                   x-text="section.selected ? '\u25A0' : '\u25A1'"></span>
-            <span class="checklist-body">
-              <span class="checklist-title" x-text="section.title"></span>
-              <span class="dim checklist-desc" x-text="section.description"></span>
+            <span class="trunc">
+              <span :class="section.selected ? 'amber' : ''" x-text="section.title"></span>
+              <span class="dim" style="margin-left: 1ch;" x-text="section.description"></span>
             </span>
           </li>
         </template>
       </ul>
 
-      <div class="actions" x-show="!loading">
-        <button type="button" class="primary"
+      <div class="inline" x-show="!loading">
+        <button type="button" class="btn-primary"
                 :disabled="selectedCount === 0 || saving"
                 @click="proceed()">
-          <span x-show="!saving">Continue (<span x-text="selectedCount"></span> sections)</span>
+          <span x-show="!saving">Continue (<span x-text="selectedCount"></span>)</span>
           <span x-show="saving">Saving&hellip;</span>
         </button>
         <button type="button" @click="back()">Back</button>
@@ -480,81 +434,83 @@
   </template>
 
   <template id="screen-confirm">
-    <section class="section" x-data="confirmScreen()">
-      <h2 class="section-divider">READY TO RESEARCH</h2>
+    <section class="box stack" x-data="confirmScreen()">
+      <h2 class="box-title">CONFIRM</h2>
 
       <p class="dim" x-show="loading">Loading estimate&hellip;</p>
       <p class="alert alert-error" x-show="error" x-text="error"></p>
 
-      <div x-show="!loading && data">
+      <div x-show="!loading && data" class="stack">
         <p>
-          This will research <strong x-text="data?.competitor_count"></strong> competitor<span x-show="data?.competitor_count !== 1">s</span>
-          across <strong x-text="data?.section_keys.length"></strong> section<span x-show="data?.section_keys.length !== 1">s</span> each.
-          <span class="dim">
-            &middot; <span x-text="formatEta(data?.eta_seconds)"></span> estimated
-          </span>
+          <span class="amber" x-text="data?.competitor_count"></span> competitor<span x-show="data?.competitor_count !== 1">s</span>
+          &middot; <span class="amber" x-text="data?.section_keys.length"></span> section<span x-show="data?.section_keys.length !== 1">s</span>
+          &middot; <span class="dim" x-text="formatEta(data?.eta_seconds)"></span>
         </p>
 
-        <h3 class="section-divider">SECTIONS</h3>
-        <ul class="confirm-sections">
-          <template x-for="name in data?.section_names" :key="name">
-            <li x-text="name"></li>
-          </template>
-        </ul>
-
-        <h3 class="section-divider">COST BREAKDOWN</h3>
-        <table class="cost-table">
-          <tbody>
-            <template x-for="(cost, stage) in data?.cost_by_stage" :key="stage">
-              <tr>
-                <td class="cost-label" x-text="stage"></td>
-                <td class="cost-value" x-text="formatCost(cost)"></td>
-              </tr>
+        <section class="box box-tight box-nested stack stack-tight">
+          <h3 class="box-title">SECTIONS</h3>
+          <ul class="inline" style="flex-wrap: wrap;">
+            <template x-for="name in data?.section_names" :key="name">
+              <li class="badge" x-text="name"></li>
             </template>
-            <tr class="cost-total">
-              <td class="cost-label">Total</td>
-              <td class="cost-value" x-text="formatCost(data?.estimated_total)"></td>
-            </tr>
-          </tbody>
-        </table>
+          </ul>
+        </section>
 
-        <h3 class="section-divider">MODEL</h3>
-        <ul class="radio-list">
-          <template x-for="opt in data?.model_options" :key="opt.id">
-            <li class="radio-item" @click="selectedModel = opt.id">
-              <span class="radio-marker"
-                    :class="selectedModel === opt.id ? 'amber' : 'dim'"
-                    x-text="selectedModel === opt.id ? '\u25C9' : '\u25CB'"></span>
-              <span class="radio-label" x-text="opt.label"></span>
-              <span class="dim radio-price"
-                    x-text="'$' + opt.input_price_per_million + ' / $' + opt.output_price_per_million + ' per M'"></span>
-              <span class="radio-total" x-text="formatCost(opt.estimated_total)"></span>
-              <span class="dim radio-desc" x-text="opt.description"></span>
+        <section class="box box-tight box-nested stack stack-tight">
+          <h3 class="box-title">COST</h3>
+          <ul class="stack stack-tight">
+            <template x-for="(cost, stage) in data?.cost_by_stage" :key="stage">
+              <li class="row" style="grid-template-columns: minmax(0, 1fr) auto;">
+                <span class="dim ucase" x-text="stage"></span>
+                <span class="amber" x-text="formatCost(cost)"></span>
+              </li>
+            </template>
+            <li class="row" style="grid-template-columns: minmax(0, 1fr) auto; border-top: 1px dashed var(--recon-border); padding-top: 0.5ch;">
+              <span class="ucase">Total</span>
+              <span class="amber" x-text="formatCost(data?.estimated_total)"></span>
             </li>
-          </template>
-        </ul>
+          </ul>
+        </section>
 
-        <h3 class="section-divider">WORKERS</h3>
-        <div class="workers-control">
-          <button type="button" @click="workers = Math.max(1, workers - 1)" :disabled="workers <= 1">-</button>
-          <span class="workers-value amber" x-text="workers"></span>
+        <section class="box box-tight box-nested stack stack-tight">
+          <h3 class="box-title">MODEL</h3>
+          <ul class="stack stack-tight">
+            <template x-for="opt in data?.model_options" :key="opt.id">
+              <li class="row row-hover"
+                  style="grid-template-columns: 2ch minmax(0, 1fr) 16ch 10ch;"
+                  @click="selectedModel = opt.id">
+                <span class="col-mark"
+                      :class="selectedModel === opt.id ? 'marker-amber' : 'marker-dim'"
+                      x-text="selectedModel === opt.id ? '\u25C9' : '\u25CB'"></span>
+                <span>
+                  <span :class="selectedModel === opt.id ? 'amber' : ''" x-text="opt.label"></span>
+                  <span class="dim" style="margin-left: 1ch;" x-text="opt.description"></span>
+                </span>
+                <span class="dim right"
+                      x-text="'$' + opt.input_price_per_million + ' / $' + opt.output_price_per_million + ' per M'"></span>
+                <span class="amber right" x-text="formatCost(opt.estimated_total)"></span>
+              </li>
+            </template>
+          </ul>
+        </section>
+
+        <div class="inline inline-tight">
+          <span class="label">Workers</span>
+          <button type="button" @click="workers = Math.max(1, workers - 1)" :disabled="workers <= 1">−</button>
+          <span class="amber" x-text="workers"></span>
           <button type="button" @click="workers = Math.min(16, workers + 1)" :disabled="workers >= 16">+</button>
-          <span class="dim">parallel workers</span>
+          <span class="dim">parallel</span>
         </div>
 
         <p class="alert alert-info" role="note">
-          <span>
-            Preview run &mdash; uses a deterministic fake LLM so no API charges are incurred.
-            Real-LLM mode lands in a follow-up release.
-          </span>
+          Preview run &mdash; uses a deterministic fake LLM so no API charges are incurred.
+          Real-LLM mode lands in a follow-up release.
         </p>
 
         <p class="alert alert-error" x-show="error" x-text="error"></p>
 
-        <div class="actions">
-          <button type="button" class="primary"
-                  :disabled="starting"
-                  @click="start()">
+        <div class="inline">
+          <button type="button" class="btn-primary" :disabled="starting" @click="start()">
             <span x-show="!starting">Start research</span>
             <span x-show="starting">Starting&hellip;</span>
           </button>
@@ -572,43 +528,46 @@
        ============================================================= -->
 
   <template id="screen-run">
-    <section class="section" x-data="runScreen()">
-      <h2 class="section-divider">RESEARCH RUN</h2>
+    <section class="box stack" x-data="runScreen()">
+      <h2 class="box-title">RUN</h2>
 
       <p class="alert alert-error" x-show="error" x-text="error"></p>
 
-      <div class="run-header">
-        <div class="run-phase system-prompt">
-          <span class="system-prompt-label">SYSTEM:</span>
+      <div class="row" style="grid-template-columns: minmax(0, 1fr) auto;">
+        <span>
+          <span class="label">▶ System</span>
           <span class="amber" :class="{ 'cursor-blink': !isTerminal }" x-text="phase"></span>
-        </div>
-        <div class="run-cost">
-          <span class="dim">cost:</span>
+        </span>
+        <span>
+          <span class="label">Cost</span>
           <span class="amber" x-text="formatCost()"></span>
-        </div>
+        </span>
       </div>
 
-      <div class="run-progress" role="progressbar"
+      <div class="row" role="progressbar"
+           style="grid-template-columns: minmax(0, 1fr) auto;"
            :aria-valuenow="progressPercent" aria-valuemin="0" aria-valuemax="100">
-        <span class="run-progress-bar mono" x-text="progressBar"></span>
-        <span class="run-progress-percent mono dim">
+        <span class="bar" x-text="progressBar"></span>
+        <span class="bar-pct">
           <span x-text="String(progressPercent).padStart(3, ' ')"></span>%
         </span>
       </div>
 
-      <h3 class="section-divider">ACTIVITY</h3>
-      <div class="run-activity">
+      <section class="box box-tight box-nested stack stack-tight">
+        <h3 class="box-title">ACTIVITY</h3>
         <p class="dim" x-show="activity.length === 0">Waiting for first event&hellip;</p>
-        <template x-for="entry in activity" :key="entry.stamp + ':' + entry.line">
-          <div class="run-activity-row">
-            <span class="run-activity-stamp dim" x-text="entry.stamp"></span>
-            <span class="run-activity-line" x-text="entry.line"></span>
-          </div>
-        </template>
-      </div>
+        <ul class="stack stack-tight" style="max-height: 26rem; overflow-y: auto;">
+          <template x-for="entry in activity" :key="entry.stamp + ':' + entry.line">
+            <li class="row" style="grid-template-columns: 10ch minmax(0, 1fr); padding: 0;">
+              <span class="dim" x-text="entry.stamp"></span>
+              <span class="trunc" x-text="entry.line"></span>
+            </li>
+          </template>
+        </ul>
+      </section>
 
-      <div class="actions" x-show="isTerminal">
-        <button type="button" class="primary"
+      <div class="inline" x-show="isTerminal">
+        <button type="button" class="btn-primary"
                 x-show="status === 'done'"
                 @click="goToResults()">
           View results
@@ -621,220 +580,133 @@
   </template>
 
   <template id="screen-results">
-    <section class="section" x-data="resultsScreen()">
-      <h2 class="section-divider">RESEARCH COMPLETE</h2>
+    <section class="box stack" x-data="resultsScreen()">
+      <h2 class="box-title">RESULTS</h2>
 
       <p class="dim" x-show="loading">Loading results&hellip;</p>
       <p class="alert alert-error" x-show="error" x-text="error"></p>
 
-      <!-- No artifacts yet: the workspace was set up but no run has
-           produced an exec summary or theme files. Point the user
-           back at the dashboard to kick off a run instead of leaving
-           them on an empty screen. -->
-      <div class="empty-state" x-show="!loading && !error && !hasAnyArtifact">
-        <iconify-icon class="empty-state-icon" icon="lucide:sparkles" width="36" height="36" aria-hidden="true"></iconify-icon>
-        <p class="empty-state-title">No results yet.</p>
-        <p class="empty-state-body">
-          Run the research pipeline first &mdash; the executive summary and per-theme
-          briefs will land here when the run completes.
-        </p>
-        <div class="empty-state-actions">
-          <a class="button-link" :href="dashboardHash()">
-            <iconify-icon icon="lucide:layout-dashboard" width="14" height="14" aria-hidden="true"></iconify-icon>
-            Open dashboard
-          </a>
-          <a class="button-link" href="#/welcome">
-            <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
-            Back to projects
-          </a>
+      <div class="stack" x-show="!loading && !error && !hasAnyArtifact">
+        <p class="dim">No results yet. Run the research pipeline first.</p>
+        <div class="inline">
+          <a class="btn" :href="dashboardHash()">Open dashboard</a>
+          <a class="btn" href="#/welcome">Back to projects</a>
         </div>
       </div>
 
-      <div x-show="!loading && !error && hasAnyArtifact">
-        <!-- Executive summary preview. The backend caps it at ~2KB so
-             the payload stays small; users who want the full doc read
-             the file path shown below. -->
+      <div class="stack" x-show="!loading && !error && hasAnyArtifact">
         <template x-if="hasSummary">
-          <div class="results-summary">
-            <h3 class="section-divider">EXECUTIVE SUMMARY</h3>
-            <p class="dim results-summary-path mono"
-               x-text="data.executive_summary_path"></p>
-            <pre class="results-summary-preview"
+          <section class="box box-tight box-nested stack stack-tight">
+            <h3 class="box-title">EXECUTIVE SUMMARY</h3>
+            <p class="dim trunc" x-text="data.executive_summary_path"></p>
+            <pre style="margin: 0; padding: 1ch 2ch; background: var(--recon-surface); border: 1px solid var(--recon-border); border-radius: var(--radius-sm); max-height: 22rem; overflow-y: auto; white-space: pre-wrap; font: inherit;"
                  x-text="data.executive_summary_preview"></pre>
-          </div>
+          </section>
         </template>
 
         <template x-if="(data?.theme_files?.length || 0) > 0">
-          <div class="results-themes">
-            <h3 class="section-divider">
+          <section class="box box-tight box-nested stack stack-tight">
+            <h3 class="box-title">
               <span>THEMES</span>
-              <span class="dim" x-text="data.theme_files.length + ' total'"></span>
+              <span class="dim" style="margin-left: 1ch;" x-text="data.theme_files.length + ' total'"></span>
             </h3>
-            <ul class="results-theme-list">
-              <template x-for="(t, idx) in data.theme_files"
-                        :key="t.name || t.path || idx">
-                <li class="results-theme-row">
-                  <span class="results-theme-marker success mono"
-                        aria-hidden="true">&#9632;</span>
-                  <div class="results-theme-body">
-                    <span class="results-theme-title"
-                          x-text="t.title || t.name"></span>
-                    <span class="dim results-theme-path mono"
-                          x-text="t.path"></span>
-                  </div>
+            <ul class="stack stack-tight">
+              <template x-for="(t, idx) in data.theme_files" :key="t.name || t.path || idx">
+                <li class="row" style="grid-template-columns: 2ch minmax(0, 1fr) auto;">
+                  <span class="marker marker-ok">■</span>
+                  <span class="trunc">
+                    <span class="amber" x-text="t.title || t.name"></span>
+                    <span class="dim" style="margin-left: 1ch;" x-text="t.path"></span>
+                  </span>
                   <template x-if="t.distilled_path">
-                    <span class="results-theme-badge mono"
-                          :title="t.distilled_path">distilled</span>
+                    <span class="badge" :title="t.distilled_path">distilled</span>
                   </template>
                 </li>
               </template>
             </ul>
-          </div>
+          </section>
         </template>
 
-        <div class="actions">
-          <a class="button-link" :href="dashboardHash()">
-            <iconify-icon icon="lucide:layout-dashboard" width="14" height="14" aria-hidden="true"></iconify-icon>
-            Dashboard
-          </a>
-          <a class="button-link" href="#/welcome">
-            <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
-            Back to projects
-          </a>
+        <div class="inline">
+          <a class="btn" :href="dashboardHash()">Dashboard</a>
+          <a class="btn" href="#/welcome">Back to projects</a>
         </div>
       </div>
     </section>
   </template>
 
   <template id="screen-dashboard">
-    <section class="section" x-data="dashboardScreen()">
-      <h2 class="section-divider">DASHBOARD
-        <span class="badge-soon" aria-label="coming soon">soon</span>
-      </h2>
+    <section class="box stack" x-data="dashboardScreen()">
+      <h2 class="box-title">DASHBOARD</h2>
 
       <p class="dim" x-show="loading">Loading workspace&hellip;</p>
       <p class="alert alert-error" x-show="error" x-text="error"></p>
 
-      <div x-show="!loading && workspace">
+      <div class="stack stack-tight" x-show="!loading && workspace">
         <p>
-          <strong x-text="workspace?.company_name"></strong>
-          <span class="dim"> &middot; </span>
-          <span class="dim" x-text="workspace?.domain"></span>
+          <span class="amber" x-text="workspace?.company_name"></span>
+          <span class="dim" style="margin-left: 1ch;" x-text="workspace?.domain"></span>
         </p>
         <p class="dim">
-          <span x-text="workspace?.competitor_count"></span>
-          competitor<span x-show="workspace?.competitor_count !== 1">s</span>
+          <span x-text="workspace?.competitor_count"></span> competitor<span x-show="workspace?.competitor_count !== 1">s</span>
           &middot;
-          <span x-text="workspace?.section_count"></span>
-          section<span x-show="workspace?.section_count !== 1">s</span>
+          <span x-text="workspace?.section_count"></span> section<span x-show="workspace?.section_count !== 1">s</span>
         </p>
       </div>
 
-      <div class="empty-state">
-        <iconify-icon class="empty-state-icon" icon="lucide:layout-dashboard" width="36" height="36" aria-hidden="true"></iconify-icon>
-        <p class="empty-state-title">The full project dashboard is on the way.</p>
-        <p class="empty-state-body">
-          Resume, re-run, or browse existing research on any saved workspace. Until
-          this lands, you can jump back into setup below or return to the project list.
-        </p>
-        <div class="empty-state-actions">
-          <template x-if="workspace">
-            <a class="button-link" :href="resumeDiscoverHash()">
-              <iconify-icon icon="lucide:arrow-right" width="14" height="14" aria-hidden="true"></iconify-icon>
-              Resume setup
-            </a>
-          </template>
-          <a class="button-link" href="#/welcome">
-            <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
-            Back to projects
-          </a>
-        </div>
+      <p class="dim">
+        Dashboard still under construction &mdash; resume, re-run, and browse land in
+        a follow-up release.
+      </p>
+
+      <div class="inline">
+        <template x-if="workspace">
+          <a class="btn" :href="resumeDiscoverHash()">Resume setup</a>
+        </template>
+        <a class="btn" href="#/welcome">Back to projects</a>
       </div>
     </section>
   </template>
 
   <template id="screen-curation">
-    <section class="section">
-      <h2 class="section-divider">THEME CURATION
-        <span class="badge-soon" aria-label="coming soon">soon</span>
-      </h2>
-      <div class="empty-state">
-        <iconify-icon class="empty-state-icon" icon="lucide:tags" width="36" height="36" aria-hidden="true"></iconify-icon>
-        <p class="empty-state-title">Theme curation is available in the terminal UI today.</p>
-        <p class="empty-state-body">
-          Run <code>recon tui</code> to review emerging themes and approve the ones
-          worth a deep dive. This screen brings the same workflow to the web.
-        </p>
-        <div class="empty-state-actions">
-          <a class="button-link" href="#/welcome">
-            <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
-            Back to projects
-          </a>
-        </div>
+    <section class="box stack">
+      <h2 class="box-title">CURATION</h2>
+      <p class="dim">Theme curation still lives in the terminal UI &mdash; run
+        <code>recon tui</code>. Web parity next.</p>
+      <div class="inline">
+        <a class="btn" href="#/welcome">Back to projects</a>
       </div>
     </section>
   </template>
 
   <template id="screen-browser">
-    <section class="section">
-      <h2 class="section-divider">COMPETITOR BROWSER
-        <span class="badge-soon" aria-label="coming soon">soon</span>
-      </h2>
-      <div class="empty-state">
-        <iconify-icon class="empty-state-icon" icon="lucide:folder-search" width="36" height="36" aria-hidden="true"></iconify-icon>
-        <p class="empty-state-title">Per-competitor deep dives live in the terminal UI.</p>
-        <p class="empty-state-body">
-          <code>recon tui</code> lets you drill into any competitor to read the
-          synthesised brief, sourced facts, and raw retrievals. Web parity is next.
-        </p>
-        <div class="empty-state-actions">
-          <a class="button-link" href="#/welcome">
-            <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
-            Back to projects
-          </a>
-        </div>
+    <section class="box stack">
+      <h2 class="box-title">BROWSER</h2>
+      <p class="dim">Per-competitor deep dives live in <code>recon tui</code>. Web parity next.</p>
+      <div class="inline">
+        <a class="btn" href="#/welcome">Back to projects</a>
       </div>
     </section>
   </template>
 
   <template id="screen-selector">
-    <section class="section">
-      <h2 class="section-divider">COMPETITOR SELECTOR
-        <span class="badge-soon" aria-label="coming soon">soon</span>
-      </h2>
-      <div class="empty-state">
-        <iconify-icon class="empty-state-icon" icon="lucide:list-checks" width="36" height="36" aria-hidden="true"></iconify-icon>
-        <p class="empty-state-title">Pick-and-re-run is coming with the live runner.</p>
-        <p class="empty-state-body">
-          For now, the terminal UI lets you scope an incremental run to a subset of
-          competitors. This screen will bring that shortcut to the web.
-        </p>
-        <div class="empty-state-actions">
-          <a class="button-link" href="#/welcome">
-            <iconify-icon icon="lucide:arrow-left" width="14" height="14" aria-hidden="true"></iconify-icon>
-            Back to projects
-          </a>
-        </div>
+    <section class="box stack">
+      <h2 class="box-title">SELECTOR</h2>
+      <p class="dim">Pick-and-re-run ships with the live runner. Until then, use
+        <code>recon tui</code>.</p>
+      <div class="inline">
+        <a class="btn" href="#/welcome">Back to projects</a>
       </div>
     </section>
   </template>
 
   <template id="screen-not-found">
-    <section class="section">
-      <h2 class="section-divider error">NOT FOUND</h2>
-      <div class="empty-state">
-        <iconify-icon class="empty-state-icon" icon="lucide:map-pin-off" width="36" height="36" aria-hidden="true"></iconify-icon>
-        <p class="empty-state-title">That route doesn&rsquo;t match any screen.</p>
-        <p class="empty-state-body">
-          No screen is registered for <code x-text="$store.router.hash"></code><span>.</span>
-          Head back to the welcome screen to start a new project or resume a recent one.
-        </p>
-        <div class="empty-state-actions">
-          <a class="button-link" href="#/welcome">
-            <iconify-icon icon="lucide:home" width="14" height="14" aria-hidden="true"></iconify-icon>
-            Return home
-          </a>
-        </div>
+    <section class="box stack">
+      <h2 class="box-title error">NOT FOUND</h2>
+      <p class="error">That route doesn&rsquo;t match any screen.</p>
+      <p class="dim">No screen is registered for <code x-text="$store.router.hash"></code>.</p>
+      <div class="inline">
+        <a class="btn" href="#/welcome">Return home</a>
       </div>
     </section>
   </template>

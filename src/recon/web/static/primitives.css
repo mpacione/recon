@@ -258,13 +258,18 @@ a:hover, a:focus-visible {
 
 .row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: baseline;
   gap: var(--sp-2);
   padding: var(--sp-1) 0;
   white-space: nowrap;
   min-width: 0;
 }
+
+/* Grid cells default to min-width: min-content which makes 1fr
+ * collapse to 0 when any sibling has long text. Forcing min-width: 0
+ * on every direct child lets the fr unit actually claim its share. */
+.row > * { min-width: 0; }
 
 .row-hover:hover,
 .row-hover:focus-within {
@@ -480,3 +485,60 @@ kbd, .kbd {
   border-radius: var(--radius-sm);
   line-height: 1.3;
 }
+
+/* ===================================================================
+ * RECON ASCII brand mark (welcome screen)
+ *
+ * Block-letter pixel art; swaps to a 3-row mini variant on narrow
+ * viewports. This is the one place on the site where a non-base
+ * font-size is allowed — it's artwork, not type.
+ * =================================================================== */
+
+.recon-ascii-logo {
+  display: block;
+  margin: 0 0 var(--sp-2);
+  padding: 0;
+  color: var(--recon-amber);
+  white-space: pre;
+  overflow: hidden;
+  line-height: 1.1;
+  text-shadow: 0 0 6px color-mix(in oklab, var(--recon-amber) 35%, transparent);
+}
+
+.recon-ascii-logo-full { font-size: 0.5rem; }
+.recon-ascii-logo-mini {
+  font-size: var(--font-size-base);
+  display: none;
+}
+
+@media (max-width: 560px) {
+  .recon-ascii-logo-full { display: none; }
+  .recon-ascii-logo-mini { display: block; }
+}
+
+/* ===================================================================
+ * Blinking block cursor — used on the run screen's active phase
+ * =================================================================== */
+
+.cursor-blink::after {
+  content: "\2590";
+  color: var(--recon-amber);
+  margin-left: var(--sp-1);
+  animation: cursor-blink 1.1s steps(2, end) infinite;
+}
+@keyframes cursor-blink {
+  to { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cursor-blink::after { animation: none; }
+}
+
+/* ===================================================================
+ * Scrollbar — thin amber-on-dark
+ * =================================================================== */
+
+* { scrollbar-color: var(--recon-border) var(--recon-surface); scrollbar-width: thin; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: var(--recon-surface); }
+*::-webkit-scrollbar-thumb { background: var(--recon-border); border-radius: var(--radius-sm); }
+*::-webkit-scrollbar-thumb:hover { background: var(--recon-amber); }

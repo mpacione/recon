@@ -38,7 +38,7 @@ class TestRoot:
 
     def test_root_includes_theme_css_link(self, client: TestClient) -> None:
         response = client.get("/")
-        assert "theme.css" in response.text
+        assert "primitives.css" in response.text
 
     def test_root_injects_recon_home_config(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch,
@@ -78,12 +78,12 @@ class TestRoot:
 
 class TestStaticAssets:
     def test_theme_css_served(self, client: TestClient) -> None:
-        response = client.get("/static/theme.css")
+        response = client.get("/static/primitives.css")
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/css")
 
     def test_theme_css_uses_ported_tokens(self, client: TestClient) -> None:
-        response = client.get("/static/theme.css")
+        response = client.get("/static/primitives.css")
         body = response.text
         # Spot-check ported tokens from src/recon/tui/theme.py
         assert "#000000" in body  # background
@@ -95,7 +95,7 @@ class TestStaticAssets:
         # Four themes must be selectable via <html data-theme="..."> —
         # if one goes missing the picker's options and the CSS fall out
         # of sync and rows silently become no-ops.
-        body = client.get("/static/theme.css").text
+        body = client.get("/static/primitives.css").text
         for key in ('amber', 'dark', 'matrix', 'crypt'):
             assert f'[data-theme="{key}"]' in body, f'missing theme block: {key}'
 
@@ -128,7 +128,7 @@ class TestStaticAssets:
         # The AlertBox vocabulary (ported from cyberspace-tui-go) drives
         # every notice/error row. If a variant goes missing, callers
         # silently render unstyled.
-        body = client.get("/static/theme.css").text
+        body = client.get("/static/primitives.css").text
         for cls in ('.alert', '.alert-info', '.alert-warn', '.alert-error', '.alert-success'):
             assert cls in body, f'missing alert variant: {cls}'
         # ::before markers must carry the expected glyph escapes so
