@@ -164,9 +164,9 @@ class CompetitorListResponse(BaseModel):
 
 class CreateCompetitorRequest(BaseModel):
     path: str
-    name: str = Field(..., min_length=1)
-    url: str | None = None
-    blurb: str | None = None
+    name: str = Field(..., min_length=1, max_length=200)
+    url: str | None = Field(default=None, max_length=2048)
+    blurb: str | None = Field(default=None, max_length=2000)
     own_product: bool = False
 
 

@@ -29,6 +29,53 @@ def client() -> TestClient:
     return TestClient(create_app())
 
 
+class TestCompetitorInputSafety:
+    """Guards against hostile-report findings (empty name, giant
+    name, javascript: URL, other non-http schemes)."""
+
+    def test_rejects_whitespace_only_name(
+        self, client: TestClient, tmp_workspace: Path,
+    ) -> None:
+        res = client.post(
+            "/api/competitors",
+            json={"path": str(tmp_workspace), "name": "   "},
+        )
+        assert res.status_code == 422
+
+    def test_rejects_overlong_name(
+        self, client: TestClient, tmp_workspace: Path,
+    ) -> None:
+        res = client.post(
+            "/api/competitors",
+            json={"path": str(tmp_workspace), "name": "A" * 500},
+        )
+        assert res.status_code == 422
+
+    def test_rejects_javascript_url(
+        self, client: TestClient, tmp_workspace: Path,
+    ) -> None:
+        res = client.post(
+            "/api/competitors",
+            json={
+                "path": str(tmp_workspace),
+                "name": "Evil Co",
+                "url": "javascript:alert(1)",
+            },
+        )
+        assert res.status_code == 422
+        assert "http" in res.json()["detail"].lower()
+
+    def test_rejects_non_http_url(
+        self, client: TestClient, tmp_workspace: Path,
+    ) -> None:
+        for scheme in ("data:text/html,x", "file:///etc/passwd", "vbscript:msgbox"):
+            res = client.post(
+                "/api/competitors",
+                json={"path": str(tmp_workspace), "name": "T", "url": scheme},
+            )
+            assert res.status_code == 422, scheme
+
+
 # ---------------------------------------------------------------------------
 # GET /api/competitors
 # ---------------------------------------------------------------------------

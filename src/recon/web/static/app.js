@@ -1109,6 +1109,11 @@ function runScreen() {
       // SSE picks up from here; past events are NOT replayed, which
       // is why we need the snapshot at all.
       await this._hydrateState();
+      // If hydrate set a terminal status (e.g. 404), skip the SSE
+      // subscription — there's nothing to stream.
+      if (this.status === 'failed' || this.status === 'done' || this.status === 'cancelled') {
+        return;
+      }
       this._connect();
     },
 
@@ -1116,6 +1121,13 @@ function runScreen() {
       try {
         const qs = new URLSearchParams({ path: this.workspacePath });
         const res = await fetch(`/api/runs/${encodeURIComponent(this.runId)}?${qs}`);
+        if (res.status === 404) {
+          // Bogus run_id in the URL / someone deleted the row. Fail
+          // visibly instead of hanging on a dead SSE stream.
+          this.status = 'failed';
+          this.error = `run ${this.runId.substring(0, 8)} not found`;
+          return;
+        }
         if (!res.ok) return;
         const snap = await res.json();
         // Map server statuses to client ones: "completed" → done,
@@ -1434,6 +1446,9 @@ function homeScreen() {
       // Hook keyboard events forwarded from the shell.
       document.addEventListener('recon:home-new', () => {
         this.showFirstRun = true;
+      });
+      document.addEventListener('recon:home-close-firstrun', () => {
+        this.showFirstRun = false;
       });
       document.addEventListener('recon:home-pick', (e) => {
         const idx = e.detail && e.detail.index;

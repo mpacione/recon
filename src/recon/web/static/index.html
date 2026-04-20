@@ -39,12 +39,14 @@
       <nav class="inline inline-tight"
            x-show="activeScreen === 'project'"
            style="margin-left: 2ch;"
+           role="tablist"
            aria-label="project tabs">
         <template x-for="(t, i) in tabs" :key="t.key">
           <span class="inline inline-tight">
             <span class="dim" x-show="i > 0" aria-hidden="true">·</span>
-            <a href="#"
-               @click.prevent="goTab(t.key)"
+            <a :href="'#/p/' + encodeURIComponent(workspacePath) + '/' + t.key"
+               role="tab"
+               :aria-selected="activeTab === t.key"
                :class="activeTab === t.key ? 'amber' : 'dim'"
                x-text="activeTab === t.key ? '[' + t.label.toLowerCase() + ']' : t.label.toLowerCase()"
                style="text-decoration: none;"></a>
@@ -144,8 +146,12 @@
         <button type="button" @click="$store.runOverlay.close()" aria-label="Close">× close</button>
       </div>
 
-      <!-- PLAN mode -->
-      <div x-show="$store.runOverlay.mode === 'plan'" x-data="confirmScreen()" class="stack">
+      <!-- PLAN mode — x-if (not x-show) so the factory mounts fresh
+           each time the overlay opens in plan mode. With x-show the
+           Alpine component runs init() at page hydration when the
+           overlay isn't even visible yet, which hit the wrong path. -->
+      <template x-if="$store.runOverlay.visible && $store.runOverlay.mode === 'plan'">
+      <div x-data="confirmScreen()" class="stack">
         <p class="dim" x-show="loading">Loading estimate…</p>
         <p class="alert alert-error" x-show="error" x-text="error"></p>
 
@@ -210,9 +216,13 @@
           </div>
         </div>
       </div>
+      </template>
 
-      <!-- LIVE mode -->
-      <div x-show="$store.runOverlay.mode === 'live'" x-data="runScreen()" class="stack">
+      <!-- LIVE mode — x-if so runScreen mounts fresh with a real
+           run_id. x-show was mounting it at page load when runId was
+           still empty, locking it into status='failed'. -->
+      <template x-if="$store.runOverlay.visible && $store.runOverlay.mode === 'live'">
+      <div x-data="runScreen()" class="stack">
         <p class="alert alert-error" x-show="error" x-text="error"></p>
 
         <div class="row" style="grid-template-columns: minmax(0, 1fr) auto;">
@@ -227,6 +237,7 @@
         </div>
 
         <div class="row" role="progressbar"
+             aria-label="research progress"
              style="grid-template-columns: minmax(0, 1fr) auto;"
              :aria-valuenow="progressPercent" aria-valuemin="0" aria-valuemax="100">
           <span class="bar" x-text="progressBar"></span>
@@ -252,9 +263,11 @@
           <button type="button" class="btn-primary"
                   x-show="status === 'done'"
                   @click="goToResults()">View brief</button>
-          <button type="button" @click="goToDashboard()">Back to overview</button>
+          <button type="button" @click="goToDashboard()"
+                  x-text="isTerminal ? 'Back to overview' : 'Run in background'"></button>
         </div>
       </div>
+      </template>
     </aside>
   </div>
 
@@ -262,6 +275,7 @@
   <div x-data="cmdPalette()"
        x-show="open"
        x-cloak
+       x-effect="open && $nextTick(() => $refs.paletteInput?.focus())"
        class="overlay"
        @keydown.escape.window="$store.palette.hide()">
     <div class="overlay-backdrop" @click="$store.palette.hide()"></div>
@@ -354,8 +368,8 @@
               <span x-show="!submitting">Create project</span>
               <span x-show="submitting">Creating…</span>
             </button>
-            <button type="button" x-show="projects.length > 0"
-                    @click="$root._data ? ($root._data.showFirstRun = false) : null">Cancel</button>
+            <button type="button"
+                    @click="document.dispatchEvent(new CustomEvent('recon:home-close-firstrun'))">Cancel</button>
           </div>
 
           <p class="alert alert-error" x-show="error" x-text="error"></p>
@@ -466,12 +480,12 @@
           <span class="amber" x-text="'$' + ($store.project.workspace?.total_cost || 0).toFixed(4)"></span>
         </div>
         <div class="row" style="grid-template-columns: 14ch minmax(0, 1fr);"
-             x-show="$store.project.runs.length > 0">
+             x-show="$store.project.runs.length > 1">
           <span class="label">Cost trend</span>
           <span>
             <span class="bar" x-text="$store.project.costSparkline"></span>
             <span class="dim" style="margin-left: 1ch;"
-                  x-text="$store.project.runs.length + ' run' + ($store.project.runs.length === 1 ? '' : 's')"></span>
+                  x-text="$store.project.runs.length + ' runs'"></span>
           </span>
         </div>
       </section>

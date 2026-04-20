@@ -28,11 +28,11 @@ class TestStartRun:
     def test_returns_run_id_and_events_url(
         self, client: TestClient, tmp_workspace: Path,
     ) -> None:
-        # The workspace has no competitors yet — plan() should still
-        # succeed (it creates a run row even for an empty target list),
-        # so we get a run_id back. The execute() task runs in the
-        # background and either no-ops or fails gracefully; either way
-        # the caller has a run_id to subscribe to.
+        # Needs at least one competitor for the zero-scope guard.
+        client.post(
+            "/api/competitors",
+            json={"path": str(tmp_workspace), "name": "Bambu Lab"},
+        )
         response = client.post(
             "/api/runs", json={"path": str(tmp_workspace)},
         )
@@ -41,6 +41,17 @@ class TestStartRun:
         assert body["run_id"]
         assert body["events_url"] == f"/api/runs/{body['run_id']}/events"
         assert body["use_fake_llm"] is True
+
+    def test_rejects_zero_competitors(
+        self, client: TestClient, tmp_workspace: Path,
+    ) -> None:
+        # No competitors, no run. Starting one with a bare workspace
+        # is a sunk-cost pipeline that produces nothing; fail fast.
+        response = client.post(
+            "/api/runs", json={"path": str(tmp_workspace)},
+        )
+        assert response.status_code == 400
+        assert "competitors" in response.json()["detail"].lower()
 
     def test_returns_404_for_missing_workspace(
         self, client: TestClient, tmp_path: Path,

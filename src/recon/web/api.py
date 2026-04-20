@@ -311,12 +311,35 @@ def create_app() -> FastAPI:
         """
         from recon.workspace import Workspace
 
+        # Safety: cap description length so the heuristic slug can't
+        # blow past filesystem limits (255 chars on most filesystems,
+        # with margin for parent path). A hostile or truncated paste
+        # should 400, not 500.
+        if len(payload.description) > 1000:
+            raise HTTPException(
+                status_code=400,
+                detail="description too long (max 1000 characters)",
+            )
+
         company_name = payload.company_name or _heuristic_company_name(payload.description)
         domain = payload.domain or payload.description
-        slug = _slugify_for_path(company_name)
+        # Clamp the slug to 60 chars — long enough for readable names,
+        # short enough to stay well under the 255-char filesystem cap
+        # even with a -99 collision suffix.
+        slug = _slugify_for_path(company_name)[:60].rstrip("-") or "project"
 
         if payload.path:
-            target = Path(payload.path).expanduser()
+            # Resolve to catch ../ escapes and fail early on invalid
+            # paths. The filesystem's permission model is the real
+            # gate on where writes can happen — this resolve just
+            # keeps errors readable (OSError → 400, not 500).
+            try:
+                target = Path(payload.path).expanduser().resolve(strict=False)
+            except (OSError, RuntimeError) as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"invalid path: {exc}",
+                ) from exc
             # Explicit path: a collision is a user error worth surfacing.
             if (target / "recon.yaml").exists():
                 raise HTTPException(
@@ -343,12 +366,20 @@ def create_app() -> FastAPI:
                         ),
                     )
 
-        ws = Workspace.init(
-            root=target,
-            domain=domain,
-            company_name=company_name,
-            products=payload.products,
-        )
+        try:
+            ws = Workspace.init(
+                root=target,
+                domain=domain,
+                company_name=company_name,
+                products=payload.products,
+            )
+        except OSError as exc:
+            # Filesystem issues (ENAMETOOLONG, EACCES, etc) become a
+            # readable 400 instead of crashing the request.
+            raise HTTPException(
+                status_code=400,
+                detail=f"could not create workspace: {exc}",
+            ) from exc
 
         return WorkspaceResponse(
             path=str(ws.root),
@@ -396,15 +427,49 @@ def create_app() -> FastAPI:
     async def create_competitor(payload: CreateCompetitorRequest) -> CompetitorModel:
         """Create a competitor profile. Returns 409 if the slug exists."""
         ws = _open_workspace(payload.path)
+
+        # Normalize + validate inputs that Pydantic can't catch:
+        #   - trim whitespace (" " alone would slugify to "" and land
+        #     on disk as /.md)
+        #   - reject javascript:/data:/vbscript: URLs to prevent a
+        #     stored-XSS vector when the URL is rendered as <a href>
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(
+                status_code=422,
+                detail="name cannot be empty or whitespace",
+            )
+        url = payload.url
+        if url:
+            url = url.strip()
+            lower = url.lower()
+            if lower.startswith(("javascript:", "data:", "vbscript:", "file:")):
+                raise HTTPException(
+                    status_code=422,
+                    detail="url must be http(s)",
+                )
+            # Allow bare domains (lenient) but if a scheme is present
+            # it must be http/https.
+            if "://" in lower and not lower.startswith(("http://", "https://")):
+                raise HTTPException(
+                    status_code=422,
+                    detail="url must be http(s)",
+                )
+
         try:
             profile_path = ws.create_profile(
-                payload.name, own_product=payload.own_product,
+                name, own_product=payload.own_product,
             )
         except FileExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"could not create competitor: {exc}",
+            ) from exc
 
-        if payload.url or payload.blurb:
-            _attach_candidate_metadata(profile_path, payload.url, payload.blurb)
+        if url or payload.blurb:
+            _attach_candidate_metadata(profile_path, url, payload.blurb)
 
         # Round-trip through list_profiles so the response reflects the
         # persisted frontmatter (including anything Workspace populated
@@ -727,6 +792,21 @@ def create_app() -> FastAPI:
         open the returned ``events_url`` to see the stream.
         """
         ws = _open_workspace(payload.path)
+
+        # Zero-scope guard. The client-side Start button is disabled
+        # when there's nothing to run, but a direct API call or a
+        # stale confirm payload could still reach here.
+        if not ws.list_profiles():
+            raise HTTPException(
+                status_code=400,
+                detail="no competitors in this workspace",
+            )
+        sections = ws.schema.sections if ws.schema else []
+        if not sections:
+            raise HTTPException(
+                status_code=400,
+                detail="no sections selected in the research template",
+            )
 
         # Defer the heavy imports until someone actually runs a pipeline.
         # Matches the TUI pipeline_runner pattern so the web app stays
