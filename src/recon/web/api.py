@@ -301,6 +301,41 @@ def create_app() -> FastAPI:
         ws = _open_workspace(path)
         return _build_results_response(ws.root)
 
+    @app.post("/api/reveal")
+    async def reveal_in_finder(payload: dict[str, str]) -> dict[str, bool]:
+        """Open a file or directory in the host's file manager.
+
+        Constrained to paths under the workspace root so we never hand
+        ``open`` an attacker-controlled path. macOS uses ``open -R`` to
+        reveal (select) the target; other platforms fall through to the
+        OS opener.
+        """
+        workspace_raw = payload.get("path", "")
+        target_raw = payload.get("target", "")
+        if not workspace_raw or not target_raw:
+            raise HTTPException(status_code=400, detail="path and target required")
+        ws = _open_workspace(workspace_raw)
+        target = Path(target_raw).resolve()
+        try:
+            target.relative_to(ws.root.resolve())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="target outside workspace") from exc
+        if not target.exists():
+            raise HTTPException(status_code=404, detail=f"{target} does not exist")
+
+        import subprocess
+        import sys
+
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(target)])  # noqa: S603,S607
+        elif sys.platform.startswith("linux"):
+            subprocess.Popen(["xdg-open", str(target.parent)])  # noqa: S603,S607
+        elif sys.platform.startswith("win"):
+            subprocess.Popen(["explorer", f"/select,{target}"])  # noqa: S603,S607
+        else:
+            raise HTTPException(status_code=501, detail=f"reveal not supported on {sys.platform}")
+        return {"ok": True}
+
     @app.post("/api/workspaces", response_model=WorkspaceResponse, status_code=201)
     async def create_workspace(payload: CreateWorkspaceRequest) -> WorkspaceResponse:
         """Create a workspace from a freeform description.

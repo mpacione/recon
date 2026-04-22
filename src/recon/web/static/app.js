@@ -1,1830 +1,1576 @@
-// recon web UI — Phase 4 SPA shell.
+// recon web UI — v4 shell
 //
-// Architecture: a hash-based router with a screen registry. The
-// shell renders persistent chrome (header, flow progress, keybinds);
-// the router clones the matching <template id="screen-<key>"> into
-// #screen-slot whenever the hash changes.
+// Architecture:
+//   - Hash-based router: #/  = home (RECON), #/p/<path>/<tab> = project
+//   - Five flow tabs: plan, schema, comps, agents, output (numbered 1-5)
+//   - Screen registry: each route maps to a <template id="screen-<key>">
+//   - Hotkey registry: scoped stack. Screens push a scope on mount,
+//     pop on unmount. Global keys live at the bottom of the stack.
 //
-// Screen-specific Alpine factories (welcomeScreen, etc.) are defined
-// further down. Future phases will split them into screens/*.js once
-// there are enough of them to warrant the file boundaries.
+// Phase 1 scope: shell chrome + routing + hotkeys + stub screen
+// factories. Each subsequent phase replaces one stub with a real
+// implementation.
 
 // ---------------------------------------------------------------------------
-// Theme system
+// Tabs
 // ---------------------------------------------------------------------------
 //
-// Palette vocabulary inspired by unremarkablegarden/cyberspace-tui-go.
-// The catalog below is the single source of truth for:
-//   - the picker menu shown in the header
-//   - the [t] global keybind (cycles in array order)
-//   - the preflight allowlist (mirrored inline in index.html; both
-//     lists must agree)
+// Tab metadata is the single source of truth for:
+//   - the top-nav link order
+//   - the 1-5 numeric hotkeys (bound at the project scope)
+//   - the Lucide icon shown in the nav
 //
-// Rendering is CSS-only: each entry's `key` is written to
-// <html data-theme="..."> and theme.css overrides the --recon-* tokens
-// for that attribute. No re-render or class swap is needed.
-
-const THEMES = [
-  { key: 'amber',  label: 'Amber',  description: 'VT320 phosphor (default)' },
-  { key: 'dark',   label: 'Dark',   description: 'Warm cream on black' },
-  { key: 'matrix', label: 'Matrix', description: 'Green-on-black terminal' },
-  { key: 'crypt',  label: 'Crypt',  description: 'Emergency red console' },
-];
-
-const THEME_STORAGE_KEY = 'recon:theme';
-const DEFAULT_THEME = 'amber';
-
-function readPersistedTheme() {
-  try {
-    const saved = localStorage.getItem(THEME_STORAGE_KEY);
-    if (THEMES.some((t) => t.key === saved)) return saved;
-  } catch (_err) { /* localStorage disabled */ }
-  return DEFAULT_THEME;
-}
-
-function writePersistedTheme(key) {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, key);
-  } catch (_err) { /* localStorage disabled — theme applies for the
-                      current page only */ }
-}
-
-function applyTheme(key) {
-  // Keep :root clean when the default is active so CSS debugging via
-  // devtools shows the canonical values rather than an override.
-  if (key === DEFAULT_THEME) {
-    document.documentElement.removeAttribute('data-theme');
-  } else {
-    document.documentElement.setAttribute('data-theme', key);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Paradigm: workspace, not wizard
-// ---------------------------------------------------------------------------
-//
-// Routes:
-//   #/                          Home — project list + first-run panel
-//   #/p/<path>/<tab>            Project — one of 6 tabs active
-//   #/p/<path>/runs/<run_id>    Project · Runs with slide-over open
-//
-// Legacy #/welcome, #/describe, #/discover/<path>, #/template/<path>,
-// #/confirm/<path>, #/run/<path>/<run_id>, #/results/<path>,
-// #/dashboard/<path> all forward to the new shape in parse() so old
-// bookmarks keep working.
+// "home" is not a tab — the RECON brand button is a separate affordance
+// that lives to the left of the tab list and owns its own route.
 
 const TABS = [
-  { key: 'overview',    label: 'Overview',    number: 1 },
-  { key: 'competitors', label: 'Competitors', number: 2 },
-  { key: 'template',    label: 'Template',    number: 3 },
-  { key: 'runs',        label: 'Runs',        number: 4 },
-  { key: 'brief',       label: 'Brief',       number: 5 },
-  { key: 'settings',    label: 'Settings',    number: 6 },
+  { key: 'plan',   label: 'PLAN',    number: 1, icon: 'map' },
+  { key: 'schema', label: 'SCHEMA',  number: 2, icon: 'square-stack' },
+  { key: 'comps',  label: "COMP'S",  number: 3, icon: 'shapes' },
+  { key: 'agents', label: 'AGENTS',  number: 4, icon: 'rabbit' },
+  { key: 'output', label: 'OUTPUT',  number: 5, icon: 'folder-open' },
 ];
 
 const TAB_KEYS = new Set(TABS.map((t) => t.key));
-
-// Keybind hints for the footer. Tabs share the project-scoped set;
-// home has its own.
-const HOME_KEYBINDS = [
-  { key: 'n',     label: 'new project' },
-  { key: 'j/k',   label: 'select' },
-  { key: 'enter', label: 'open' },
-  { key: '/',     label: 'filter' },
-  { key: '⌘K',    label: 'palette' },
-  { key: 't',     label: 'theme' },
-];
-
-const PROJECT_KEYBINDS = [
-  { key: '1-6',   label: 'tab' },
-  { key: 'r',     label: 'run' },
-  { key: '/',     label: 'filter' },
-  { key: 'esc',   label: 'home' },
-  { key: '⌘K',    label: 'palette' },
-  { key: 't',     label: 'theme' },
-];
+const DEFAULT_TAB = 'plan';
 
 // ---------------------------------------------------------------------------
-// Router store
+// Hotkey registry
 // ---------------------------------------------------------------------------
+//
+// Scopes stack top-to-bottom: global at the bottom, project in the
+// middle, screen-level above that, modals on top. handle() walks from
+// the top down and fires the first match, preventing default so keys
+// like "1" don't end up typed into focused inputs.
+//
+// A binding can declare `hint: 'left' | 'right'` and an optional
+// `icon` so the bottom nav renders its own shortcut bar — screens
+// don't have to hand-write hint lists.
+//
+// Key normalization: we match on event.key, lowercased. Modifiers are
+// encoded as prefixes: "ctrl+k", "shift+?", "meta+enter". Single
+// chars match themselves. Special keys use their event.key value
+// (lower-cased): "escape", "arrowup", "enter".
+
+const KEY_ALIAS = {
+  ' ': 'space',
+  'arrowup': 'up',
+  'arrowdown': 'down',
+  'arrowleft': 'left',
+  'arrowright': 'right',
+};
+
+function normalizeKey(event) {
+  let k = (event.key || '').toLowerCase();
+  k = KEY_ALIAS[k] || k;
+  const parts = [];
+  if (event.ctrlKey) parts.push('ctrl');
+  if (event.metaKey) parts.push('meta');
+  if (event.altKey) parts.push('alt');
+  if (event.shiftKey && k.length > 1) parts.push('shift');  // shift already changes char for single keys
+  parts.push(k);
+  return parts.join('+');
+}
+
+// Keys we never intercept when focus is on an editable element.
+const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+
+function isEditableTarget(event) {
+  const el = event.target;
+  if (!el) return false;
+  if (EDITABLE_TAGS.has(el.tagName)) return true;
+  if (el.isContentEditable) return true;
+  return false;
+}
 
 document.addEventListener('alpine:init', () => {
+  Alpine.store('hotkeys', {
+    scopes: [],  // [{ id, bindings: [{ key, label, run, hint, icon, allowInEditable }] }]
+
+    register(id, bindings) {
+      this.unregister(id);
+      this.scopes.push({ id, bindings });
+    },
+
+    unregister(id) {
+      this.scopes = this.scopes.filter((s) => s.id !== id);
+    },
+
+    // Clear all scopes whose id starts with "screen:". Called by the
+    // shell before mounting a new screen so stale bindings from the
+    // previous screen don't leak into the new one. (Alpine doesn't
+    // emit a teardown event on x-data removal, so we can't rely on
+    // per-component unregister.)
+    clearScreens() {
+      this.scopes = this.scopes.filter((s) => !s.id.startsWith('screen:'));
+    },
+
+    handle(event) {
+      const key = normalizeKey(event);
+      const editable = isEditableTarget(event);
+      for (let i = this.scopes.length - 1; i >= 0; i--) {
+        const hit = this.scopes[i].bindings.find((b) => b.key === key);
+        if (!hit) continue;
+        if (editable && !hit.allowInEditable) return;
+        event.preventDefault();
+        hit.run(event);
+        return;
+      }
+    },
+
+    // Derived hint lists for the bottom nav. Merge all active scopes so
+    // global hints stay visible while screen-specific ones layer on
+    // top. Later scopes win on key collisions so a screen can override
+    // a global binding without losing the hint slot.
+    get leftHints() {
+      return this._hints('left');
+    },
+    get rightHints() {
+      return this._hints('right');
+    },
+    _hints(side) {
+      const byKey = new Map();
+      for (const scope of this.scopes) {
+        for (const b of scope.bindings) {
+          if (b.hint !== side || !b.label) continue;
+          byKey.set(b.key, { key: b.displayKey || b.key, label: b.label, icon: b.icon });
+        }
+      }
+      return Array.from(byKey.values());
+    },
+  });
+
+  // Screen teardown — screens push cleanup callbacks here (close SSE,
+  // cancel fetches, etc.) and the shell fires them all before mounting
+  // the next screen.
+  Alpine.store('screen', {
+    teardowns: [],
+    onTeardown(fn) { this.teardowns.push(fn); },
+    flush() {
+      const fns = this.teardowns;
+      this.teardowns = [];
+      for (const fn of fns) { try { fn(); } catch (_e) { /* swallow */ } }
+    },
+  });
+
+  // ---------------------------------------------------------------------
+  // Router store
+  // ---------------------------------------------------------------------
+  //
+  // Routes:
+  //   #/                  home (projects list)
+  //   #/p/<path>          project — defaults to #/p/<path>/plan
+  //   #/p/<path>/<tab>    project at a specific tab
+  //
+  // parse() is called on load and on hashchange. It sets `screen`
+  // (home | project | not-found) and `params` (path, tab).
   Alpine.store('router', {
     hash: '',
     screen: 'home',
-    params: { path: '', tab: 'overview', runId: '', arg: [] },
+    params: { path: '', tab: DEFAULT_TAB },
 
     parse() {
       const raw = location.hash || '#/';
       this.hash = raw;
-      const segs = raw.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent);
+      // Split off any ?query tail first so the last segment doesn't
+      // get stuck with "agents?run=xyz" when parsing tabs.
+      const [pathPart, queryPart] = raw.replace(/^#\/?/, '').split('?');
+      const segs = pathPart.split('/').filter(Boolean).map(decodeURIComponent);
+      const query = Object.fromEntries(new URLSearchParams(queryPart || ''));
 
-      // Home
       if (segs.length === 0) {
         this.screen = 'home';
-        this.params = { path: '', tab: 'overview', runId: '', arg: [] };
+        this.params = { path: '', tab: DEFAULT_TAB, query };
         return;
       }
-
-      // Project: #/p/<path>/<tab>[/<runId>]
-      if (segs[0] === 'p' && segs.length >= 2) {
-        const path = segs[1];
-        let tab = segs[2] || 'overview';
-        let runId = '';
-        // #/p/<path>/runs/<run_id> keeps tab='runs' and captures the id
-        if (tab === 'runs' && segs[3]) {
-          runId = segs[3];
-        } else if (!TAB_KEYS.has(tab)) {
-          tab = 'overview';
-        }
+      if (segs[0] === 'p' && segs[1]) {
+        const tab = segs[2] && TAB_KEYS.has(segs[2]) ? segs[2] : DEFAULT_TAB;
         this.screen = 'project';
-        this.params = { path, tab, runId, arg: [path] };
+        this.params = { path: segs[1], tab, query };
         return;
       }
-
-      // Legacy redirects — keep old bookmarks working.
-      const legacyTabMap = {
-        discover: 'competitors',
-        template: 'template',
-        confirm: 'overview',
-        results: 'brief',
-        dashboard: 'overview',
-      };
-      if (segs[0] === 'welcome' || segs[0] === 'describe') {
-        location.hash = '#/';
-        return;
-      }
-      if (legacyTabMap[segs[0]] && segs[1]) {
-        location.hash = `#/p/${encodeURIComponent(segs[1])}/${legacyTabMap[segs[0]]}`;
-        return;
-      }
-      if (segs[0] === 'run' && segs[1] && segs[2]) {
-        location.hash = `#/p/${encodeURIComponent(segs[1])}/runs/${encodeURIComponent(segs[2])}`;
-        return;
-      }
-
-      // Unknown route — not-found view
       this.screen = 'not-found';
-      this.params = { path: '', tab: '', runId: '', arg: [] };
     },
 
     navigate(hash) {
       if (location.hash === hash) {
+        // Same hash — hashchange won't fire. Force a re-parse so the
+        // screen remounts (useful on "open same project again").
         this.parse();
-        document.dispatchEvent(new CustomEvent('recon:route'));
       } else {
         location.hash = hash;
       }
     },
 
-    // Helpers used all over the place. Encode-safe.
-    home() { this.navigate('#/'); },
-    project(path, tab) {
-      const t = tab && TAB_KEYS.has(tab) ? tab : 'overview';
-      this.navigate(`#/p/${encodeURIComponent(path)}/${t}`);
-    },
-    tab(t) {
-      if (this.screen !== 'project' || !this.params.path) return;
-      if (!TAB_KEYS.has(t)) return;
-      this.navigate(`#/p/${encodeURIComponent(this.params.path)}/${t}`);
-    },
-    runDetail(runId) {
-      if (this.screen !== 'project' || !this.params.path) return;
-      this.navigate(`#/p/${encodeURIComponent(this.params.path)}/runs/${encodeURIComponent(runId)}`);
-    },
-  });
-
-  // Theme store: the picker component and the [t] keybind both reach
-  // in here so the header trigger, popover, and keyboard all stay in
-  // sync. Seed from localStorage via readPersistedTheme so the store
-  // matches whatever the preflight script already wrote to <html>.
-  Alpine.store('theme', {
-    active: readPersistedTheme(),
-    options: THEMES,
-
-    set(key) {
-      if (!THEMES.some((t) => t.key === key)) return;
-      this.active = key;
-      applyTheme(key);
-      writePersistedTheme(key);
+    goHome() {
+      this.navigate('#/');
     },
 
-    cycle() {
-      const idx = THEMES.findIndex((t) => t.key === this.active);
-      const next = THEMES[(idx + 1) % THEMES.length].key;
-      this.set(next);
+    goTab(tab) {
+      if (!this.params.path) return;
+      this.navigate('#/p/' + encodeURIComponent(this.params.path) + '/' + tab);
     },
-  });
-
-  // Run slide-over: the overlay UI for starting a run AND watching
-  // progress. State lives in a store so the header "● Run in progress"
-  // pill can react from anywhere and reopen/reattach works across
-  // tab navigation without losing the live connection.
-  Alpine.store('runOverlay', {
-    visible: false,
-    mode: 'closed',   // 'closed' | 'plan' | 'live' | 'terminal'
-    path: '',
-    runId: '',
-
-    openPlan(path) {
-      this.path = path;
-      this.runId = '';
-      this.mode = 'plan';
-      this.visible = true;
-    },
-
-    openLive(path, runId) {
-      this.path = path;
-      this.runId = runId;
-      this.mode = 'live';
-      this.visible = true;
-    },
-
-    close() {
-      this.visible = false;
-    },
-  });
-
-  // Command palette — Cmd-K / Ctrl-K driven action menu.
-  Alpine.store('palette', {
-    open: false,
-    query: '',
-    show() { this.open = true; this.query = ''; },
-    hide() { this.open = false; },
-  });
-
-  // Project scope: holds the currently-loaded workspace so every tab
-  // reads from the same snapshot. projectScreen populates this on
-  // mount; tabs consume it via $store.project.
-  Alpine.store('project', {
-    path: '',
-    workspace: null,
-    loading: true,
-    error: null,
-    runs: [],
-    costSparkline: '',
   });
 });
 
-// Render a series of numbers as an 8-level block-char sparkline.
-// Returns a string of ▁▂▃▄▅▆▇█ characters. Used on Overview for the
-// cost-per-run trend. Empty/identical arrays return an empty string.
-function renderSparkline(values) {
-  if (!Array.isArray(values) || values.length === 0) return '';
-  const glyphs = ['\u2581', '\u2582', '\u2583', '\u2584', '\u2585', '\u2586', '\u2587', '\u2588'];
-  const max = Math.max(...values);
-  const min = Math.min(...values);
-  const range = max - min;
-  if (range === 0) return glyphs[4].repeat(values.length);
-  return values.map((v) => {
-    const norm = (v - min) / range;
-    const idx = Math.min(glyphs.length - 1, Math.floor(norm * glyphs.length));
-    return glyphs[idx];
-  }).join('');
-}
-
 // ---------------------------------------------------------------------------
-// Theme picker
+// Shell component
 // ---------------------------------------------------------------------------
 //
-// Small popover in the header. The store owns the state; this factory
-// is a thin view over it so the template stays declarative.
-
-function themePicker() {
-  return {
-    open: false,
-
-    get active() {
-      return Alpine.store('theme').active;
-    },
-
-    get options() {
-      return Alpine.store('theme').options;
-    },
-
-    activeLabel() {
-      const match = this.options.find((o) => o.key === this.active);
-      return match ? match.label : 'Theme';
-    },
-
-    select(key) {
-      Alpine.store('theme').set(key);
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Top-level shell component
-// ---------------------------------------------------------------------------
+// Owns: header state (active screen / tab), global hotkeys, screen-slot
+// mounting. Screens themselves are dumb components cloned into the
+// slot on route change.
 
 function reconShell() {
   return {
-    activeScreen: null,   // 'home' | 'project' | 'not-found'
-    activeTab: '',        // when activeScreen === 'project'
     tabs: TABS,
 
+    // Router state mirrors
+    get screen() { return this.$store.router.screen; },
+    get params() { return this.$store.router.params; },
+    get workspacePath() { return this.$store.router.params.path; },
+    get activeTab() { return this.$store.router.params.tab; },
+    get hasProject() { return this.$store.router.screen === 'project' && !!this.workspacePath; },
+
     init() {
-      const router = Alpine.store('router');
-      router.parse();
-      this.mount();
-      const onHashChange = () => {
-        router.parse();
-        this.mount();
-      };
-      window.addEventListener('hashchange', onHashChange);
-      document.addEventListener('recon:route', onHashChange);
-      document.addEventListener('keydown', (e) => this.handleKey(e));
-    },
-
-    mount() {
-      const router = Alpine.store('router');
-      const screen = router.screen;
-      this.activeScreen = screen;
-      this.activeTab = screen === 'project' ? router.params.tab : '';
-
-      // Screen template lookup:
-      //   home → #screen-home
-      //   project → #screen-project (which reads the tab param itself)
-      //   not-found → #screen-not-found
-      const tplKey = screen === 'project' ? 'project' : screen;
-      let tpl = document.getElementById(`screen-${tplKey}`);
-      if (!tpl) tpl = document.getElementById('screen-not-found');
-      const slot = this.$refs.slot;
-      slot.innerHTML = '';
-      slot.appendChild(tpl.content.cloneNode(true));
-
-      // If the project route includes a run_id, tell the overlay to
-      // attach to that run. Run slide-over state survives across tabs.
-      if (screen === 'project' && router.params.runId) {
-        Alpine.store('runOverlay').openLive(router.params.path, router.params.runId);
-      }
-    },
-
-    get headerSubtitle() {
-      if (this.activeScreen === 'home') return 'projects';
-      if (this.activeScreen === 'project') {
-        const tab = TABS.find((t) => t.key === this.activeTab);
-        return tab ? tab.label.toLowerCase() : '';
-      }
-      if (this.activeScreen === 'not-found') return 'not found';
-      return '';
-    },
-
-    get workspacePath() {
-      return Alpine.store('router').params.path || '';
-    },
-
-    get keybinds() {
-      const base = this.activeScreen === 'project' ? PROJECT_KEYBINDS : HOME_KEYBINDS;
-      return base;
-    },
-
-    // Read the currently-mounted screen's factory state so keybinds
-    // can invoke its methods (open/search/proceed/etc).
-    screenData() {
-      const slot = this.$refs.slot;
-      const root = slot && slot.firstElementChild;
-      if (!root) return null;
-      try { return Alpine.$data(root); } catch (_) { return null; }
-    },
-
-    // Tab jumps from anywhere in the project.
-    goTab(key) {
-      if (this.activeScreen !== 'project') return;
-      Alpine.store('router').tab(key);
-    },
-
-    handleKey(event) {
-      const tag = (event.target && event.target.tagName) || '';
-      const isFormField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
-
-      const router = Alpine.store('router');
-      const palette = Alpine.store('palette');
-
-      // Cmd-K / Ctrl-K always opens the palette, even from inputs.
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        palette.show();
-        event.preventDefault();
-        return;
-      }
-
-      // Escape closes overlays first, then form fields can still
-      // keep their native handling.
-      if (event.key === 'Escape') {
-        if (palette.open) { palette.hide(); event.preventDefault(); return; }
-        const overlay = Alpine.store('runOverlay');
-        if (overlay.visible) { overlay.close(); event.preventDefault(); return; }
-        if (this.activeScreen === 'project' && !isFormField) {
-          router.home();
-          event.preventDefault();
-          return;
-        }
-      }
-
-      // Form-field focus yields all other non-modifier keys.
-      if (isFormField) return;
-
-      const key = event.key;
-
-      // Universal shortcuts
-      if (key === 't') { Alpine.store('theme').cycle(); event.preventDefault(); return; }
-
-      // Home-screen shortcuts
-      if (this.activeScreen === 'home') {
-        if (key === 'n') {
-          document.dispatchEvent(new CustomEvent('recon:home-new'));
-          event.preventDefault();
-        } else if (/^[1-9]$/.test(key)) {
-          document.dispatchEvent(new CustomEvent('recon:home-pick', { detail: { index: Number(key) - 1 } }));
-          event.preventDefault();
-        } else if (key === '/') {
-          document.dispatchEvent(new CustomEvent('recon:home-filter'));
-          event.preventDefault();
-        } else if (key === 'j' || key === 'ArrowDown') {
-          document.dispatchEvent(new CustomEvent('recon:list-down'));
-          event.preventDefault();
-        } else if (key === 'k' || key === 'ArrowUp') {
-          document.dispatchEvent(new CustomEvent('recon:list-up'));
-          event.preventDefault();
-        } else if (key === 'Enter') {
-          document.dispatchEvent(new CustomEvent('recon:list-enter'));
-          event.preventDefault();
-        }
-        return;
-      }
-
-      // Project-screen shortcuts
-      if (this.activeScreen === 'project') {
-        // Number keys 1-6 jump tabs.
-        if (/^[1-6]$/.test(key)) {
-          const idx = Number(key) - 1;
-          if (idx < TABS.length) {
-            this.goTab(TABS[idx].key);
-            event.preventDefault();
-          }
-          return;
-        }
-        if (key === 'r') {
-          Alpine.store('runOverlay').openPlan(this.workspacePath);
-          event.preventDefault();
-          return;
-        }
-        if (key === '/') {
-          document.dispatchEvent(new CustomEvent('recon:tab-filter'));
-          event.preventDefault();
-          return;
-        }
-        if (key === 'j' || key === 'ArrowDown') {
-          document.dispatchEvent(new CustomEvent('recon:list-down'));
-          event.preventDefault();
-          return;
-        }
-        if (key === 'k' || key === 'ArrowUp') {
-          document.dispatchEvent(new CustomEvent('recon:list-up'));
-          event.preventDefault();
-          return;
-        }
-        if (key === 'Enter') {
-          document.dispatchEvent(new CustomEvent('recon:list-enter'));
-          event.preventDefault();
-          return;
-        }
-      }
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Describe screen
-// ---------------------------------------------------------------------------
-
-function describeScreen() {
-  return {
-    description: '',
-    providers: [
-      { name: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-...', value: '', saved: false },
-      { name: 'google_ai', label: 'Google AI', placeholder: 'AIza...',     value: '', saved: false },
-    ],
-    submitting: false,
-    error: null,
-
-    // Mirror server-side _heuristic_company_name + _slugify_for_path
-    // so the user sees (roughly) where the workspace will land before
-    // submit. The backend may append `-2`, `-3` suffixes on collision,
-    // so we surface the *base* path as a preview — not a promise.
-    get derivedSlug() {
-      const text = (this.description || '').trim();
-      if (!text) return '';
-      // Take the first meaningful token (skip stop words), lowercase,
-      // strip non-alphanumeric. Matches the server's rough shape
-      // without pulling the full heuristic over; the server is
-      // ultimately authoritative.
-      const first = text.split(/\s+/)[0] || '';
-      return first.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    },
-
-    get pathPreview() {
-      const slug = this.derivedSlug;
-      if (!slug) return '';
-      const home = (window.RECON_HOME || '~').replace(/\/$/, '');
-      return `${home}/recon-workspaces/${slug}`;
-    },
-
-    async init() {
-      // Focus the textarea so the user can start typing immediately.
-      this.$refs.description?.focus();
-      // Preload saved-key status from the global ~/.recon/.env so users
-      // aren't prompted to re-enter keys they've already stored. We
-      // never fetch the key values — only whether they're set — so
-      // this is safe to call before any workspace exists.
-      try {
-        const res = await fetch('/api/api-keys/global');
-        if (!res.ok) return;
-        const body = await res.json();
-        for (const provider of this.providers) {
-          if (body[provider.name]) {
-            provider.saved = true;
-          }
-        }
-      } catch (_err) { /* non-fatal — user can still type keys */ }
-    },
-
-    async submit() {
-      this.submitting = true;
-      this.error = null;
-      try {
-        const res = await fetch('/api/workspaces', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ description: this.description }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          this.error = body.detail || `server returned ${res.status}`;
-          return;
-        }
-        const ws = await res.json();
-        // Save typed API keys to the fresh workspace's .env so the
-        // discovery/research stages downstream can pick them up via
-        // recon.api_keys.load_api_keys.
-        await this.persistKeys(ws.path);
-        // Land inside the new workspace at the Overview tab. Discovery
-        // is now a tab (/competitors) the user can enter whenever.
-        Alpine.store('router').project(ws.path, 'overview');
-      } catch (err) {
-        this.error = err.message;
-      } finally {
-        this.submitting = false;
-      }
-    },
-
-    async persistKeys(workspacePath) {
-      if (!workspacePath) return;
-      // Best-effort: failures don't block navigation. Users can retry
-      // by revisiting the workspace's settings later.
-      for (const provider of this.providers) {
-        const value = (provider.value || '').trim();
-        if (!value) continue;
-        try {
-          const res = await fetch('/api/api-keys', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              path: workspacePath,
-              name: provider.name,
-              value,
-            }),
-          });
-          if (res.ok) {
-            provider.saved = true;
-            provider.value = '';
-          }
-        } catch (_) {
-          // Non-fatal — continue with the remaining providers.
-        }
-      }
-    },
-
-    back() {
-      Alpine.store('router').home();
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Discover screen
-// ---------------------------------------------------------------------------
-
-function discoverScreen() {
-  return {
-    loading: true,
-    error: null,
-    adding: false,
-    competitors: [],
-    form: { name: '', url: '', blurb: '' },
-    // Discovery-agent state
-    searching: false,
-    searchMessage: null,
-    searchError: null,
-    discovered: [],          // raw candidate list from /api/discover
-    importedNames: new Set(), // client-side dedupe
-
-    get workspacePath() {
-      return Alpine.store('router').params.arg[0] || '';
-    },
-
-    // Candidates the agent returned that aren't already in the
-    // workspace (either saved or just-imported this session).
-    get pendingDiscovered() {
-      const savedNames = new Set(
-        this.competitors.map((c) => c.name.toLowerCase()),
-      );
-      return this.discovered.filter((c) => {
-        const key = c.name.toLowerCase();
-        return !savedNames.has(key) && !this.importedNames.has(key);
+      this.$store.router.parse();
+      window.addEventListener('hashchange', () => {
+        this.$store.router.parse();
+        this.mountScreen();
       });
+      this.registerGlobalHotkeys();
+      this.mountScreen();
     },
 
-    async init() {
-      await this.refresh();
+    // -----------------------------------------------------------------
+    // Tab helpers
+    // -----------------------------------------------------------------
+
+    tabHref(tab) {
+      const path = this.workspacePath;
+      if (!path) return '#/';
+      return '#/p/' + encodeURIComponent(path) + '/' + tab;
     },
 
-    async search() {
-      if (this.searching) return;
-      this.searching = true;
-      this.searchError = null;
-      this.searchMessage = null;
-      try {
-        const res = await fetch('/api/discover', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            path: this.workspacePath,
-            seeds: this.competitors.map((c) => c.name),
-          }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          this.searchError = body.detail || `search failed (${res.status})`;
-          return;
-        }
-        const body = await res.json();
-        this.discovered = body.candidates || [];
-        if (this.discovered.length === 0) {
-          this.searchMessage = 'no new candidates found';
-        } else {
-          const label = body.used_web_search
-            ? 'from web search'
-            : 'from training-data fallback (no web access)';
-          this.searchMessage = `${this.discovered.length} candidate${this.discovered.length === 1 ? '' : 's'} ${label}`;
-        }
-      } catch (err) {
-        this.searchError = err.message;
-      } finally {
-        this.searching = false;
-      }
+    isTabActive(tab) {
+      return this.screen === 'project' && this.activeTab === tab;
     },
 
-    async accept(candidate) {
-      // Add a discovered candidate to the workspace. On success, mark
-      // it imported locally so it disappears from the pending list
-      // without needing a full /api/competitors refresh.
-      try {
-        const res = await fetch('/api/competitors', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            path: this.workspacePath,
-            name: candidate.name,
-            url: candidate.url || null,
-            blurb: candidate.blurb || null,
-          }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          this.error = body.detail || `could not add (${res.status})`;
-          return;
-        }
-        const created = await res.json();
-        this.competitors = [...this.competitors, created];
-        this.importedNames.add(candidate.name.toLowerCase());
-      } catch (err) {
-        this.error = err.message;
-      }
+    // -----------------------------------------------------------------
+    // Hotkeys
+    // -----------------------------------------------------------------
+
+    registerGlobalHotkeys() {
+      const bindings = [
+        {
+          key: 'q', label: 'QUIT', hint: 'left',
+          run: () => window.close(),
+        },
+        {
+          key: 's', label: 'SAVE PROGRESS', hint: 'left',
+          run: () => {
+            // TODO(phase 3+): broadcast a save intent; for now, no-op.
+          },
+        },
+        {
+          key: 'z', label: 'SETTINGS', hint: 'right', icon: 'settings',
+          run: () => {
+            // TODO(phase 9): open settings palette.
+          },
+        },
+      ];
+      this.$store.hotkeys.register('global', bindings);
+
+      // Project-scope: numbered tab switches + 0 to home. Only fires
+      // when a project is loaded, so the home screen doesn't steal "1"
+      // from inputs.
+      const projectBindings = TABS.map((tab) => ({
+        key: String(tab.number),
+        label: tab.label,
+        run: () => {
+          if (this.hasProject) this.$store.router.goTab(tab.key);
+        },
+      }));
+      projectBindings.push({
+        key: '0',
+        label: 'RECON',
+        run: () => this.$store.router.goHome(),
+      });
+      this.$store.hotkeys.register('project-tabs', projectBindings);
     },
 
-    reject(candidate) {
-      this.importedNames.add(candidate.name.toLowerCase());
-    },
-
-    async refresh() {
-      this.loading = true;
-      try {
-        const qs = new URLSearchParams({ path: this.workspacePath });
-        const res = await fetch(`/api/competitors?${qs}`);
-        if (!res.ok) {
-          this.error = `could not load competitors (${res.status})`;
-          return;
-        }
-        const body = await res.json();
-        this.competitors = body.competitors || [];
-        this.error = null;
-      } catch (err) {
-        this.error = err.message;
-      } finally {
-        this.loading = false;
-      }
-    },
-
-    async add() {
-      if (!this.form.name) return;
-      this.adding = true;
-      try {
-        const res = await fetch('/api/competitors', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            path: this.workspacePath,
-            name: this.form.name,
-            url: this.form.url || null,
-            blurb: this.form.blurb || null,
-          }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          this.error = body.detail || `could not add (${res.status})`;
-          return;
-        }
-        const created = await res.json();
-        this.competitors = [...this.competitors, created];
-        this.form = { name: '', url: '', blurb: '' };
-        this.error = null;
-      } catch (err) {
-        this.error = err.message;
-      } finally {
-        this.adding = false;
-      }
-    },
-
-    async remove(candidate) {
-      const qs = new URLSearchParams({ path: this.workspacePath });
-      const res = await fetch(
-        `/api/competitors/${encodeURIComponent(candidate.slug)}?${qs}`,
-        { method: 'DELETE' },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        this.error = body.detail || `could not remove (${res.status})`;
-        return;
-      }
-      this.competitors = this.competitors.filter((c) => c.slug !== candidate.slug);
-      this.error = null;
-    },
-
-    proceed() {
-      // In the workspace paradigm, Competitors is just a tab — no
-      // next step. "proceed" from here = jump to Template tab.
-      Alpine.store('router').tab('template');
-    },
-
-    back() {
-      Alpine.store('router').tab('overview');
-    },
-
-    // -------------------------------------------------------------
-    // Display helpers
-    // -------------------------------------------------------------
+    // -----------------------------------------------------------------
+    // Screen mounting
+    // -----------------------------------------------------------------
     //
-    // The backend ships tier/status as raw enum strings (scaffold,
-    // researching, researched, own_product). Those read as jargon
-    // to end users; map them to friendlier labels at render time
-    // rather than in the API response so other clients (TUI, CLI)
-    // can keep their own display conventions.
+    // We clone the matching <template> into #screen-slot. Alpine's
+    // x-data on the cloned root boots the factory. Using template
+    // cloning (vs x-if + big inline template) keeps the DOM diffs
+    // small and lets each screen own its own lifecycle.
 
-    candidateTierLabel(type) {
-      // Backend currently only emits 'competitor' and 'own_product'.
-      // If future tiers (adjacent / ancillary) return, extend here.
-      return type === 'own_product' ? 'you' : 'competitor';
-    },
-
-    candidateStatusLabel(status) {
-      switch (status) {
-        case 'scaffold':    return 'waiting';
-        case 'researching': return 'researching\u2026';
-        case 'researched':  return 'ready';
-        default:            return status || '';
-      }
-    },
-
-    candidateHost(url) {
-      if (!url) return '';
-      try {
-        const u = new URL(url);
-        return u.hostname.replace(/^www\./, '');
-      } catch (_) {
-        // Fall back to the raw string when it's not a parseable URL
-        // (e.g. "example.com" without a scheme).
-        return url.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
-      }
+    mountScreen() {
+      const slot = this.$refs.slot;
+      if (!slot) return;
+      // Clear any screen-owned hotkeys before the new screen mounts and
+      // registers its own. (Alpine doesn't fire a teardown event when
+      // x-data subtrees are removed.)
+      this.$store.hotkeys.clearScreens();
+      this.$store.screen.flush();
+      const key = this.screen === 'project' ? this.activeTab : this.screen;
+      const tmpl = document.getElementById('screen-' + key) || document.getElementById('screen-not-found');
+      slot.replaceChildren();
+      if (tmpl) slot.appendChild(tmpl.content.cloneNode(true));
     },
   };
 }
 
 // ---------------------------------------------------------------------------
-// Template screen
-// ---------------------------------------------------------------------------
-
-function templateScreen() {
-  return {
-    loading: true,
-    saving: false,
-    error: null,
-    sections: [],
-
-    get workspacePath() {
-      return Alpine.store('router').params.arg[0] || '';
-    },
-
-    get selectedCount() {
-      return this.sections.filter((s) => s.selected).length;
-    },
-
-    async init() {
-      try {
-        const qs = new URLSearchParams({ path: this.workspacePath });
-        const res = await fetch(`/api/template?${qs}`);
-        if (!res.ok) {
-          this.error = `could not load template (${res.status})`;
-          return;
-        }
-        const body = await res.json();
-        this.sections = body.sections || [];
-        // Canonical sections are worth researching by default — if
-        // the backend hands us a template with nothing pre-selected
-        // (first-visit case), opt the user into the full set so
-        // they can trim down rather than build up.
-        const anySelected = this.sections.some((s) => s.selected);
-        if (!anySelected) {
-          this.sections.forEach((s) => { s.selected = true; });
-        }
-      } catch (err) {
-        this.error = err.message;
-      } finally {
-        this.loading = false;
-      }
-    },
-
-    toggle(section) {
-      section.selected = !section.selected;
-    },
-
-    selectAll() {
-      this.sections.forEach((s) => { s.selected = true; });
-    },
-
-    deselectAll() {
-      this.sections.forEach((s) => { s.selected = false; });
-    },
-
-    async proceed() {
-      if (this.selectedCount === 0) return;
-      this.saving = true;
-      try {
-        const res = await fetch('/api/template', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            path: this.workspacePath,
-            section_keys: this.sections.filter((s) => s.selected).map((s) => s.key),
-          }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          this.error = body.detail || `could not save (${res.status})`;
-          return;
-        }
-        // Template saved — nothing to "proceed" to in the tab world.
-        // Opening the run slide-over (plan mode) is the natural next
-        // step; users can also ignore this and keep navigating tabs.
-        Alpine.store('runOverlay').openPlan(this.workspacePath);
-      } catch (err) {
-        this.error = err.message;
-      } finally {
-        this.saving = false;
-      }
-    },
-
-    back() {
-      Alpine.store('router').tab('competitors');
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Confirm screen (now rendered inside the Run slide-over)
-// ---------------------------------------------------------------------------
-
-function confirmScreen() {
-  return {
-    loading: true,
-    error: null,
-    data: null,
-    selectedModel: '',
-    workers: 5,
-    starting: false,
-
-    get workspacePath() {
-      return Alpine.store('runOverlay').path
-          || Alpine.store('router').params.path
-          || '';
-    },
-
-    async init() {
-      try {
-        const qs = new URLSearchParams({ path: this.workspacePath });
-        const res = await fetch(`/api/confirm?${qs}`);
-        if (!res.ok) {
-          this.error = `could not load estimate (${res.status})`;
-          return;
-        }
-        this.data = await res.json();
-        this.selectedModel = this.data.default_model;
-        this.workers = this.data.default_workers;
-      } catch (err) {
-        this.error = err.message;
-      } finally {
-        this.loading = false;
-      }
-    },
-
-    formatCost(value) {
-      if (value == null) return '';
-      return '$' + Number(value).toFixed(2);
-    },
-
-    formatEta(seconds) {
-      if (!seconds) return '';
-      if (seconds < 60) return `~${Math.round(seconds)}s`;
-      const mins = Math.round(seconds / 60);
-      return `~${mins} min`;
-    },
-
-    // Kick off a run. The server always injects the fake LLM client
-    // for the prototype, so this is cheap by design. We navigate to
-    // the run screen as soon as we have a run_id; the SSE stream
-    // drives the rest of the UX.
-    async start() {
-      if (this.starting || this.loading) return;
-      this.starting = true;
-      this.error = null;
-      try {
-        const res = await fetch('/api/runs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            path: this.workspacePath,
-            model: this.selectedModel || null,
-            workers: this.workers || null,
-          }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          this.error = body.detail || `could not start run (${res.status})`;
-          return;
-        }
-        const body = await res.json();
-        // Flip the overlay from plan → live mode. Navigating also
-        // encodes the run_id in the URL so the user can share it.
-        Alpine.store('runOverlay').openLive(this.workspacePath, body.run_id);
-        Alpine.store('router').runDetail(body.run_id);
-      } catch (err) {
-        this.error = err.message;
-      } finally {
-        this.starting = false;
-      }
-    },
-
-    back() {
-      Alpine.store('runOverlay').close();
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Run screen
+// Screen factories — STUBS for phase 1
 // ---------------------------------------------------------------------------
 //
-// Subscribes to /api/runs/<run_id>/events and renders:
-//   - a live activity log (capped at MAX_ACTIVITY entries)
-//   - a running cost counter from CostRecorded events
-//   - a stage progress bar driven by RunStageStarted events
-//   - "view results" / "open dashboard" CTAs when the run finishes
-//
-// Stage weights mirror the TUI's pipeline_runner so users see the
-// same rough shape of progress across both UIs.
-
-const _RUN_STAGE_PROGRESS = {
-  research: 0.15,
-  verify: 0.3,
-  enrich: 0.45,
-  index: 0.55,
-  themes: 0.65,
-  synthesize: 0.85,
-  deliver: 0.95,
-};
-
-const _RUN_MAX_ACTIVITY = 80;
-
-function runScreen() {
-  return {
-    // The SSE subscription lives on the factory instance so we can
-    // tear it down when the component unmounts (the hash router
-    // replaces .screen-slot on navigation, which triggers Alpine's
-    // destroy() path where we close the stream).
-    _source: null,
-
-    activity: [],
-    cost: 0,
-    progress: 0,
-    phase: 'connecting',
-    status: 'running',  // 'running' | 'done' | 'failed' | 'cancelled'
-    error: null,
-
-    get workspacePath() {
-      // In the workspace paradigm the path lives on the router. For
-      // the run overlay we read it from the overlay store so we can
-      // be opened without a router change.
-      return Alpine.store('runOverlay').path
-          || Alpine.store('router').params.path
-          || '';
-    },
-
-    get runId() {
-      return Alpine.store('runOverlay').runId
-          || Alpine.store('router').params.runId
-          || '';
-    },
-
-    get progressPercent() {
-      return Math.round(this.progress * 100);
-    },
-
-    // Render progress as a 42-cell string of Unicode block glyphs.
-    // Full cells use █ (U+2588), empty cells use ░ (U+2591), and the
-    // head cell uses the partial-block ladder ▏▎▍▌▋▊▉ (U+258F..U+2589)
-    // so sub-cell changes read as a smooth 8-level gradient. The
-    // monospace font in CSS keeps the track a fixed width regardless
-    // of the current value.
-    get progressBar() {
-      const WIDTH = 42;
-      const value = Math.max(0, Math.min(1, this.progress)) * WIDTH;
-      const full = Math.floor(value);
-      const frac = value - full;
-      const partials = ['', '\u258F', '\u258E', '\u258D', '\u258C', '\u258B', '\u258A', '\u2589'];
-      const idx = Math.round(frac * 8);
-      let head = '';
-      let empty = WIDTH - full;
-      if (idx >= 8 && full < WIDTH) {
-        return '\u2588'.repeat(full + 1) + '\u2591'.repeat(WIDTH - full - 1);
-      }
-      if (idx > 0 && empty > 0) {
-        head = partials[idx];
-        empty -= 1;
-      }
-      return '\u2588'.repeat(full) + head + '\u2591'.repeat(Math.max(0, empty));
-    },
-
-    get isTerminal() {
-      return this.status !== 'running';
-    },
-
-    async init() {
-      if (!this.runId) {
-        this.error = 'no run_id in URL';
-        this.status = 'failed';
-        return;
-      }
-      // Reattach: fetch the current snapshot so cost / phase /
-      // progress are accurate even if the user reloaded mid-run.
-      // SSE picks up from here; past events are NOT replayed, which
-      // is why we need the snapshot at all.
-      await this._hydrateState();
-      // If hydrate set a terminal status (e.g. 404), skip the SSE
-      // subscription — there's nothing to stream.
-      if (this.status === 'failed' || this.status === 'done' || this.status === 'cancelled') {
-        return;
-      }
-      this._connect();
-    },
-
-    async _hydrateState() {
-      try {
-        const qs = new URLSearchParams({ path: this.workspacePath });
-        const res = await fetch(`/api/runs/${encodeURIComponent(this.runId)}?${qs}`);
-        if (res.status === 404) {
-          // Bogus run_id in the URL / someone deleted the row. Fail
-          // visibly instead of hanging on a dead SSE stream.
-          this.status = 'failed';
-          this.error = `run ${this.runId.substring(0, 8)} not found`;
-          return;
-        }
-        if (!res.ok) return;
-        const snap = await res.json();
-        // Map server statuses to client ones: "completed" → done,
-        // "failed"/"cancelled" flow straight through.
-        if (snap.status === 'completed') this.status = 'done';
-        else if (snap.status === 'failed') this.status = 'failed';
-        else if (snap.status === 'cancelled') this.status = 'cancelled';
-        else this.status = 'running';
-        this.cost = snap.total_cost_usd || 0;
-        if (snap.task_count > 0) {
-          // Approximate progress from completed / total. Stage-based
-          // progress takes over once SSE events land.
-          this.progress = snap.completed_tasks / snap.task_count;
-        }
-        if (this.status === 'done') this.progress = 1;
-        this.phase = snap.status;
-        this._pushActivity(`reattached to ${this.runId} (${snap.status})`);
-      } catch (_err) { /* non-fatal — SSE will populate */ }
-    },
-
-    destroy() {
-      this._teardown();
-    },
-
-    _teardown() {
-      if (this._source) {
-        this._source.close();
-        this._source = null;
-      }
-    },
-
-    _connect() {
-      const url = `/api/runs/${encodeURIComponent(this.runId)}/events`;
-      const source = new EventSource(url);
-      this._source = source;
-
-      // sse-starlette serializes events as {event, data} where data is
-      // the JSON payload. addEventListener(type) lets us filter by
-      // event class without parsing everything.
-      const handlers = {
-        RunStarted:         (p) => this._onRunStarted(p),
-        RunStageStarted:    (p) => this._onStageStarted(p),
-        RunStageCompleted:  (p) => this._onStageCompleted(p),
-        RunCompleted:       (p) => this._onRunCompleted(p),
-        RunFailed:          (p) => this._onRunFailed(p),
-        RunCancelled:       (p) => this._onRunCancelled(p),
-        CostRecorded:       (p) => this._onCost(p),
-        SectionStarted:     (p) => this._pushActivity(`research: ${p.competitor_name} / ${p.section_key}`),
-        SectionResearched:  (p) => this._pushActivity(`researched: ${p.competitor_name} / ${p.section_key}`),
-        SectionRetrying:    (p) => this._pushActivity(`retry (${p.attempt}): ${p.competitor_name} / ${p.section_key}`),
-        SectionFailed:      (p) => this._pushActivity(`failed: ${p.competitor_name} / ${p.section_key}`),
-        ThemesDiscovered:   (p) => this._pushActivity(`themes discovered: ${p.theme_count}`),
-        EnrichmentStarted:  (p) => this._pushActivity(`enrich: ${p.competitor_name} / ${p.pass_name}`),
-        EnrichmentCompleted:(p) => this._pushActivity(`enriched: ${p.competitor_name} / ${p.pass_name}`),
-        SynthesisStarted:   (p) => this._pushActivity(`synthesize: ${p.theme_label}`),
-        SynthesisCompleted: (p) => this._pushActivity(`synthesized: ${p.theme_label}`),
-        DeliveryStarted:    (p) => this._pushActivity(`deliver: ${p.theme_label}`),
-        DeliveryCompleted:  (p) => this._pushActivity(`delivered: ${p.theme_label}`),
-      };
-
-      for (const [name, handler] of Object.entries(handlers)) {
-        source.addEventListener(name, (ev) => {
-          const payload = this._parse(ev.data);
-          if (payload == null) return;
-          handler(payload);
-        });
-      }
-
-      source.onerror = () => {
-        // An onerror during a terminal state is the server closing the
-        // stream — not worth showing. Only surface it while the run
-        // is still running.
-        if (this.status === 'running') {
-          this.phase = 'disconnected';
-          this._pushActivity('stream disconnected');
-        }
-      };
-    },
-
-    _parse(raw) {
-      try {
-        return JSON.parse(raw);
-      } catch (_err) {
-        return null;
-      }
-    },
-
-    _pushActivity(line) {
-      const stamp = new Date().toLocaleTimeString();
-      this.activity.push({ stamp, line });
-      if (this.activity.length > _RUN_MAX_ACTIVITY) {
-        this.activity.splice(0, this.activity.length - _RUN_MAX_ACTIVITY);
-      }
-    },
-
-    _onRunStarted(_payload) {
-      this.phase = 'started';
-      this.status = 'running';
-      this._pushActivity('run started');
-    },
-
-    _onStageStarted(payload) {
-      const stage = payload.stage || '';
-      this.phase = stage;
-      this._pushActivity(`${stage}: start`);
-      const weight = _RUN_STAGE_PROGRESS[stage];
-      if (weight != null && weight > this.progress) {
-        this.progress = weight;
-      }
-    },
-
-    _onStageCompleted(payload) {
-      this._pushActivity(`${payload.stage}: done`);
-    },
-
-    _onRunCompleted(payload) {
-      this.status = 'done';
-      this.phase = 'complete';
-      this.progress = 1;
-      if (typeof payload.total_cost_usd === 'number') {
-        this.cost = payload.total_cost_usd;
-      }
-      this._pushActivity(`complete — $${this.cost.toFixed(4)}`);
-      this._teardown();
-    },
-
-    _onRunFailed(payload) {
-      this.status = 'failed';
-      this.phase = 'failed';
-      this.error = payload.error || 'run failed';
-      this._pushActivity(`failed: ${this.error}`);
-      this._teardown();
-    },
-
-    _onRunCancelled(_payload) {
-      this.status = 'cancelled';
-      this.phase = 'cancelled';
-      this._pushActivity('cancelled');
-      this._teardown();
-    },
-
-    _onCost(payload) {
-      if (typeof payload.cost_usd === 'number') {
-        this.cost += payload.cost_usd;
-      }
-    },
-
-    formatCost() {
-      return '$' + this.cost.toFixed(4);
-    },
-
-    goToResults() {
-      Alpine.store('runOverlay').close();
-      Alpine.store('router').tab('brief');
-    },
-
-    goToDashboard() {
-      Alpine.store('runOverlay').close();
-      Alpine.store('router').tab('overview');
-    },
-  };
-}
+// Each screen factory is a tiny Alpine component. Phase 1 ships empty
+// shells; later phases replace them.
 
 // ---------------------------------------------------------------------------
-// Results screen
-// ---------------------------------------------------------------------------
-//
-// Read-only surface over the workspace's delivered artifacts:
-// executive_summary.md (preview up to ~2KB from the backend),
-// per-theme markdown under themes/, and any other top-level output
-// files. Everything is file-backed on disk so dropping files in a
-// workspace and visiting #/results/<path> is enough to exercise it.
-
-function resultsScreen() {
-  return {
-    loading: true,
-    error: null,
-    data: null,
-    filter: '',
-
-    get workspacePath() {
-      return Alpine.store('router').params.path
-          || Alpine.store('router').params.arg[0]
-          || '';
-    },
-
-    async init() {
-      if (!this.workspacePath) {
-        this.loading = false;
-        this.error = 'no workspace path in URL';
-        return;
-      }
-      try {
-        const qs = new URLSearchParams({ path: this.workspacePath });
-        const res = await fetch(`/api/results?${qs}`);
-        if (!res.ok) {
-          this.error = `could not load results (${res.status})`;
-          return;
-        }
-        this.data = await res.json();
-      } catch (err) {
-        this.error = err.message;
-      } finally {
-        this.loading = false;
-      }
-
-      document.addEventListener('recon:tab-filter', () => {
-        this.$refs.filterInput?.focus();
-      });
-    },
-
-    get filteredThemes() {
-      const q = this.filter.trim().toLowerCase();
-      const list = this.data?.theme_files || [];
-      if (!q) return list;
-      return list.filter((t) =>
-        (t.title || '').toLowerCase().includes(q) ||
-        (t.name || '').toLowerCase().includes(q) ||
-        (t.path || '').toLowerCase().includes(q),
-      );
-    },
-
-    get hasSummary() {
-      return !!this.data?.executive_summary_path;
-    },
-
-    get hasAnyArtifact() {
-      return this.hasSummary || (this.data?.theme_files?.length || 0) > 0;
-    },
-
-    dashboardHash() {
-      return `#/dashboard/${encodeURIComponent(this.workspacePath)}`;
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Dashboard screen (placeholder-with-context)
-// ---------------------------------------------------------------------------
-//
-// The full dashboard ships alongside the live runner. Until then we
-// at least read the workspace back so the user sees *which* project
-// they're resuming (not a bare "dashboard is on the way" message).
-
-function dashboardScreen() {
-  return {
-    loading: true,
-    workspace: null,
-    error: null,
-
-    get workspacePath() {
-      return Alpine.store('router').params.arg[0] || '';
-    },
-
-    async init() {
-      if (!this.workspacePath) {
-        this.loading = false;
-        return;
-      }
-      try {
-        const qs = new URLSearchParams({ path: this.workspacePath });
-        const res = await fetch(`/api/workspace?${qs}`);
-        if (!res.ok) {
-          this.error = `could not load workspace (${res.status})`;
-          return;
-        }
-        this.workspace = await res.json();
-      } catch (err) {
-        this.error = err.message;
-      } finally {
-        this.loading = false;
-      }
-    },
-
-    resumeDiscoverHash() {
-      return `#/discover/${encodeURIComponent(this.workspacePath)}`;
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Welcome screen
+// Home screen — projects list + NEW PROJECT modal
 // ---------------------------------------------------------------------------
 
 function homeScreen() {
   return {
     loading: true,
+    error: '',
     projects: [],
-    error: null,
-    filter: '',
-    showFirstRun: false,    // the inline new-project form
-    selectedIndex: 0,       // for j/k nav
+    selectedIndex: 0,
 
-    get filteredProjects() {
-      const q = this.filter.trim().toLowerCase();
-      if (!q) return this.projects;
-      return this.projects.filter((p) =>
-        (p.name || '').toLowerCase().includes(q) ||
-        (p.path || '').toLowerCase().includes(q),
-      );
+    // Modal state
+    newModalOpen: false,
+    submitting: false,
+    formError: '',
+    keysStatus: { anthropic: false, google_ai: false },
+    form: {
+      company: '',
+      anthropic: '',
+      google: '',
     },
 
     async init() {
+      await this.load();
+      this.registerKeys();
+      this.loadGlobalKeys();  // non-blocking
+    },
+
+    // -----------------------------------------------------------------
+    // Data
+    // -----------------------------------------------------------------
+
+    async load() {
+      this.loading = true;
+      this.error = '';
       try {
-        const response = await fetch('/api/recents');
-        if (response.ok) {
-          const body = await response.json();
-          this.projects = body.projects || [];
-        }
-      } catch (err) {
-        this.error = err.message;
+        const r = await fetch('/api/recents');
+        if (!r.ok) throw new Error('Failed to load projects: ' + r.status);
+        const data = await r.json();
+        this.projects = data.projects || [];
+        this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.projects.length - 1));
+      } catch (e) {
+        this.error = e.message || String(e);
       } finally {
         this.loading = false;
       }
-
-      // Hook keyboard events forwarded from the shell.
-      document.addEventListener('recon:home-new', () => {
-        this.showFirstRun = true;
-      });
-      document.addEventListener('recon:home-close-firstrun', () => {
-        this.showFirstRun = false;
-      });
-      document.addEventListener('recon:home-pick', (e) => {
-        const idx = e.detail && e.detail.index;
-        const list = this.filteredProjects;
-        if (typeof idx === 'number' && idx >= 0 && idx < list.length) {
-          this.open(list[idx]);
-        }
-      });
-      document.addEventListener('recon:home-filter', () => {
-        this.$refs.filterInput?.focus();
-      });
-
-      // j/k selection + Enter-to-open. These fire from the shell's
-      // handleKey so we can share the plumbing with other list tabs.
-      document.addEventListener('recon:list-down', () => {
-        const max = this.filteredProjects.length - 1;
-        if (max < 0) return;
-        this.selectedIndex = Math.min(this.selectedIndex + 1, max);
-      });
-      document.addEventListener('recon:list-up', () => {
-        this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
-      });
-      document.addEventListener('recon:list-enter', () => {
-        const item = this.filteredProjects[this.selectedIndex];
-        if (item) this.open(item);
-      });
     },
 
-    open(project) {
-      if (project.status === 'missing') return;
-      // In the workspace paradigm, every valid project lands at its
-      // Overview tab. Edge cases (missing recon.yaml, etc) are handled
-      // by the tab rendering, not by routing to a different screen.
-      Alpine.store('router').project(project.path, 'overview');
-    },
-
-    formatDate(iso) {
+    async loadGlobalKeys() {
       try {
-        const d = new Date(iso);
-        if (Number.isNaN(d.getTime())) return iso;
-        return d.toLocaleDateString(undefined, {
-          year: 'numeric',
-          month: 'short',
-          day: 'numeric',
-        });
-      } catch (_) {
-        return iso;
-      }
-    },
-
-    shortPath(p) {
-      // ~/ shortening for HOME-relative paths is the user's
-      // preferred display style (per ui-audit RC-8).
-      const home = (window.RECON_HOME || '');
-      if (home && p.startsWith(home)) {
-        return '~' + p.slice(home.length);
-      }
-      return p;
-    },
-
-    // -------------------------------------------------------------
-    // Status markers for the recent-projects list.
-    //
-    // The API maps each path to one of: done / ready / new / missing
-    // (see web.api._project_status). We translate that into the same
-    // 3-state progressive-fill vocabulary used on Discovery:
-    //
-    //   done    → \u25A0  filled  (success)
-    //   ready   → \u25A3  partial (amber)   — workspace set up, no output
-    //   new     → \u25A1  empty   (dim)     — path exists but nothing here
-    //   missing → \u2715  cross   (error)   — directory is gone
-    //
-    // Returning a marker string + class name lets the template render
-    // both the glyph and a matching text chip without duplicating the
-    // branching in the HTML.
-    // -------------------------------------------------------------
-
-    recentStatusMarker(status) {
-      switch (status) {
-        case 'done':    return '\u25A0';
-        case 'ready':   return '\u25A3';
-        case 'missing': return '\u2715';
-        case 'new':
-        default:        return '\u25A1';
-      }
-    },
-
-    recentStatusLabel(status) {
-      switch (status) {
-        case 'done':    return 'done';
-        case 'ready':   return 'ready';
-        case 'missing': return 'missing';
-        case 'new':
-        default:        return 'new';
-      }
-    },
-
-    recentStatusClass(status) {
-      switch (status) {
-        case 'done':    return 'success';
-        case 'ready':   return 'amber';
-        case 'missing': return 'error';
-        case 'new':
-        default:        return 'dim';
-      }
-    },
-  };
-}
-
-
-// ===========================================================================
-// Project shell + tab factories
-// ===========================================================================
-
-// Bridges the router to the active tab template. Each tab is defined
-// in index.html as <template id="tab-<key>">. When the route changes
-// tab, we clone the matching template into #tab-slot.
-function projectScreen() {
-  return {
-    activeTab: '',
-
-    get path() {
-      return Alpine.store('router').params.path || '';
-    },
-
-    async init() {
-      this.activeTab = Alpine.store('router').params.tab || 'overview';
-
-      // Seed the project store for this workspace. Tabs read from it.
-      const store = Alpine.store('project');
-      store.path = this.path;
-      store.workspace = null;
-      store.loading = true;
-      store.error = null;
-      store.runs = [];
-      store.costSparkline = '';
-
-      this.mountTab();
-
-      const onRoute = () => {
-        const t = Alpine.store('router').params.tab || 'overview';
-        if (t !== this.activeTab) { this.activeTab = t; this.mountTab(); }
-      };
-      document.addEventListener('recon:route', onRoute);
-      window.addEventListener('hashchange', onRoute);
-
-      await Promise.all([this.loadWorkspace(), this.loadRuns()]);
-    },
-
-    async loadRuns() {
-      const store = Alpine.store('project');
-      try {
-        const qs = new URLSearchParams({ path: this.path });
-        const res = await fetch(`/api/runs?${qs}`);
-        if (!res.ok) return;
-        const body = await res.json();
-        store.runs = body.runs || [];
-        store.costSparkline = renderSparkline(
-          [...store.runs].reverse().map((r) => r.total_cost_usd || 0),
-        );
+        const r = await fetch('/api/api-keys/global');
+        if (!r.ok) return;
+        this.keysStatus = await r.json();
       } catch (_err) { /* non-fatal */ }
     },
 
-    async loadWorkspace() {
-      const store = Alpine.store('project');
-      if (!this.path) { store.loading = false; return; }
+    // -----------------------------------------------------------------
+    // Row formatters — keep presentation in the factory, not the template
+    // -----------------------------------------------------------------
+
+    formatStatus(s) {
+      if (!s) return 'NEW';
+      return s.toUpperCase();
+    },
+    formatDate(iso) {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      if (isNaN(d)) return '—';
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const yy = String(d.getFullYear()).slice(-2);
+      return `${mm}/${dd}/${yy}`;
+    },
+    formatCompCount(p) {
+      // comp count isn't in /api/recents; placeholder for phase 6+.
+      return (p.competitor_count != null ? p.competitor_count : '—') + " Comp's";
+    },
+    formatPath(path) {
+      if (!path) return '';
+      const home = this.homeDir();
+      return home && path.startsWith(home) ? '~' + path.slice(home.length) : path;
+    },
+    homeDir() {
+      // Best-effort: backend currently doesn't expose this; try to
+      // infer from paths we've already loaded. Safe fallback returns ''.
+      if (typeof window !== 'undefined' && window._reconHome) return window._reconHome;
+      return '';
+    },
+
+    // -----------------------------------------------------------------
+    // Selection + navigation
+    // -----------------------------------------------------------------
+
+    moveSelection(delta) {
+      if (!this.projects.length) return;
+      const next = (this.selectedIndex + delta + this.projects.length) % this.projects.length;
+      this.selectedIndex = next;
+    },
+
+    openSelected() {
+      const p = this.projects[this.selectedIndex];
+      if (!p) return;
+      this.$store.router.navigate('#/p/' + encodeURIComponent(p.path) + '/plan');
+    },
+
+    deleteSelected() {
+      // Recents list is informational; there's no backend "delete
+      // project" yet. Remove from the local list so the UX responds,
+      // and rely on the backend to not re-surface stale paths. This
+      // matches v3 behavior.
+      const p = this.projects[this.selectedIndex];
+      if (!p) return;
+      if (!confirm(`Remove "${p.name}" from the recents list?`)) return;
+      this.projects = this.projects.filter((x) => x.path !== p.path);
+      this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.projects.length - 1));
+    },
+
+    // -----------------------------------------------------------------
+    // NEW PROJECT modal
+    // -----------------------------------------------------------------
+
+    openNew() {
+      this.form = { company: '', anthropic: '', google: '' };
+      this.formError = '';
+      this.newModalOpen = true;
+      // Focus the input once Alpine has rendered the modal.
+      this.$nextTick(() => this.$refs.companyInput?.focus());
+    },
+
+    closeNew() {
+      this.newModalOpen = false;
+    },
+
+    async submitNew() {
+      const company = this.form.company.trim();
+      if (!company) { this.formError = 'Company name required'; return; }
+      this.submitting = true;
+      this.formError = '';
       try {
-        const qs = new URLSearchParams({ path: this.path });
-        const res = await fetch(`/api/workspace?${qs}`);
-        if (res.ok) store.workspace = await res.json();
-        else store.error = `could not load workspace (${res.status})`;
-      } catch (err) {
-        store.error = err.message;
+        const r = await fetch('/api/workspaces', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            description: `Competitive research for ${company}`,
+            company_name: company,
+          }),
+        });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || `Create failed (${r.status})`);
+        }
+        const workspace = await r.json();
+
+        // Save API keys if provided. Non-blocking — surface errors but
+        // still navigate on success since the workspace is created.
+        const keyWrites = [];
+        if (this.form.anthropic) {
+          keyWrites.push(this._saveKey(workspace.path, 'anthropic', this.form.anthropic));
+        }
+        if (this.form.google) {
+          keyWrites.push(this._saveKey(workspace.path, 'google_ai', this.form.google));
+        }
+        if (keyWrites.length) await Promise.all(keyWrites);
+
+        this.newModalOpen = false;
+        this.$store.router.navigate('#/p/' + encodeURIComponent(workspace.path) + '/plan');
+      } catch (e) {
+        this.formError = e.message || String(e);
       } finally {
-        store.loading = false;
+        this.submitting = false;
       }
     },
 
-    mountTab() {
-      const slot = this.$refs.tabSlot;
-      if (!slot) return;
-      const tpl = document.getElementById(`tab-${this.activeTab}`);
-      if (!tpl) return;
-      slot.innerHTML = '';
-      slot.appendChild(tpl.content.cloneNode(true));
+    async _saveKey(path, name, value) {
+      const r = await fetch('/api/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, name, value }),
+      });
+      if (!r.ok) throw new Error(`Saving ${name} key failed (${r.status})`);
     },
 
-    isActive(tab) { return tab === this.activeTab; },
-    goTab(tab) { Alpine.store('router').tab(tab); },
+    // -----------------------------------------------------------------
+    // Hotkey registration
+    // -----------------------------------------------------------------
+
+    registerKeys() {
+      // Screen-scoped bindings. The shell leaves the [1]-[5] project-
+      // tab bindings in place but they noop on home (no project). We
+      // push a "home" scope above them so j/k/enter/n/del/escape are
+      // handled before the shell sees them.
+      const bindings = [
+        { key: 'arrowup',   label: 'UP',       run: () => this.moveSelection(-1) },
+        { key: 'arrowdown', label: 'DOWN',     run: () => this.moveSelection(+1) },
+        { key: 'k',         run: () => this.moveSelection(-1) },
+        { key: 'j',         run: () => this.moveSelection(+1) },
+        // enter + escape are allowed in editable targets so they work
+        // inside the new-project modal inputs. The handlers branch on
+        // newModalOpen so list-level behavior only fires when no modal.
+        { key: 'enter',     label: 'OPEN',     allowInEditable: true,
+          run: () => this.newModalOpen ? this.submitNew() : this.openSelected() },
+        { key: 'escape',    allowInEditable: true,
+          run: () => { if (this.newModalOpen) this.closeNew(); } },
+        { key: 'n',         label: 'NEW',      run: () => this.openNew() },
+        { key: 'delete',    label: 'DEL',      run: () => this.deleteSelected() },
+        { key: 'backspace', run: () => this.deleteSelected() },  // mac delete
+      ];
+      this.$store.hotkeys.register('screen:home', bindings);
+    },
   };
 }
 
-// Runs tab — lists all past runs for this workspace with status,
-// cost, task counts. Click a row to open the slide-over for that
-// run.
-function runsTab() {
+// ---------------------------------------------------------------------------
+// PLAN tab  —  brief + model selector + worker count
+// ---------------------------------------------------------------------------
+
+function planScreen() {
   return {
     loading: true,
-    runs: [],
-    error: null,
-    filter: '',
-    selectedIndex: 0,
+    error: '',
 
-    get path() {
-      return Alpine.store('router').params.path || '';
-    },
+    // Workspace info
+    companyName: '',
+    brief: '',
+    competitorCount: 0,
 
-    get filteredRuns() {
-      const q = this.filter.trim().toLowerCase();
-      if (!q) return this.runs;
-      return this.runs.filter((r) =>
-        r.run_id.toLowerCase().includes(q) ||
-        r.status.toLowerCase().includes(q) ||
-        (r.model || '').toLowerCase().includes(q),
-      );
+    // Model selection
+    models: [],
+    model: '',
+    focusIdx: 0,
+
+    // Worker count
+    workers: 5,
+
+    get path() { return this.$store.router.params.path; },
+    get encodedPath() { return encodeURIComponent(this.path); },
+    get displayPath() {
+      const p = this.path;
+      if (!p) return '';
+      // Shorten home prefix where possible; the full path is in the tooltip.
+      return p;
     },
 
     async init() {
+      await Promise.all([this.loadWorkspace(), this.loadConfirm()]);
+      this.registerKeys();
+    },
+
+    async loadWorkspace() {
       try {
-        const qs = new URLSearchParams({ path: this.path });
-        const res = await fetch(`/api/runs?${qs}`);
-        if (!res.ok) { this.error = `could not load runs (${res.status})`; return; }
-        const body = await res.json();
-        this.runs = body.runs || [];
-      } catch (err) {
-        this.error = err.message;
+        const r = await fetch('/api/workspace?path=' + this.encodedPath);
+        if (!r.ok) return;
+        const ws = await r.json();
+        this.companyName = ws.company_name || '';
+        // Seed the brief from domain on first load. No persistence back
+        // to the workspace yet — brief changes live in local state
+        // until /api/workspaces gains a PATCH route.
+        if (!this.brief) this.brief = ws.domain || '';
+      } catch (_err) { /* non-fatal */ }
+    },
+
+    async loadConfirm() {
+      this.loading = true;
+      this.error = '';
+      try {
+        const r = await fetch('/api/confirm?path=' + this.encodedPath);
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || `Plan data unavailable (${r.status})`);
+        }
+        const data = await r.json();
+        this.competitorCount = data.competitor_count || 0;
+        this.models = data.model_options || [];
+        this.workers = data.default_workers || 5;
+
+        // Prefer the backend-recommended model; fall back to default,
+        // then the first option.
+        const rec = this.models.find((m) => m.recommended);
+        this.model = rec?.id || data.default_model || this.models[0]?.id || '';
+        this.focusIdx = Math.max(0, this.models.findIndex((m) => m.id === this.model));
+      } catch (e) {
+        this.error = e.message || String(e);
       } finally {
         this.loading = false;
       }
-
-      document.addEventListener('recon:tab-filter', () => {
-        this.$refs.filterInput?.focus();
-      });
-      document.addEventListener('recon:list-down', () => {
-        const max = this.filteredRuns.length - 1;
-        if (max < 0) return;
-        this.selectedIndex = Math.min(this.selectedIndex + 1, max);
-      });
-      document.addEventListener('recon:list-up', () => {
-        this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
-      });
-      document.addEventListener('recon:list-enter', () => {
-        const r = this.filteredRuns[this.selectedIndex];
-        if (r) this.openRun(r);
-      });
     },
 
-    openRun(run) {
-      Alpine.store('runOverlay').openLive(this.path, run.run_id);
-      Alpine.store('router').runDetail(run.run_id);
+    // -----------------------------------------------------------------
+    // Formatters
+    // -----------------------------------------------------------------
+
+    formatCost(v) {
+      if (v == null || isNaN(v)) return '—';
+      return '$' + Number(v).toFixed(2);
     },
 
-    formatDate(iso) {
+    // -----------------------------------------------------------------
+    // Actions
+    // -----------------------------------------------------------------
+
+    selectFocused() {
+      const m = this.models[this.focusIdx];
+      if (m) this.model = m.id;
+    },
+
+    moveFocus(delta) {
+      if (!this.models.length) return;
+      const n = this.models.length;
+      this.focusIdx = (this.focusIdx + delta + n) % n;
+    },
+
+    incWorkers() { if (this.workers < 16) this.workers += 1; },
+    decWorkers() { if (this.workers > 1)  this.workers -= 1; },
+
+    back() { this.$store.router.goHome(); },
+    next() { this.$store.router.goTab('schema'); },
+
+    async revealInFinder() {
+      // Phase 8 will add a /api/reveal backend route; for now, copy
+      // the path to clipboard so the user can paste into Finder.
       try {
-        const d = new Date(iso);
-        if (Number.isNaN(d.getTime())) return iso;
-        return d.toLocaleString(undefined, {
-          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-        });
-      } catch (_) { return iso; }
+        await navigator.clipboard.writeText(this.path);
+      } catch (_err) { /* noop */ }
     },
 
-    formatCost(v) { return '$' + (Number(v) || 0).toFixed(4); },
+    // -----------------------------------------------------------------
+    // Hotkeys
+    // -----------------------------------------------------------------
+
+    registerKeys() {
+      const bindings = [
+        { key: 'arrowup',   run: () => this.moveFocus(-1) },
+        { key: 'arrowdown', run: () => this.moveFocus(+1) },
+        { key: 'k',         run: () => this.moveFocus(-1) },
+        { key: 'j',         run: () => this.moveFocus(+1) },
+        { key: 'enter',     label: 'SELECT', run: () => this.selectFocused() },
+        { key: 'n',         label: 'NEXT',   run: () => this.next() },
+        { key: 'escape',    label: 'BACK',   run: () => this.back() },
+        { key: 'l',         run: () => this.revealInFinder() },
+        { key: '+',         run: () => this.incWorkers() },
+        { key: '-',         run: () => this.decWorkers() },
+      ];
+      this.$store.hotkeys.register('screen:plan', bindings);
+    },
   };
 }
 
-// Keys popover — global API-key management from the header.
-function keysPopover() {
-  return {
-    open: false,
-    loading: false,
-    providers: [
-      { name: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-...', value: '', saved: false },
-      { name: 'google_ai', label: 'Google AI', placeholder: 'AIza...',     value: '', saved: false },
-    ],
-    message: '',
+// ---------------------------------------------------------------------------
+// SCHEMA tab  —  dossier sections with toggle-to-select
+// ---------------------------------------------------------------------------
 
-    async toggle() {
-      if (this.open) { this.open = false; return; }
-      this.open = true;
-      await this.refresh();
+function schemaScreen() {
+  return {
+    loading: true,
+    error: '',
+    sections: [],
+    focusIdx: 0,
+
+    // Debounced save state
+    saving: false,
+    justSaved: false,
+    _saveTimer: 0,
+
+    get path() { return this.$store.router.params.path; },
+    get encodedPath() { return encodeURIComponent(this.path); },
+    get selectedCount() { return this.sections.filter((s) => s.selected).length; },
+
+    async init() {
+      await this.load();
+      this.registerKeys();
     },
 
-    async refresh() {
+    async load() {
       this.loading = true;
+      this.error = '';
       try {
-        const res = await fetch('/api/api-keys/global');
-        if (res.ok) {
-          const body = await res.json();
-          for (const p of this.providers) p.saved = !!body[p.name];
+        const r = await fetch('/api/template?path=' + this.encodedPath);
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || `Schema unavailable (${r.status})`);
         }
-      } catch (_) { /* non-fatal */ }
-      finally { this.loading = false; }
+        const data = await r.json();
+        this.sections = data.sections || [];
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    // Optimistic toggle: flip local state, debounce the PUT. Debounce
+    // coalesces rapid toggles into a single write so a user holding
+    // space to cycle through options doesn't hammer the backend.
+    toggle(i) {
+      const s = this.sections[i];
+      if (!s) return;
+      s.selected = !s.selected;
+      this.scheduleSave();
+    },
+
+    scheduleSave() {
+      clearTimeout(this._saveTimer);
+      this.saving = true;
+      this.justSaved = false;
+      this._saveTimer = setTimeout(() => this.save(), 300);
     },
 
     async save() {
-      this.loading = true;
-      this.message = '';
-      for (const p of this.providers) {
-        const val = (p.value || '').trim();
-        if (!val) continue;
-        try {
-          await fetch('/api/api-keys', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: p.name, value: val }),
-          });
-          p.saved = true;
-          p.value = '';
-        } catch (_) { /* non-fatal */ }
+      this.saving = true;
+      try {
+        const section_keys = this.sections.filter((s) => s.selected).map((s) => s.key);
+        const r = await fetch('/api/template', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: this.path, section_keys }),
+        });
+        if (!r.ok) throw new Error(`Save failed (${r.status})`);
+        this.justSaved = true;
+        setTimeout(() => { this.justSaved = false; }, 1500);
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.saving = false;
       }
-      this.loading = false;
-      this.message = 'Saved.';
-      setTimeout(() => { this.message = ''; }, 2000);
+    },
+
+    moveFocus(delta) {
+      if (!this.sections.length) return;
+      const n = this.sections.length;
+      this.focusIdx = (this.focusIdx + delta + n) % n;
+    },
+
+    openAdd() {
+      // Add-section support lands with a backend endpoint later. For
+      // now the button is a hint only.
+      alert('Add section coming soon. For now, edit recon.yaml directly.');
+    },
+
+    back() { this.$store.router.goTab('plan'); },
+    next() {
+      if (this.selectedCount === 0) return;
+      this.$store.router.goTab('comps');
+    },
+
+    registerKeys() {
+      const bindings = [
+        { key: 'arrowup',   run: () => this.moveFocus(-1) },
+        { key: 'arrowdown', run: () => this.moveFocus(+1) },
+        { key: 'k',         run: () => this.moveFocus(-1) },
+        { key: 'j',         run: () => this.moveFocus(+1) },
+        { key: 'space',     label: 'TOGGLE', run: () => this.toggle(this.focusIdx) },
+        { key: 'enter',     run: () => this.toggle(this.focusIdx) },
+        { key: 'n',         label: 'NEXT', run: () => this.next() },
+        { key: 'escape',    label: 'BACK', run: () => this.back() },
+      ];
+      this.$store.hotkeys.register('screen:schema', bindings);
     },
   };
 }
 
-// Command palette — Cmd-K / Ctrl-K global actions.
-function cmdPalette() {
-  return {
-    get open() { return Alpine.store('palette').open; },
-    query: '',
-    selectedIndex: 0,
+// ---------------------------------------------------------------------------
+// COMP'S tab  —  discovery + selection + run kickoff
+// ---------------------------------------------------------------------------
 
-    get actions() {
-      const router = Alpine.store('router');
-      const inProject = router.screen === 'project';
-      const list = [
-        { id: 'home', label: 'Go home', hint: 'home', run: () => router.home() },
-      ];
-      if (inProject) {
-        for (const t of TABS) {
-          list.push({
-            id: 'tab-' + t.key,
-            label: `Go to ${t.label}`,
-            hint: t.number + ' · ' + t.key,
-            run: () => router.tab(t.key),
-          });
-        }
-        list.push({ id: 'run', label: 'Run research', hint: 'r', run: () => Alpine.store('runOverlay').openPlan(router.params.path) });
-      }
-      for (const th of THEMES) {
-        list.push({
-          id: 'theme-' + th.key,
-          label: `Theme: ${th.label}`,
-          hint: th.description,
-          run: () => Alpine.store('theme').set(th.key),
-        });
-      }
-      const q = this.query.trim().toLowerCase();
-      if (!q) return list;
-      return list.filter((a) => a.label.toLowerCase().includes(q));
+function compsScreen() {
+  return {
+    error: '',
+
+    // Discovery
+    discovering: false,
+    discoveryMessage: '',
+
+    // Competitor list
+    competitors: [],
+    deselected: new Set(),   // slugs the user has opted out of
+    focusIdx: 0,
+
+    // Cost estimate — snapshotted from /api/confirm
+    costPerCompetitor: 0,
+    sectionCount: 0,
+
+    // Run kickoff
+    starting: false,
+
+    // Search-terms modal
+    termsModalOpen: false,
+    terms: { focus: '', seeds: '' },
+
+    get path() { return this.$store.router.params.path; },
+    get encodedPath() { return encodeURIComponent(this.path); },
+    get selectedCount() { return this.competitors.filter((c) => this.isSelected(c)).length; },
+    get estimatedCost() {
+      return (this.selectedCount * this.costPerCompetitor).toFixed(2) * 1;
     },
 
-    init() {
-      document.addEventListener('keydown', (e) => {
-        if (!this.open) return;
-        if (e.key === 'ArrowDown') {
-          this.selectedIndex = Math.min(this.selectedIndex + 1, this.actions.length - 1);
-          e.preventDefault();
-        } else if (e.key === 'ArrowUp') {
-          this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
-          e.preventDefault();
-        } else if (e.key === 'Enter') {
-          const a = this.actions[this.selectedIndex];
-          if (a) { a.run(); Alpine.store('palette').hide(); }
-          e.preventDefault();
+    async init() {
+      this.registerKeys();
+      await this.loadAll();
+      if (this.competitors.length === 0) {
+        await this.search({ silent: true });
+      }
+    },
+
+    // -----------------------------------------------------------------
+    // Data
+    // -----------------------------------------------------------------
+
+    async loadAll() {
+      this.error = '';
+      try {
+        const [compResp, confResp] = await Promise.all([
+          fetch('/api/competitors?path=' + this.encodedPath),
+          fetch('/api/confirm?path=' + this.encodedPath),
+        ]);
+        if (compResp.ok) {
+          const data = await compResp.json();
+          this.competitors = data.competitors || [];
         }
+        if (confResp.ok) {
+          const conf = await confResp.json();
+          this.sectionCount = conf.section_keys?.length || 0;
+          // Per-competitor cost = estimated_total / competitor_count,
+          // with a fallback when the workspace has 0 comps yet.
+          const total = conf.estimated_total || 0;
+          const cc = conf.competitor_count || 1;
+          this.costPerCompetitor = total / Math.max(1, cc);
+          // If the workspace has no comps yet, the server returns 0
+          // for estimated_total — seed a rough minimum so the number
+          // doesn't stay at 0 once the user has selected some.
+          if (!this.costPerCompetitor && this.sectionCount) {
+            this.costPerCompetitor = 0.35 * this.sectionCount;  // ~$0.35/section heuristic
+          }
+        }
+      } catch (e) {
+        this.error = e.message || String(e);
+      }
+    },
+
+    // -----------------------------------------------------------------
+    // Discovery
+    // -----------------------------------------------------------------
+
+    async search({ silent = false } = {}) {
+      if (this.discovering) return;
+      this.discovering = true;
+      this.discoveryMessage = silent ? 'Discovering competitors…' : 'Searching for more competitors…';
+      this.error = '';
+      this.termsModalOpen = false;
+      try {
+        const body = { path: this.path };
+        const seeds = this.terms.seeds
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (seeds.length) body.seeds = seeds;
+        const r = await fetch('/api/discover', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const b = await r.json().catch(() => ({}));
+          throw new Error(b.detail || `Discovery failed (${r.status})`);
+        }
+        const data = await r.json();
+        const candidates = data.candidates || [];
+
+        // Persist each candidate as a competitor profile if not already
+        // present. Auto-select new ones (they are enabled by default).
+        const existing = new Set(this.competitors.map((c) => c.slug));
+        for (const cand of candidates) {
+          const slug = this._slug(cand.name);
+          if (existing.has(slug)) continue;
+          try {
+            const cr = await fetch('/api/competitors', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                path: this.path,
+                name: cand.name,
+                url: cand.url || null,
+                blurb: cand.blurb || null,
+              }),
+            });
+            if (cr.ok) {
+              const created = await cr.json();
+              this.competitors.push(created);
+            }
+          } catch (_err) { /* skip one bad candidate, keep going */ }
+        }
+
+        // Refresh cost estimate now that the workspace has more comps.
+        await this.loadAll();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.discovering = false;
+      }
+    },
+
+    _slug(name) {
+      return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    },
+
+    // -----------------------------------------------------------------
+    // Selection
+    // -----------------------------------------------------------------
+
+    isSelected(c) { return !this.deselected.has(c.slug); },
+
+    toggleSelection(c) {
+      // Set-of-slugs mutation in Alpine requires reassignment for reactivity.
+      const next = new Set(this.deselected);
+      if (next.has(c.slug)) next.delete(c.slug);
+      else next.add(c.slug);
+      this.deselected = next;
+    },
+
+    moveFocus(delta) {
+      if (!this.competitors.length) return;
+      const n = this.competitors.length;
+      this.focusIdx = (this.focusIdx + delta + n) % n;
+    },
+
+    // -----------------------------------------------------------------
+    // Formatters
+    // -----------------------------------------------------------------
+
+    formatCost(v) {
+      if (v == null || isNaN(v)) return '$—';
+      return '$' + Number(v).toFixed(2);
+    },
+    shortUrl(url) {
+      if (!url) return '';
+      try {
+        const u = new URL(url);
+        return u.hostname.replace(/^www\./, '');
+      } catch (_err) { return url.slice(0, 40); }
+    },
+
+    // -----------------------------------------------------------------
+    // Terms modal
+    // -----------------------------------------------------------------
+
+    openTerms() {
+      this.termsModalOpen = true;
+      this.$nextTick(() => this.$refs.termsInput?.focus());
+    },
+    closeTerms() { this.termsModalOpen = false; },
+    improveWithAi() { /* deferred — no backend endpoint yet */ },
+
+    // -----------------------------------------------------------------
+    // Run kickoff
+    // -----------------------------------------------------------------
+
+    async run() {
+      if (this.starting) return;
+      if (this.selectedCount === 0) return;
+      this.starting = true;
+      this.error = '';
+      try {
+        // Reconcile selection: delete deselected competitors so the
+        // pipeline only iterates the chosen set. Do this here (rather
+        // than on the agents tab) so the work doesn't happen under a
+        // live progress view.
+        const slugsToDrop = [...this.deselected];
+        for (const slug of slugsToDrop) {
+          try {
+            await fetch('/api/competitors/' + encodeURIComponent(slug) + '?path=' + this.encodedPath, {
+              method: 'DELETE',
+            });
+          } catch (_err) { /* keep going */ }
+        }
+        // Hand off to the agents tab with autostart=1. The agents tab
+        // opens SSE first, THEN POSTs /api/runs — that ordering avoids
+        // a race where fast (fake-LLM) runs finish before SSE attaches.
+        this.$store.router.navigate('#/p/' + encodeURIComponent(this.path) + '/agents?autostart=1');
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.starting = false;
+      }
+    },
+
+    // -----------------------------------------------------------------
+    // Hotkeys
+    // -----------------------------------------------------------------
+
+    back() { this.$store.router.goTab('schema'); },
+
+    registerKeys() {
+      const bindings = [
+        { key: 'arrowup',   run: () => this.moveFocus(-1) },
+        { key: 'arrowdown', run: () => this.moveFocus(+1) },
+        { key: 'k',         run: () => this.moveFocus(-1) },
+        { key: 'j',         run: () => this.moveFocus(+1) },
+        { key: 'space',     label: 'TOGGLE',
+          run: () => { const c = this.competitors[this.focusIdx]; if (c) this.toggleSelection(c); } },
+        { key: 'enter',     allowInEditable: true,
+          run: () => {
+            if (this.termsModalOpen) this.search();
+            else { const c = this.competitors[this.focusIdx]; if (c) this.toggleSelection(c); }
+          } },
+        { key: 's',         label: 'SEARCH', run: () => this.search() },
+        { key: 't',         label: 'TERMS',  run: () => this.openTerms() },
+        { key: 'r',         label: 'RUN',    run: () => this.run() },
+        { key: 'escape',    allowInEditable: true,
+          run: () => { if (this.termsModalOpen) this.closeTerms(); else this.back(); } },
+      ];
+      this.$store.hotkeys.register('screen:comps', bindings);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AGENTS tab  —  live run monitor via SSE
+// ---------------------------------------------------------------------------
+//
+// Two panels:
+//   top    N "worker" cards (persona + current stage/task + mini bar)
+//   bottom per-competitor rows with aggregate progress
+//
+// The backend event stream doesn't report which worker slot owns a
+// given task — it just emits Section{Started|Researched|Failed} with
+// a competitor/section pair. We assign workers client-side: first
+// free slot picks up a Started event, frees on Researched/Failed.
+
+const AGENT_PERSONA_POOL = [
+  { name: 'SCOUT',    icon: 'rabbit' },
+  { name: 'RANGER',   icon: 'squirrel' },
+  { name: 'SCRIBE',   icon: 'bird' },
+  { name: 'HERALD',   icon: 'cat' },
+  { name: 'SENTINEL', icon: 'dog' },
+  { name: 'SEEKER',   icon: 'fish' },
+  { name: 'FABLE',    icon: 'turtle' },
+  { name: 'PILOT',    icon: 'bug' },
+];
+
+// Stages we track explicitly (others pass through). Order matters —
+// it drives the overall progress calculation.
+const PIPELINE_STAGES = [
+  'research', 'verify', 'enrich', 'index', 'synthesize', 'deliver',
+];
+
+function blockBar(pct, width) {
+  const clamped = Math.max(0, Math.min(100, pct || 0));
+  const filled = Math.round((clamped / 100) * width);
+  const half = (clamped / 100) * width - filled >= 0.5 ? 1 : 0;
+  return '▓'.repeat(filled) + (half ? '▒' : '') + '░'.repeat(Math.max(0, width - filled - half));
+}
+
+function agentsScreen() {
+  return {
+    error: '',
+
+    // Run state
+    runId: '',
+    status: '',        // planned | running | complete | failed | cancelled
+    currentStage: 'RESEARCH',
+    cost: 0,
+
+    // Task counts — aggregate across all stages
+    totalTasks: 0,
+    doneTasks: 0,
+    failedTasks: 0,
+
+    // Workers + competitors
+    agents: [],               // [{ id, name, icon, stage, task, taskPct, state }]
+    competitorsByName: {},    // { [name]: { name, total, done, failed, currentSection, pct, status } }
+
+    // UI
+    completionModalOpen: false,
+    menuOpen: null,
+    runPaused: false,
+
+    // SSE
+    _es: null,
+
+    get path() { return this.$store.router.params.path; },
+    get encodedPath() { return encodeURIComponent(this.path); },
+    get terminal() { return ['complete', 'failed', 'cancelled'].includes(this.status); },
+    get progressPct() {
+      if (!this.totalTasks) return 0;
+      return Math.round((this.doneTasks / this.totalTasks) * 100);
+    },
+    get competitorList() {
+      return Object.values(this.competitorsByName).sort((a, b) => a.name.localeCompare(b.name));
+    },
+
+    async init() {
+      this.registerKeys();
+      this.$store.screen.onTeardown(() => {
+        this._es?.close();
+        clearInterval(this._pollTimer);
+      });
+
+      this._initAgents();
+      // Always open the global event stream first. Filtering to a
+      // specific run happens client-side once we know the run_id.
+      this._openStream();
+
+      const autostart = this.$store.router.params.query?.autostart === '1';
+      if (autostart) {
+        await this._autostart();
+      } else {
+        this.runId = this._extractRunIdFromHash() || await this._findActiveRun();
+      }
+
+      if (this.runId) {
+        this._loadSnapshot();
+        this._loadExpectedTotal();
+        this._pollTimer = setInterval(() => {
+          if (this.terminal) { clearInterval(this._pollTimer); return; }
+          this._loadSnapshot();
+        }, 1500);
+      }
+    },
+
+    async _autostart() {
+      this.currentStage = 'STARTING';
+      try {
+        const r = await fetch('/api/runs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: this.path, use_fake_llm: true }),
+        });
+        if (!r.ok) {
+          const b = await r.json().catch(() => ({}));
+          throw new Error(b.detail || `Run start failed (${r.status})`);
+        }
+        const data = await r.json();
+        this.runId = data.run_id;
+        // Rewrite the URL so a reload lands on the same run without
+        // re-triggering autostart.
+        const p = encodeURIComponent(this.path);
+        history.replaceState(null, '', '#/p/' + p + '/agents?run=' + encodeURIComponent(this.runId));
+      } catch (e) {
+        this.error = e.message || String(e);
+      }
+    },
+
+    _extractRunIdFromHash() {
+      return this.$store.router.params.query?.run || '';
+    },
+
+    async _findActiveRun() {
+      try {
+        const r = await fetch('/api/runs?path=' + this.encodedPath);
+        if (!r.ok) return '';
+        const data = await r.json();
+        const runs = data.runs || [];
+        const live = runs.find((x) => ['planned', 'running', 'paused'].includes(x.status));
+        return live?.run_id || runs[0]?.run_id || '';
+      } catch (_err) { return ''; }
+    },
+
+    async _loadSnapshot() {
+      try {
+        const r = await fetch('/api/runs/' + encodeURIComponent(this.runId) + '?path=' + this.encodedPath);
+        if (!r.ok) throw new Error(`Run snapshot failed (${r.status})`);
+        const d = await r.json();
+        this.status = d.status;
+        // Prefer authoritative counts from the run state store when
+        // they're populated. Some pipelines skip DB writes (fake-LLM)
+        // and return 0; in that case keep whatever SSE counted.
+        if (d.task_count) this.totalTasks = d.task_count;
+        if (d.completed_tasks > this.doneTasks) this.doneTasks = d.completed_tasks;
+        if (d.failed_tasks) this.failedTasks = d.failed_tasks;
+        this.cost = d.total_cost_usd || 0;
+        if (d.status === 'complete' || d.status === 'completed') {
+          this.status = 'complete';
+          if (!this.completionModalOpen && this._completionSeen !== true) {
+            this._completionSeen = true;
+            this.completionModalOpen = true;
+          }
+        }
+      } catch (e) {
+        this.error = e.message || String(e);
+      }
+    },
+
+    // Ask /api/confirm for the expected task total — sections × comps.
+    // Gives us a denominator for the overall progress bar even when
+    // task_count on the run snapshot is 0 (fake-LLM mode).
+    async _loadExpectedTotal() {
+      try {
+        const r = await fetch('/api/confirm?path=' + this.encodedPath);
+        if (!r.ok) return;
+        const d = await r.json();
+        const est = (d.competitor_count || 0) * (d.section_keys?.length || 0);
+        if (est && !this.totalTasks) this.totalTasks = est;
+      } catch (_err) { /* non-fatal */ }
+    },
+
+    _initAgents() {
+      // Size the grid to the default worker count from /api/confirm;
+      // fall back to 5 if we can't resolve it.
+      const n = Math.min(AGENT_PERSONA_POOL.length, 5);
+      this.agents = Array.from({ length: n }, (_, i) => ({
+        id: i,
+        name: AGENT_PERSONA_POOL[i % AGENT_PERSONA_POOL.length].name,
+        icon: AGENT_PERSONA_POOL[i % AGENT_PERSONA_POOL.length].icon,
+        stage: '',
+        task: '',
+        taskPct: 0,
+        state: 'idle',
+      }));
+    },
+
+    _openStream() {
+      if (this._es) this._es.close();
+      // Use the global event stream. We don't know the run_id until
+      // /api/runs responds (in autostart mode), so filtering has to
+      // happen client-side anyway. The helper below drops events that
+      // carry a run_id for a *different* run.
+      const es = new EventSource('/api/events');
+      this._es = es;
+
+      const sub = (name, fn) => es.addEventListener(name, (ev) => {
+        let d = {};
+        try { d = JSON.parse(ev.data); } catch (_err) { /* keep default */ }
+        if (d.run_id && this.runId && d.run_id !== this.runId) return;
+        fn(d);
+      });
+
+      sub('RunStarted',         (d) => {
+        if (!this.runId && d.run_id) this.runId = d.run_id;
+        this.status = 'running';
+      });
+      sub('RunCompleted',       (d) => {
+        this.status = 'complete';
+        this.cost = d.total_cost_usd ?? this.cost;
+        this.completionModalOpen = true;
+      });
+      sub('RunFailed',          (d) => { this.status = 'failed'; this.error = d.error || 'Run failed'; });
+      sub('RunCancelled',       () => { this.status = 'cancelled'; });
+      sub('RunPaused',          () => { this.runPaused = true; });
+      sub('RunResumed',         () => { this.runPaused = false; });
+      sub('RunStageStarted',    (d) => { this.currentStage = (d.stage || '').toUpperCase(); });
+      sub('RunStageCompleted',  () => { /* advance implicit via next start */ });
+
+      sub('CostRecorded',       (d) => { this.cost += d.cost_usd || 0; });
+
+      sub('SectionStarted',     (d) => {
+        this._trackCompetitor(d, 'start');
+        this._assignWorker(d, this.currentStage.toLowerCase() || 'research');
+      });
+      sub('SectionResearched',  (d) => {
+        this._trackCompetitor(d, 'done');
+        this._releaseWorker(d);
+        this.doneTasks += 1;
+      });
+      sub('SectionFailed',      (d) => {
+        this._trackCompetitor(d, 'failed');
+        this._releaseWorker(d);
+        this.failedTasks += 1;
+      });
+
+      sub('EnrichmentStarted',  (d) => this._assignWorker(d, 'enrich'));
+      sub('EnrichmentCompleted',(d) => this._releaseWorker(d));
+      sub('SynthesisStarted',   () => { this.currentStage = 'SYNTHESIZE'; });
+      sub('DeliveryStarted',    () => { this.currentStage = 'DELIVER'; });
+
+      es.addEventListener('error', () => {
+        if (!this.terminal) this.currentStage = 'RECONNECTING';
       });
     },
 
-    choose(action) {
-      action.run();
-      Alpine.store('palette').hide();
+    _trackCompetitor(d, kind) {
+      const name = d.competitor_name;
+      if (!name) return;
+      let c = this.competitorsByName[name];
+      if (!c) {
+        c = { name, total: 0, done: 0, failed: 0, currentSection: '', pct: 0, status: 'pending' };
+        this.competitorsByName = { ...this.competitorsByName, [name]: c };
+      }
+      if (kind === 'start') {
+        c.currentSection = (d.section_key || '').toUpperCase();
+        c.status = 'running';
+        // We don't know the total up front — increment optimistically.
+        if (c.done + c.failed + 1 > c.total) c.total = c.done + c.failed + 1;
+      } else if (kind === 'done') {
+        c.done += 1;
+        if (c.done + c.failed >= c.total) c.status = 'done';
+      } else if (kind === 'failed') {
+        c.failed += 1;
+        c.status = 'failed';
+      }
+      c.pct = c.total ? Math.round((c.done / c.total) * 100) : 0;
+      // Reassign to trigger Alpine reactivity.
+      this.competitorsByName = { ...this.competitorsByName };
+    },
+
+    _assignWorker(d, stage) {
+      const slot = this.agents.find((a) => !a.task);
+      if (!slot) return;
+      slot.stage = (stage || '').toUpperCase();
+      slot.task = `${d.competitor_name || '—'} · ${(d.section_key || d.pass_name || '—').toUpperCase()}`;
+      slot.taskPct = 25;
+      slot.state = 'busy';
+      // Reassign array for Alpine reactivity.
+      this.agents = [...this.agents];
+    },
+
+    _releaseWorker(d) {
+      const needle = d.competitor_name;
+      const slot = this.agents.find((a) => a.task && a.task.startsWith((needle || '') + ' · '));
+      if (!slot) return;
+      slot.stage = '';
+      slot.task = '';
+      slot.taskPct = 0;
+      slot.state = 'idle';
+      this.agents = [...this.agents];
+    },
+
+    // -----------------------------------------------------------------
+    // Formatters / helpers exposed to template
+    // -----------------------------------------------------------------
+
+    formatCost(v) { return '$' + Number(v || 0).toFixed(2); },
+    progressBar(pct, width) { return blockBar(pct, width); },
+
+    // -----------------------------------------------------------------
+    // Actions
+    // -----------------------------------------------------------------
+
+    openAgentMenu(i) { this.menuOpen = i; },
+    pauseRun()     { alert('Pause endpoint not wired — coming in a later phase.'); this.menuOpen = null; },
+    restartTask()  { alert('Restart endpoint not wired — coming in a later phase.'); this.menuOpen = null; },
+    debugTask()    { alert('Debug overlay not wired — coming in a later phase.');    this.menuOpen = null; },
+
+    closeCompletion() { this.completionModalOpen = false; },
+    goOutput() {
+      this.completionModalOpen = false;
+      this.$store.router.goTab('output');
+    },
+
+    back() { this.$store.router.goTab('comps'); },
+
+    registerKeys() {
+      const bindings = [
+        { key: 'escape', allowInEditable: true,
+          run: () => {
+            if (this.menuOpen != null) { this.menuOpen = null; return; }
+            if (this.completionModalOpen) { this.closeCompletion(); return; }
+            this.back();
+          } },
+        { key: 'enter', allowInEditable: true,
+          run: () => {
+            if (this.completionModalOpen) this.goOutput();
+          } },
+      ];
+      this.$store.hotkeys.register('screen:agents', bindings);
+    },
+
+    destroyStream() {
+      if (this._es) this._es.close();
+      this._es = null;
     },
   };
 }
 
+// ---------------------------------------------------------------------------
+// OUTPUT tab  —  file tree + markdown preview + open-in-Finder
+// ---------------------------------------------------------------------------
+
+function outputScreen() {
+  return {
+    loading: true,
+    error: '',
+    tree: [],          // flat structure for rendering
+    treeLines: [],     // [{ prefix, name, ref }] — ref points to a file or null for dirs
+    treeHeader: '',
+    fileCount: 0,
+    selected: null,    // one of the file entries
+    execPreview: '',
+
+    get path() { return this.$store.router.params.path; },
+    get encodedPath() { return encodeURIComponent(this.path); },
+
+    async init() {
+      this.registerKeys();
+      await this.load();
+    },
+
+    async load() {
+      this.loading = true;
+      this.error = '';
+      try {
+        const r = await fetch('/api/results?path=' + this.encodedPath);
+        if (!r.ok) {
+          const b = await r.json().catch(() => ({}));
+          throw new Error(b.detail || `Outputs unavailable (${r.status})`);
+        }
+        const data = await r.json();
+        this.execPreview = data.executive_summary_preview || '';
+        this._buildTree(data);
+        if (this.tree.length) {
+          // Default selection: exec summary (or first file).
+          const exec = this.tree.find((n) => n.kind === 'exec_summary');
+          this.selected = exec || this.tree[0];
+        }
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    _buildTree(data) {
+      const files = [];
+      if (data.executive_summary_path) {
+        files.push({
+          name: this._basename(data.executive_summary_path),
+          path: data.executive_summary_path,
+          kind: 'exec_summary',
+          group: 'output',
+        });
+      }
+      for (const f of data.output_files || []) {
+        if (f.kind === 'exec_summary') continue; // listed above
+        files.push({ name: f.name, path: f.path, kind: f.kind, group: 'output' });
+      }
+      for (const t of data.theme_files || []) {
+        files.push({
+          name: this._basename(t.path),
+          path: t.path,
+          kind: 'theme',
+          title: t.title,
+          group: 'themes',
+        });
+        if (t.distilled_path) {
+          files.push({
+            name: this._basename(t.distilled_path),
+            path: t.distilled_path,
+            kind: 'distilled',
+            group: 'themes/distilled',
+          });
+        }
+      }
+      this.tree = files;
+      this.fileCount = files.length;
+      this._buildTreeLines();
+    },
+
+    _buildTreeLines() {
+      // Group by `group` path so distilled lands under themes/distilled/.
+      const groups = new Map();
+      for (const f of this.tree) {
+        if (!groups.has(f.group)) groups.set(f.group, []);
+        groups.get(f.group).push(f);
+      }
+      const sorted = Array.from(groups.keys()).sort();
+      const lines = [];
+      const wsName = this._basename(this.path);
+      this.treeHeader = wsName + '/';
+      const groupKeys = sorted;
+      for (let gi = 0; gi < groupKeys.length; gi++) {
+        const g = groupKeys[gi];
+        const isLastGroup = gi === groupKeys.length - 1;
+        // Dir node
+        lines.push({
+          prefix: (isLastGroup ? '└── ' : '├── '),
+          name: g + '/',
+          ref: null,
+        });
+        const items = groups.get(g);
+        for (let i = 0; i < items.length; i++) {
+          const isLast = i === items.length - 1;
+          const pipe = isLastGroup ? '    ' : '│   ';
+          lines.push({
+            prefix: pipe + (isLast ? '└── ' : '├── '),
+            name: items[i].name,
+            ref: items[i],
+          });
+        }
+      }
+      this.treeLines = lines;
+    },
+
+    _basename(p) {
+      if (!p) return '';
+      const parts = p.split('/');
+      return parts[parts.length - 1] || p;
+    },
+
+    select(file) { this.selected = file; },
+
+    async reveal(file) {
+      if (!file?.path) return;
+      try {
+        const r = await fetch('/api/reveal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: this.path, target: file.path }),
+        });
+        if (!r.ok) {
+          const b = await r.json().catch(() => ({}));
+          throw new Error(b.detail || `Reveal failed (${r.status})`);
+        }
+      } catch (e) {
+        this.error = e.message || String(e);
+      }
+    },
+
+    async revealWorkspace() {
+      try {
+        const r = await fetch('/api/reveal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: this.path, target: this.path }),
+        });
+        if (!r.ok) {
+          // Fallback: copy path to clipboard.
+          try { await navigator.clipboard.writeText(this.path); } catch (_err) { /* noop */ }
+        }
+      } catch (_e) { /* soft-fail */ }
+    },
+
+    back() { this.$store.router.goTab('agents'); },
+
+    registerKeys() {
+      const bindings = [
+        { key: 'escape', label: 'BACK', run: () => this.back() },
+        { key: 'l',      label: 'LOCAL DIR', run: () => this.revealWorkspace() },
+        { key: 'arrowup',   run: () => this._moveSelection(-1) },
+        { key: 'arrowdown', run: () => this._moveSelection(+1) },
+        { key: 'k',         run: () => this._moveSelection(-1) },
+        { key: 'j',         run: () => this._moveSelection(+1) },
+        { key: 'enter',     run: () => { if (this.selected) this.reveal(this.selected); } },
+      ];
+      this.$store.hotkeys.register('screen:output', bindings);
+    },
+
+    _moveSelection(delta) {
+      const files = this.tree;
+      if (!files.length) return;
+      const idx = Math.max(0, files.indexOf(this.selected));
+      const next = (idx + delta + files.length) % files.length;
+      this.selected = files[next];
+    },
+  };
+}
