@@ -322,13 +322,25 @@ iconify-icon {
  * OUTPUT tab  —  file tree + preview
  * =================================================================== */
 
-.output-shell { min-height: 60vh; }
+/* Fill the vertical space inside the shell card. min-height on the
+ * card + flex on the body lets the grid stretch to whatever room is
+ * left under the header. */
+.output-shell {
+  min-height: 72vh;
+}
+.output-shell > .card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 
 .output-grid {
   display: grid;
   grid-template-columns: minmax(20ch, 30ch) minmax(0, 1fr);
   gap: var(--sp-3);
-  align-items: start;
+  /* Default `stretch` — preview and tree share the grid row height so
+   * the preview column fills all the way down next to a tall tree. */
+  align-items: stretch;
+  min-height: 100%;
 }
 
 .output-tree {
@@ -337,7 +349,6 @@ iconify-icon {
   gap: 2px;
   border-right: var(--border-w) dashed var(--recon-border);
   padding-right: var(--sp-2);
-  min-height: 40vh;
 }
 
 .output-tree-root {
@@ -378,7 +389,16 @@ iconify-icon {
 
 .output-preview {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-height: 0;
 }
+/* The inner stack (file-header row + the preview block) should let the
+ * preview block flex-grow. Alpine renders it via <template>, so apply
+ * the flex settings to its direct-child wrapper. */
+.output-preview > .stack { flex: 1 1 auto; min-height: 0; }
+
 .output-md {
   margin: 0;
   padding: 10px 14px;
@@ -388,7 +408,8 @@ iconify-icon {
   border-radius: var(--radius);
   font: inherit;
   overflow: auto;
-  max-height: 60vh;
+  flex: 1 1 auto;
+  min-height: 0;
   line-height: 1.55;
 }
 
