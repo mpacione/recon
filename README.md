@@ -39,8 +39,8 @@ A CLI and TUI for competitive intelligence research. Recon orchestrates LLM agen
 | TUI: theme curation gate | **Working** | Pipeline gate pushes ThemeCurationScreen mid-run. Toggle themes on/off, synthesize selected. Theme labels still use mechanical fallback (fastembed integration pending). |
 | Real-terminal PTY smoke tests | **Stable** | 25 tests spawn `recon tui` in a real PTY, press real keys, assert on rendered output. Covers every screen's primary keybinds + edge cases. |
 | Real-API E2E tests | **Available** | Opt-in via `ANTHROPIC_API_KEY`, tests in `tests/test_e2e_real.py` |
-| Web UI: `recon serve` (FastAPI + Alpine.js) | **Alpha** | Local loopback server, hash router, Welcome/Describe/Discovery/Template/Confirm screens shipped. Dashboard/Run/Results/Curation/Browser/Selector are placeholder routes (TUI-only until later phases). 84 web tests passing. See [`design/web-ui-spec.md`](design/web-ui-spec.md). |
-| Web UI: styling pass | **Stable** | Inter 4.0 (UI) + JetBrains Mono (data/code) hybrid, Lucide icons via `iconify-icon`, cyberspace.online Dark-theme palette, clickable flow-progress nav. Reference captures in [`docs/screenshots/`](docs/screenshots/). |
+| Web UI: `recon serve` (FastAPI + Alpine.js) | **Alpha (v4)** | Local loopback server with a 5-step wizard — RECON home → PLAN → SCHEMA → COMP'S → AGENTS → OUTPUT. Number keys jump tabs, SSE drives the live AGENTS monitor. See [`design/web-ui-spec.md`](design/web-ui-spec.md). |
+| Web UI: styling pass | **Stable (v4)** | Parchment-on-black TUI aesthetic (cream `#ede5c4` on `#000`), SF Mono via `ui-monospace`, Lucide icons via `iconify-icon`, ASCII block progress bars. Responsive down to 560px. |
 
 ## Install
 

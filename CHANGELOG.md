@@ -7,6 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed -- Web UI v4 redesign (TUI reskin + wizard paradigm)
+
+Full rebuild of the frontend around new Figma designs. The old
+workspace-then-6-tabs shape (overview/competitors/template/runs/brief/
+settings) is replaced with a 5-step wizard flow behind a numbered top
+nav: RECON home → PLAN [1] → SCHEMA [2] → COMP'S [3] → AGENTS [4] →
+OUTPUT [5].
+
+#### New frontend architecture
+
+- `static/recon.css` (new) — v4 layout: top/bottom nav, per-tab styles,
+  3 responsive tiers (mobile <560, tablet 560–820, desktop).
+- `static/primitives.css` rewritten — parchment-on-black token set
+  (cream `#ede5c4` on `#000`, body tan `#a59a86`, 4px radius, 4/12
+  card padding). Dropped amber/matrix/crypt theme variants; one look.
+- `static/app.js` rewritten — hash router with query-param support
+  (`?run=<id>`, `?autostart=1`), scoped hotkey store with
+  `allowInEditable` escape hatch, screen teardown store for SSE and
+  interval cleanup.
+- `static/index.html` rewritten — 6 `<template id="screen-*">` blocks,
+  iconify-icon script tag for Lucide glyphs.
+
+#### Tab implementations
+
+- **RECON home** — projects table (name/status/count/date/path, grid
+  reflows on narrow viewports), NEW PROJECT modal that creates a
+  workspace + saves Anthropic/Gemini API keys + jumps to PLAN.
+- **PLAN** — path header with LOCAL DIR action, RESEARCH BRIEF
+  textarea seeded from `workspace.domain`, model selector with
+  per-run `$` cost, worker count stepper (−/+).
+- **SCHEMA** — dossier section list with debounced `PUT /api/template`
+  on each toggle, preferred-format pill per row.
+- **COMP'S** — auto-discovers on entry via `POST /api/discover`,
+  deselect dims rows (reconciled on RUN via `DELETE /api/competitors`),
+  live cost estimator (`selected_count × per_comp_cost`), EDIT TERMS
+  modal, RUN button navigates to AGENTS with `?autostart=1`.
+- **AGENTS** — subscribes to `/api/events` (global) and filters by
+  `run_id`; POSTs the run *after* SSE attaches to avoid race with
+  fast (fake-LLM) runs. Persona worker cards (Scout/Ranger/Scribe/
+  Herald/Sentinel with rabbit/squirrel/bird/cat/dog icons, cheeky
+  idle pulse every ~15s). Per-competitor rows with `▓▒░` progress.
+  Completion modal routes to OUTPUT.
+- **OUTPUT** — box-drawing file tree (`├── └── │`), markdown preview
+  (currently exec summary only), REVEAL-in-Finder button per file.
+
+#### New backend endpoint
+
+- `POST /api/reveal` — opens a file or directory under the workspace
+  root in the host file manager. macOS `open -R`, linux `xdg-open`,
+  windows `explorer /select`. Path confinement check refuses targets
+  outside the workspace.
+
+#### Hotkey system
+
+- `0` jumps home, `1-5` switch flow tabs. Per-screen bindings layer
+  on top (`↑↓`/`jk` for row nav, `↲` primary action, `ESC` back/close,
+  context keys like `N`/`S`/`R`/`L`/`T`).
+- Registry supports scope IDs (`global`, `project-tabs`, `screen:*`)
+  and the `allowInEditable` flag, which lets `enter`/`escape`
+  propagate out of focused inputs while keeping number keys from
+  being swallowed.
+
+#### Kill list
+
+- v3 workspace-then-6-tabs UI (`overview`, `competitors`, `template`,
+  `runs`, `brief`, `settings` routes).
+- Theme switcher (`amber` / `dark` / `matrix` / `crypt`).
+- Cmd-K palette, API-keys popover, themes-gate modal (deferred).
+- `Departure Mono` / Inter-4 hybrid typography (single `SF Mono` via
+  `ui-monospace` now).
+
+#### Deferred
+
+- Persisting the research brief (no `PATCH /api/workspace` yet).
+- Adding schema sections via UI (backend endpoint missing).
+- Pause/resume/restart endpoints for the agent-card menu.
+- AI-improve button on COMP'S search terms modal.
+- Themes stage re-gated into AGENTS (user chose to defer).
+
 ### Added -- Web UI (Phases 1-7 + typography/nav polish)
 
 A third recon interface alongside the CLI and TUI. Local FastAPI app served

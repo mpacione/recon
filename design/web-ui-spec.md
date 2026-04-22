@@ -1,15 +1,100 @@
 # recon Web UI — Design Specification
 
-**Status:** Phases 1–7 shipped; Phases 8–10 stubbed (placeholder routes for
-dashboard/run/results/curation/browser/selector). Branch: `v2`. Started
-2026-04-13. Last updated 2026-04-14.
+**Status:** v4 redesign shipped 2026-04-22 on branch `v4-redesign`. The
+§§1–9 below describe the previous v3 "workspace + 6 tabs" shape and are
+retained for archaeology; the live shape is the **§0 v4 overview** at
+the top of this doc.
 
-Shipped so far: FastAPI scaffold + `recon serve` CLI (1), EventBridge (2),
-read-only API + recents lift (3), static Alpine shell + hash router (4),
-Welcome + Describe (5), Discovery (manual-mode, no LLM) (6), Template +
-Confirm (7). Plus two styling passes on top: Dark-theme colour match to
-cyberspace.online, Inter 4.0 + JetBrains Mono hybrid typography, Lucide
-icons via `iconify-icon`, and a clickable flow-progress nav.
+## 0. v4 overview (current)
+
+The web UI is a 5-tab wizard (plus a home screen) rendered in the
+Figma parchment-on-black TUI aesthetic. Flow:
+
+```
+RECON (home) → PLAN [1] → SCHEMA [2] → COMP'S [3] → AGENTS [4] → OUTPUT [5]
+```
+
+**Tab map.** RECON is the project picker (NEW PROJECT modal creates a
+workspace + saves API keys). PLAN collects the research brief + model
++ worker count. SCHEMA shows the dossier sections with per-section
+toggle (debounced save). COMP'S auto-discovers competitors on entry,
+renders them dim-on-deselect, computes a live cost estimate, and kicks
+off the run. AGENTS is the live monitor: persona worker cards on top
+(one per worker, with idle pulse animation) and per-competitor rows
+below. OUTPUT has a box-drawing file tree + markdown preview + a
+REVEAL button that opens the file in Finder.
+
+**Navigation.** All tabs are keyboard-addressable via number keys
+(`0`=RECON, `1-5`=tabs), plus per-screen bindings (`↑↓`/`jk`, `↲`, `ESC`,
+and context actions like `N`, `S`, `R`, `L`, `T`). Bindings are
+registered through a scoped `hotkeys` store (`scopes` stack, later
+scopes win on collision, `allowInEditable` flag escapes the normal
+"skip editable targets" check).
+
+**Screen lifecycle.** The shell clones a `<template id="screen-<key>">`
+into `#screen-slot` on route change. Before mounting, it flushes two
+stores:
+
+- `hotkeys.clearScreens()` — drops bindings registered under
+  `screen:*` ids
+- `screen.flush()` — runs teardown callbacks (EventSource.close,
+  interval clears) registered via `$store.screen.onTeardown(fn)`
+
+Screens push cleanup callbacks there in their `init()` because Alpine
+doesn't emit a teardown event when its subtree is removed.
+
+**SSE wiring.** AGENTS subscribes to `/api/events` (global stream),
+not `/api/runs/<id>/events`, and filters by `run_id` client-side —
+so it doesn't need to know the id before subscribing. Events are
+named (event: SectionStarted), not default messages, so listeners
+register per-class via `es.addEventListener('SectionStarted', ...)`.
+The run is POST'd *after* SSE connects (via `?autostart=1`) so fast
+(fake-LLM) runs don't race the subscription.
+
+**Palette** (from Figma; see §0.1 below): `#000` bg, `#ede5c4` cream
+primary, `#a59a86` body tan, `#787266` dim, `#ffffff` active-tab
+white, `#3a3a3a` border, `#fb4b4b` error. No theme variants (the old
+amber/matrix/crypt picker is gone).
+
+**Icons**: `iconify-icon` web component with `lucide:*` refs. ~14
+distinct icons in use; added via `<iconify-icon icon="lucide:globe" width="12">`.
+
+**Responsive**: 3 tiers (desktop ≥900, tablet 600-900, mobile <600).
+Top-nav tab labels collapse to icon+number on mobile; bottom-nav
+hint labels hide; table rows reflow via `nth-child(n + K)` on the
+row children.
+
+### 0.1 Files
+
+| File | Role |
+|---|---|
+| `static/index.html` | Single HTML, 6 `<template id="screen-*">` blocks |
+| `static/primitives.css` | Tokens + shared primitives (card, modal, btn, field, etc.) |
+| `static/recon.css` | v4 layout: topnav/botnav, per-tab styles, responsive |
+| `static/app.js` | Router, hotkey store, screen teardown store, tab factories |
+| `web/api.py` | FastAPI routes (unchanged except +`POST /api/reveal`) |
+
+### 0.2 New backend addition
+
+`POST /api/reveal` — opens a path under the workspace root in the host
+file manager (macOS `open -R`, linux `xdg-open`, win `explorer /select`).
+Path confinement check refuses targets outside workspace root. Used
+by OUTPUT's REVEAL buttons.
+
+### 0.3 Deferred / TODO
+
+- `POST /api/workspaces/{path}/brief` so the PLAN research-brief
+  textarea can persist to disk (currently client-state only, lost on
+  reload; seeds from `workspace.domain`).
+- `POST /api/template/sections` for user-added schema sections (UI has
+  a disabled "Add section" row with a note).
+- `POST /api/runs/{run_id}/pause|resume` + per-task restart +
+  debug-log overlay for the agent-card menu (UI has buttons that alert
+  with "not wired yet").
+- "AI improve" button inside the COMP'S search-terms modal (disabled).
+- Themes stage modal — user chose to defer until later.
+
+---
 
 This document is the canonical reference for the third recon UI: a local web UI
 that mirrors the TUI's functionality, shares the same engine, and ports the
