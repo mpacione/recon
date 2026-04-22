@@ -141,6 +141,27 @@ _BASELINE_MODEL_ID = "claude-sonnet-4-20250514"
 # recon.api_keys._KEY_MAP keys (the lowercase aliases).
 _RECOGNIZED_API_KEY_NAMES: frozenset[str] = frozenset({"anthropic", "google_ai"})
 
+
+# ---------------------------------------------------------------------------
+# Per-run control handles
+# ---------------------------------------------------------------------------
+#
+# Each in-flight run registers its cancel/pause asyncio.Events in the
+# module-level dict below so the pause/resume/cancel HTTP endpoints can
+# find them by run_id. The entry is removed in the run's `finally`
+# block when it terminates.
+
+from dataclasses import dataclass as _dataclass
+
+
+@_dataclass
+class RunControl:
+    cancel_event: Any
+    pause_event: Any
+
+
+_run_controls: dict[str, RunControl] = {}
+
 # Cap the executive-summary preview so the JSON payload stays small
 # even for runs that produced huge summaries. The full file is
 # available via /api/files (Phase 7).
@@ -208,6 +229,23 @@ def create_app() -> FastAPI:
     async def health() -> HealthResponse:
         """Liveness check. Used by the CLI to confirm the server booted."""
         return HealthResponse(ok=True, version=_package_version())
+
+    @app.delete("/api/recents")
+    async def delete_recent(path: str = Query(..., description="Project path to forget")) -> dict[str, bool]:
+        """Remove a project from the recents list (doesn't touch disk)."""
+        from recon.tui.screens.welcome import (
+            _DEFAULT_RECENT_PATH,
+            RecentProjectsManager,
+        )
+
+        manager = RecentProjectsManager(_DEFAULT_RECENT_PATH)
+        projects = manager.load()
+        before = len(projects)
+        projects = [p for p in projects if p.path != path]
+        if len(projects) == before:
+            raise HTTPException(status_code=404, detail=f"no recent with path {path!r}")
+        manager.save(projects)
+        return {"ok": True}
 
     @app.get("/api/recents", response_model=RecentProjectsResponse)
     async def recents() -> RecentProjectsResponse:
@@ -300,6 +338,75 @@ def create_app() -> FastAPI:
         """Post-run summary: exec summary preview + theme/output files."""
         ws = _open_workspace(path)
         return _build_results_response(ws.root)
+
+    @app.patch("/api/workspace")
+    async def patch_workspace(payload: dict[str, str]) -> dict[str, str]:
+        """Update workspace metadata (currently only the research brief).
+
+        Writes through to ``recon.yaml``'s top-level ``domain`` field
+        since that's the on-disk home of the user-authored description.
+        Future fields can join this endpoint rather than growing a new
+        one per field.
+        """
+        path = payload.get("path", "")
+        if not path:
+            raise HTTPException(status_code=400, detail="path required")
+        ws = _open_workspace(path)
+        schema_path = ws.root / "recon.yaml"
+        if not schema_path.exists():
+            raise HTTPException(status_code=404, detail=f"no recon.yaml in: {ws.root}")
+
+        raw = yaml.safe_load(schema_path.read_text()) or {}
+        changed: dict[str, str] = {}
+        if "brief" in payload:
+            # Cap at a reasonable size to avoid writing a novel.
+            new_brief = str(payload["brief"])[:4000]
+            raw["domain"] = new_brief
+            changed["brief"] = new_brief
+
+        if not changed:
+            return {"ok": "true", "changed": ""}
+
+        schema_path.write_text(
+            yaml.dump(raw, default_flow_style=False, sort_keys=False),
+        )
+        return {"ok": "true", **changed}
+
+    @app.get("/api/files")
+    async def get_file_content(
+        path: str = Query(..., description="Workspace directory path"),
+        target: str = Query(..., description="Absolute path to the file under the workspace"),
+    ) -> dict[str, str]:
+        """Read a text file from within the workspace.
+
+        Read-only, constrained to files under the workspace root, and
+        refuses symlinks that escape the root via ``.resolve()`` +
+        ``relative_to()``. Caps body at 200KB so a pathological target
+        doesn't blow up the browser.
+        """
+        ws = _open_workspace(path)
+        resolved = Path(target).resolve()
+        try:
+            resolved.relative_to(ws.root.resolve())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="target outside workspace") from exc
+        if not resolved.exists() or not resolved.is_file():
+            raise HTTPException(status_code=404, detail=f"{resolved} not a file")
+
+        # Guard against enormous files — 200KB is generous for markdown
+        # and refuses binary blobs that happen to be misnamed.
+        max_bytes = 200 * 1024
+        size = resolved.stat().st_size
+        if size > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"file {resolved} is {size} bytes, max {max_bytes}",
+            )
+        try:
+            content = resolved.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=415, detail="file is not utf-8 text") from exc
+        return {"content": content, "path": str(resolved), "bytes": str(size)}
 
     @app.post("/api/reveal")
     async def reveal_in_finder(payload: dict[str, str]) -> dict[str, bool]:
@@ -792,7 +899,12 @@ def create_app() -> FastAPI:
 
     @app.post("/api/api-keys")
     async def save_api_key_endpoint(payload: SaveApiKeyRequest) -> dict[str, bool]:
-        """Save a provider key to the workspace .env file.
+        """Save a provider key.
+
+        With a ``path`` the key is written to both the workspace ``.env``
+        and the global ``~/.recon/.env``. With an empty path we skip
+        the workspace write — this is the flow used by the Settings
+        overlay which can open without an active project.
 
         Validates the provider name against the recognized set so we
         don't write arbitrary attacker-controlled env vars.
@@ -805,11 +917,25 @@ def create_app() -> FastAPI:
                     f"recognized: {sorted(_RECOGNIZED_API_KEY_NAMES)}"
                 ),
             )
-        ws = _open_workspace(payload.path)
-        from recon.api_keys import save_api_key
 
-        save_api_key(payload.name, payload.value, ws.root)
-        return _load_api_key_status(ws.root)
+        from recon.api_keys import _DEFAULT_GLOBAL_DIR, _write_key_to_env, _REVERSE_KEY_MAP, save_api_key
+
+        if payload.path:
+            ws = _open_workspace(payload.path)
+            save_api_key(payload.name, payload.value, ws.root)
+            return _load_api_key_status(ws.root)
+
+        # Global-only path: write to ~/.recon/.env and return the
+        # global-status view.
+        env_var = _REVERSE_KEY_MAP.get(payload.name)
+        if env_var is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown api key name: {payload.name!r}",
+            )
+        _DEFAULT_GLOBAL_DIR.mkdir(parents=True, exist_ok=True)
+        _write_key_to_env(env_var, payload.value, _DEFAULT_GLOBAL_DIR / ".env")
+        return _load_global_api_key_status()
 
     @app.post("/api/runs")
     async def start_run(payload: StartRunRequest) -> StartRunResponse:
@@ -893,6 +1019,13 @@ def create_app() -> FastAPI:
                 detail=f"could not plan run: {exc}",
             ) from exc
 
+        # Register controls so pause/resume/cancel endpoints can look up
+        # the events by run_id. Entry is cleared when the run finishes.
+        _run_controls[run_id] = RunControl(
+            cancel_event=cancel_event,
+            pause_event=pause_event,
+        )
+
         async def _execute() -> None:
             try:
                 await pipeline.execute(run_id)
@@ -905,6 +1038,8 @@ def create_app() -> FastAPI:
                 _logging.getLogger(__name__).exception(
                     "pipeline run %s crashed", run_id,
                 )
+            finally:
+                _run_controls.pop(run_id, None)
 
         _asyncio.create_task(_execute())
 
@@ -913,6 +1048,45 @@ def create_app() -> FastAPI:
             events_url=f"/api/runs/{run_id}/events",
             use_fake_llm=True,
         )
+
+    @app.post("/api/runs/{run_id}/pause")
+    async def pause_run(run_id: str) -> dict[str, bool]:
+        """Pause an in-flight run. No-op once terminal."""
+        from recon.events import RunPaused, publish
+
+        ctrl = _run_controls.get(run_id)
+        if ctrl is None:
+            raise HTTPException(status_code=404, detail=f"run {run_id} not active")
+        ctrl.pause_event.clear()  # cleared = paused per convention above
+        publish(RunPaused(run_id=run_id))
+        return {"paused": True}
+
+    @app.post("/api/runs/{run_id}/resume")
+    async def resume_run(run_id: str) -> dict[str, bool]:
+        """Resume a paused run."""
+        from recon.events import RunResumed, publish
+
+        ctrl = _run_controls.get(run_id)
+        if ctrl is None:
+            raise HTTPException(status_code=404, detail=f"run {run_id} not active")
+        ctrl.pause_event.set()
+        publish(RunResumed(run_id=run_id))
+        return {"paused": False}
+
+    @app.post("/api/runs/{run_id}/cancel")
+    async def cancel_run(run_id: str) -> dict[str, bool]:
+        """Cancel an in-flight run (workers abort at next check)."""
+        from recon.events import RunCancelled, publish
+
+        ctrl = _run_controls.get(run_id)
+        if ctrl is None:
+            raise HTTPException(status_code=404, detail=f"run {run_id} not active")
+        ctrl.cancel_event.set()
+        # Workers may also need pause_event set to unblock before they
+        # notice cancel_event; set it defensively.
+        ctrl.pause_event.set()
+        publish(RunCancelled(run_id=run_id))
+        return {"cancelled": True}
 
     @app.get("/api/events")
     async def events() -> EventSourceResponse:
@@ -1142,6 +1316,30 @@ def _load_api_key_status(workspace_root: Path) -> dict[str, bool]:
         name: bool(keys.get(name))
         for name in sorted(_RECOGNIZED_API_KEY_NAMES)
     }
+
+
+def _load_global_api_key_status() -> dict[str, bool]:
+    """Presence map for the global ~/.recon/.env keys only.
+
+    Mirrors :func:`_load_api_key_status` for the workspace-less Settings
+    overlay flow. Falls through to all-False on any error so the UI
+    renders a stable shape.
+    """
+    try:
+        from recon.api_keys import _DEFAULT_GLOBAL_DIR, _parse_env_file, _KEY_MAP
+    except ImportError:
+        return {name: False for name in sorted(_RECOGNIZED_API_KEY_NAMES)}
+    try:
+        env = _parse_env_file(_DEFAULT_GLOBAL_DIR / ".env")
+    except Exception:
+        env = {}
+    # _KEY_MAP is env-var → logical name (e.g. ANTHROPIC_API_KEY → anthropic).
+    present: dict[str, bool] = {name: False for name in sorted(_RECOGNIZED_API_KEY_NAMES)}
+    for env_var, value in env.items():
+        logical = _KEY_MAP.get(env_var)
+        if logical and logical in present:
+            present[logical] = bool(value)
+    return present
 
 
 def _heuristic_company_name(description: str) -> str:

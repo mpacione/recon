@@ -139,7 +139,8 @@ class CreateWorkspaceRequest(BaseModel):
 
 
 class SaveApiKeyRequest(BaseModel):
-    path: str
+    # Empty string = "global-only write" (Settings overlay with no active project).
+    path: str = ""
     name: str  # Logical provider name: "anthropic" | "google_ai"
     value: str = Field(..., min_length=1)
 

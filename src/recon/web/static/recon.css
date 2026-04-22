@@ -381,15 +381,111 @@ iconify-icon {
 }
 .output-md {
   margin: 0;
-  padding: 10px 12px;
+  padding: 10px 14px;
   color: var(--recon-fg);
   background: transparent;
   border: var(--border-w) solid var(--recon-border);
   border-radius: var(--radius);
-  white-space: pre-wrap;
   font: inherit;
   overflow: auto;
-  max-height: 55vh;
+  max-height: 60vh;
+  line-height: 1.55;
+}
+
+/* Markdown element styling — keeps the TUI aesthetic but lets structure
+ * actually read as structure. Inherited size stays the same; spacing
+ * and color do the hierarchy work. */
+.output-md > *:first-child { margin-top: 0; }
+.output-md > *:last-child  { margin-bottom: 0; }
+
+.output-md h1,
+.output-md h2,
+.output-md h3,
+.output-md h4,
+.output-md h5,
+.output-md h6 {
+  margin: 1.2em 0 0.4em;
+  color: var(--recon-active);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: normal;
+}
+.output-md h1 { border-bottom: var(--border-w) solid var(--recon-border); padding-bottom: 0.25em; }
+.output-md h2 { color: var(--recon-fg); }
+.output-md h3,
+.output-md h4,
+.output-md h5,
+.output-md h6 { color: var(--recon-body); }
+
+.output-md p,
+.output-md ul,
+.output-md ol,
+.output-md blockquote,
+.output-md pre,
+.output-md table { margin: 0.6em 0; }
+
+.output-md ul,
+.output-md ol { padding-left: 2.4ch; }
+.output-md ul { list-style: none; }
+.output-md ul > li::before {
+  content: "·";
+  color: var(--recon-muted);
+  display: inline-block;
+  width: 1.4ch;
+  margin-left: -1.4ch;
+}
+.output-md ol { list-style: decimal; }
+
+.output-md a {
+  color: var(--recon-active);
+  text-decoration: underline;
+  text-decoration-color: var(--recon-border);
+  text-underline-offset: 0.2em;
+}
+.output-md a:hover { text-decoration-color: var(--recon-fg); }
+
+.output-md code {
+  padding: 0 4px;
+  background: color-mix(in oklab, var(--recon-fg) 8%, transparent);
+  border-radius: 2px;
+}
+.output-md pre {
+  padding: 10px 12px;
+  background: color-mix(in oklab, var(--recon-fg) 5%, transparent);
+  border: var(--border-w) solid var(--recon-border);
+  border-radius: var(--radius);
+  overflow: auto;
+}
+.output-md pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.output-md blockquote {
+  margin-left: 0;
+  padding: 0.1em 0 0.1em 1.2ch;
+  border-left: 2px solid var(--recon-fg);
+  color: var(--recon-body);
+}
+
+.output-md table { border-collapse: collapse; }
+.output-md th,
+.output-md td {
+  padding: 4px 8px;
+  border: var(--border-w) solid var(--recon-border);
+}
+.output-md th {
+  color: var(--recon-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: normal;
+  text-align: left;
+}
+
+.output-md hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: var(--border-w) dashed var(--recon-border);
 }
 
 @media (max-width: 720px) {

@@ -153,6 +153,9 @@ document.addEventListener('alpine:init', () => {
     },
   });
 
+  // Settings overlay toggle — global, opens from [Z] on any screen.
+  Alpine.store('settings', { open: false });
+
   // ---------------------------------------------------------------------
   // Router store
   // ---------------------------------------------------------------------
@@ -274,9 +277,7 @@ function reconShell() {
         },
         {
           key: 'z', label: 'SETTINGS', hint: 'right', icon: 'settings',
-          run: () => {
-            // TODO(phase 9): open settings palette.
-          },
+          run: () => { this.$store.settings.open = !this.$store.settings.open; },
         },
       ];
       this.$store.hotkeys.register('global', bindings);
@@ -436,14 +437,21 @@ function homeScreen() {
       this.$store.router.navigate('#/p/' + encodeURIComponent(p.path) + '/plan');
     },
 
-    deleteSelected() {
-      // Recents list is informational; there's no backend "delete
-      // project" yet. Remove from the local list so the UX responds,
-      // and rely on the backend to not re-surface stale paths. This
-      // matches v3 behavior.
+    async deleteSelected() {
       const p = this.projects[this.selectedIndex];
       if (!p) return;
       if (!confirm(`Remove "${p.name}" from the recents list?`)) return;
+      try {
+        const r = await fetch('/api/recents?path=' + encodeURIComponent(p.path), { method: 'DELETE' });
+        if (!r.ok && r.status !== 404) {
+          const b = await r.json().catch(() => ({}));
+          throw new Error(b.detail || `Delete failed (${r.status})`);
+        }
+      } catch (e) {
+        // Soft-fail: still remove from the UI so the user isn't stuck.
+        // Surface the error but don't block.
+        this.error = e.message || String(e);
+      }
       this.projects = this.projects.filter((x) => x.path !== p.path);
       this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.projects.length - 1));
     },
@@ -555,6 +563,10 @@ function planScreen() {
     // Workspace info
     companyName: '',
     brief: '',
+    _briefOriginal: '',
+    _briefSaveTimer: 0,
+    briefSaving: false,
+    briefSaved: false,
     competitorCount: 0,
 
     // Model selection
@@ -585,11 +597,45 @@ function planScreen() {
         if (!r.ok) return;
         const ws = await r.json();
         this.companyName = ws.company_name || '';
-        // Seed the brief from domain on first load. No persistence back
-        // to the workspace yet — brief changes live in local state
-        // until /api/workspaces gains a PATCH route.
-        if (!this.brief) this.brief = ws.domain || '';
+        const initial = ws.domain || '';
+        this.brief = initial;
+        this._briefOriginal = initial;
       } catch (_err) { /* non-fatal */ }
+    },
+
+    // Debounced save-on-type. Watch the textarea via x-model so every
+    // keystroke calls onBriefInput; we coalesce into one PATCH per
+    // ~600ms idle window. Don't fire if the text hasn't actually
+    // changed from what we last saved.
+    onBriefInput() {
+      clearTimeout(this._briefSaveTimer);
+      this.briefSaving = true;
+      this.briefSaved = false;
+      this._briefSaveTimer = setTimeout(() => this._saveBrief(), 600);
+    },
+
+    async _saveBrief() {
+      const next = (this.brief || '').trim();
+      if (next === this._briefOriginal.trim()) {
+        this.briefSaving = false;
+        return;
+      }
+      this.briefSaving = true;
+      try {
+        const r = await fetch('/api/workspace', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: this.path, brief: next }),
+        });
+        if (!r.ok) throw new Error(`Save failed (${r.status})`);
+        this._briefOriginal = next;
+        this.briefSaved = true;
+        setTimeout(() => { this.briefSaved = false; }, 1500);
+      } catch (_err) {
+        // Quiet error — reload the page will restore from disk.
+      } finally {
+        this.briefSaving = false;
+      }
     },
 
     async loadConfirm() {
@@ -1358,9 +1404,51 @@ function agentsScreen() {
     // -----------------------------------------------------------------
 
     openAgentMenu(i) { this.menuOpen = i; },
-    pauseRun()     { alert('Pause endpoint not wired — coming in a later phase.'); this.menuOpen = null; },
-    restartTask()  { alert('Restart endpoint not wired — coming in a later phase.'); this.menuOpen = null; },
-    debugTask()    { alert('Debug overlay not wired — coming in a later phase.');    this.menuOpen = null; },
+
+    async pauseRun() {
+      if (!this.runId) { this.menuOpen = null; return; }
+      const endpoint = this.runPaused ? 'resume' : 'pause';
+      try {
+        const r = await fetch('/api/runs/' + encodeURIComponent(this.runId) + '/' + endpoint, { method: 'POST' });
+        if (!r.ok) throw new Error(`${endpoint} failed (${r.status})`);
+        // Optimistic flip — SSE RunPaused/RunResumed will reaffirm.
+        this.runPaused = !this.runPaused;
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.menuOpen = null;
+      }
+    },
+
+    async cancelRun() {
+      if (!this.runId) { this.menuOpen = null; return; }
+      if (!confirm('Cancel this run? Workers will stop at the next check.')) {
+        this.menuOpen = null;
+        return;
+      }
+      try {
+        const r = await fetch('/api/runs/' + encodeURIComponent(this.runId) + '/cancel', { method: 'POST' });
+        if (!r.ok) throw new Error(`Cancel failed (${r.status})`);
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.menuOpen = null;
+      }
+    },
+
+    restartTask() {
+      // Per-task restart needs backend support we don't have yet;
+      // point the user at the obvious alternative.
+      alert('Per-task restart coming later. For now, start a new run from COMP\'S.');
+      this.menuOpen = null;
+    },
+
+    debugTask() {
+      // Debug overlay would pull events for a single (comp, section).
+      // Good follow-on but non-trivial; stub for now.
+      alert('Debug overlay coming later.');
+      this.menuOpen = null;
+    },
 
     closeCompletion() { this.completionModalOpen = false; },
     goOutput() {
@@ -1397,6 +1485,91 @@ function agentsScreen() {
 // OUTPUT tab  —  file tree + markdown preview + open-in-Finder
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Settings overlay  —  API-keys form, version footer
+// ---------------------------------------------------------------------------
+//
+// Global overlay accessible via [Z]. Loads the per-global saved status
+// (boolean per provider) without revealing the actual key values, and
+// lets the user write new values via POST /api/api-keys. Writes go to
+// ~/.recon/api_keys.yaml (the "global" location), not a per-workspace
+// .env, so a single set of keys covers every project.
+
+function settingsOverlay() {
+  return {
+    providers: [
+      { name: 'anthropic', label: 'Anthropic API key', placeholder: 'sk_ant_******************', value: '', saved: false },
+      { name: 'google_ai', label: 'Gemini API key',    placeholder: 'AI***************',          value: '', saved: false },
+    ],
+    version: '',
+    saving: false,
+    message: '',
+    errorMsg: '',
+
+    init() {
+      // Re-fetch saved state each time the overlay opens so leaving and
+      // reopening reflects any writes we just made.
+      this.$watch('$store.settings.open', (open) => {
+        if (open) this.refresh();
+      });
+    },
+
+    async refresh() {
+      this.message = '';
+      this.errorMsg = '';
+      for (const p of this.providers) p.value = '';
+      try {
+        const [keysR, healthR] = await Promise.all([
+          fetch('/api/api-keys/global'),
+          fetch('/api/health'),
+        ]);
+        if (keysR.ok) {
+          const data = await keysR.json();
+          for (const p of this.providers) p.saved = !!data[p.name];
+        }
+        if (healthR.ok) {
+          const h = await healthR.json();
+          this.version = h.version || '';
+        }
+      } catch (_err) { /* non-fatal */ }
+    },
+
+    async save() {
+      this.saving = true;
+      this.errorMsg = '';
+      this.message = '';
+      try {
+        const writes = this.providers
+          .filter((p) => p.value.trim())
+          .map((p) => fetch('/api/api-keys', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            // Global path for keys — backend accepts empty path for
+            // the ~/.recon/api_keys.yaml file.
+            body: JSON.stringify({ path: '', name: p.name, value: p.value.trim(), global: true }),
+          }));
+        if (!writes.length) {
+          this.message = 'Nothing to save — enter a value first.';
+          return;
+        }
+        const results = await Promise.all(writes);
+        const bad = results.find((r) => !r.ok);
+        if (bad) {
+          const b = await bad.json().catch(() => ({}));
+          throw new Error(b.detail || `Save failed (${bad.status})`);
+        }
+        this.message = 'Saved.';
+        for (const p of this.providers) p.value = '';
+        await this.refresh();
+      } catch (e) {
+        this.errorMsg = e.message || String(e);
+      } finally {
+        this.saving = false;
+      }
+    },
+  };
+}
+
 function outputScreen() {
   return {
     loading: true,
@@ -1406,7 +1579,12 @@ function outputScreen() {
     treeHeader: '',
     fileCount: 0,
     selected: null,    // one of the file entries
-    execPreview: '',
+
+    // Preview pane state
+    previewLoading: false,
+    previewError: '',
+    previewHtml: '',
+    _previewCache: {},  // path -> rendered html
 
     get path() { return this.$store.router.params.path; },
     get encodedPath() { return encodeURIComponent(this.path); },
@@ -1414,6 +1592,7 @@ function outputScreen() {
     async init() {
       this.registerKeys();
       await this.load();
+      if (this.selected) this._loadPreview(this.selected);
     },
 
     async load() {
@@ -1426,7 +1605,6 @@ function outputScreen() {
           throw new Error(b.detail || `Outputs unavailable (${r.status})`);
         }
         const data = await r.json();
-        this.execPreview = data.executive_summary_preview || '';
         this._buildTree(data);
         if (this.tree.length) {
           // Default selection: exec summary (or first file).
@@ -1438,6 +1616,60 @@ function outputScreen() {
       } finally {
         this.loading = false;
       }
+    },
+
+    async _loadPreview(file) {
+      if (!file?.path) return;
+      // Cache-hit: render synchronously from memory. Files don't
+      // change mid-session; if they do, a tab re-mount flushes the
+      // cache anyway.
+      if (this._previewCache[file.path] != null) {
+        this.previewHtml = this._previewCache[file.path];
+        this.previewError = '';
+        this.previewLoading = false;
+        return;
+      }
+      this.previewLoading = true;
+      this.previewError = '';
+      this.previewHtml = '';
+      try {
+        const url = '/api/files?path=' + this.encodedPath + '&target=' + encodeURIComponent(file.path);
+        const r = await fetch(url);
+        if (!r.ok) {
+          const b = await r.json().catch(() => ({}));
+          throw new Error(b.detail || `File read failed (${r.status})`);
+        }
+        const data = await r.json();
+        this.previewHtml = this._renderMarkdown(data.content || '');
+        this._previewCache[file.path] = this.previewHtml;
+      } catch (e) {
+        this.previewError = e.message || String(e);
+      } finally {
+        this.previewLoading = false;
+      }
+    },
+
+    // Markdown → safe HTML. marked() parses, DOMPurify strips anything
+    // that could execute. Skip markdown rendering entirely if either
+    // library failed to load so we at least show plaintext.
+    _renderMarkdown(md) {
+      if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+        return md.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+      }
+      try {
+        const html = marked.parse(md, { breaks: true, gfm: true });
+        return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+      } catch (_err) {
+        return md.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+      }
+    },
+
+    iconFor(file) {
+      if (!file) return 'lucide:file';
+      if (file.kind === 'exec_summary') return 'lucide:file-text';
+      if (file.kind === 'theme') return 'lucide:tag';
+      if (file.kind === 'distilled') return 'lucide:sparkles';
+      return 'lucide:file-text';
     },
 
     _buildTree(data) {
@@ -1517,7 +1749,10 @@ function outputScreen() {
       return parts[parts.length - 1] || p;
     },
 
-    select(file) { this.selected = file; },
+    select(file) {
+      this.selected = file;
+      this._loadPreview(file);
+    },
 
     async reveal(file) {
       if (!file?.path) return;
@@ -1571,6 +1806,7 @@ function outputScreen() {
       const idx = Math.max(0, files.indexOf(this.selected));
       const next = (idx + delta + files.length) % files.length;
       this.selected = files[next];
+      this._loadPreview(this.selected);
     },
   };
 }

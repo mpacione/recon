@@ -8,6 +8,11 @@
   <link rel="stylesheet" href="/static/recon.css">
   <!--RECON_CONFIG-->
   <script src="https://code.iconify.design/iconify-icon/2.0.0/iconify-icon.min.js"></script>
+  <!-- marked for markdown rendering in the OUTPUT tab. Loaded non-defer
+       so it's available synchronously from Alpine init; DOMPurify
+       sanitizes the rendered HTML before we inject it. -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
   <script defer src="/static/app.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
@@ -249,10 +254,15 @@
         <section class="card">
           <header class="card-head">
             <span class="card-title">Research Brief<span class="dim" x-show="companyName"> — <span x-text="companyName"></span></span></span>
+            <span class="card-meta">
+              <span class="dim" x-show="briefSaving">saving…</span>
+              <span class="fg" x-show="briefSaved && !briefSaving">saved</span>
+            </span>
           </header>
           <div class="card-body">
             <textarea class="plan-brief"
                       x-model="brief"
+                      @input="onBriefInput()"
                       rows="3"
                       placeholder="Type a short description of what you are looking to learn about this company and it's competitive space."></textarea>
           </div>
@@ -666,11 +676,15 @@
                   </button>
                 </header>
                 <div class="card-body stack stack-tight">
-                  <button type="button" class="btn" @click="pauseRun()" :disabled="runPaused">
-                    <iconify-icon icon="lucide:pause" width="11"></iconify-icon>
-                    PAUSE RUN
+                  <button type="button" class="btn" @click="pauseRun()" :disabled="terminal">
+                    <iconify-icon :icon="runPaused ? 'lucide:play' : 'lucide:pause'" width="11"></iconify-icon>
+                    <span x-text="runPaused ? 'RESUME RUN' : 'PAUSE RUN'"></span>
                   </button>
-                  <button type="button" class="btn" @click="restartTask()">
+                  <button type="button" class="btn" @click="cancelRun()" :disabled="terminal">
+                    <iconify-icon icon="lucide:square" width="11"></iconify-icon>
+                    CANCEL RUN
+                  </button>
+                  <button type="button" class="btn" @click="restartTask()" :disabled="terminal">
                     <iconify-icon icon="lucide:rotate-ccw" width="11"></iconify-icon>
                     RESTART TASK
                   </button>
@@ -679,7 +693,7 @@
                     DEBUG
                   </button>
                   <p class="dim" style="font-size: 0.92em;">
-                    Pause / restart / debug are placeholders — no backend wire-up yet.
+                    Pause &amp; cancel are wired. Restart + debug land later.
                   </p>
                 </div>
               </div>
@@ -749,38 +763,30 @@
               <template x-if="!selected || !selected.kind">
                 <p class="dim" style="padding: 8px 0;">Select a file.</p>
               </template>
-              <template x-if="selected && selected.kind === 'exec_summary'">
+              <template x-if="selected">
                 <div class="stack stack-tight">
                   <div class="inline inline-tight">
-                    <iconify-icon icon="lucide:file-text" width="12"></iconify-icon>
+                    <iconify-icon :icon="iconFor(selected)" width="12"></iconify-icon>
                     <span class="fg" x-text="selected.name"></span>
                     <span class="fill"></span>
+                    <span class="dim" x-show="previewLoading">loading…</span>
                     <button type="button" class="btn btn--sm" @click="reveal(selected)">
                       <iconify-icon icon="lucide:folder-open" width="11"></iconify-icon>
                       REVEAL
                     </button>
                   </div>
-                  <pre class="output-md" x-text="execPreview"></pre>
-                  <p class="dim" style="font-size: 0.92em;">
-                    Preview truncated — open the file to see the full report.
-                  </p>
-                </div>
-              </template>
-              <template x-if="selected && selected.kind !== 'exec_summary'">
-                <div class="stack stack-tight">
-                  <div class="inline inline-tight">
-                    <iconify-icon :icon="selected.kind === 'theme' ? 'lucide:tag' : 'lucide:file-text'" width="12"></iconify-icon>
-                    <span class="fg" x-text="selected.name"></span>
-                    <span class="fill"></span>
-                    <button type="button" class="btn btn--sm" @click="reveal(selected)">
-                      <iconify-icon icon="lucide:folder-open" width="11"></iconify-icon>
-                      REVEAL
-                    </button>
-                  </div>
-                  <p class="body" x-text="selected.path"></p>
-                  <p class="dim" style="font-size: 0.92em;">
-                    Click <span class="fg">REVEAL</span> to open the file in Finder.
-                  </p>
+
+                  <template x-if="previewError">
+                    <p class="alert alert--err" x-text="previewError"></p>
+                  </template>
+
+                  <template x-if="!previewError && previewHtml">
+                    <div class="output-md" x-html="previewHtml"></div>
+                  </template>
+
+                  <template x-if="!previewError && !previewHtml && !previewLoading">
+                    <p class="dim" style="padding: 8px 0;">(empty file)</p>
+                  </template>
                 </div>
               </template>
             </section>
@@ -789,6 +795,59 @@
       </template>
     </div>
   </template>
+
+  <!-- Settings overlay — available from every screen via [Z]. Keys are
+       stored in ~/.recon/api_keys.yaml via the existing /api/api-keys
+       endpoints. -->
+  <div x-data="settingsOverlay()"
+       x-show="$store.settings.open"
+       x-cloak
+       class="modal"
+       @click.self="$store.settings.open = false"
+       @keydown.escape.window="$store.settings.open = false">
+    <div class="modal-sheet modal-sheet--wide card" @click.stop>
+      <header class="card-head">
+        <span class="card-title">Settings</span>
+        <span class="card-meta">
+          <span class="dim">Stored in</span>
+          <code class="fg">~/.recon/api_keys.yaml</code>
+        </span>
+      </header>
+      <div class="card-body stack stack-tight">
+        <template x-for="p in providers" :key="p.name">
+          <label class="field">
+            <span class="field-head">
+              <span class="field-label" x-text="p.label"></span>
+              <span :class="p.saved ? 'fg' : 'dim'" x-text="p.saved ? 'SAVED' : 'NOT SET'"></span>
+            </span>
+            <input type="password"
+                   x-model="p.value"
+                   :placeholder="p.saved ? '•••• already saved — enter a new value to overwrite' : p.placeholder"
+                   autocomplete="off">
+          </label>
+        </template>
+        <template x-if="message">
+          <p class="alert alert--ok" x-text="message"></p>
+        </template>
+        <template x-if="errorMsg">
+          <p class="alert alert--err" x-text="errorMsg"></p>
+        </template>
+      </div>
+      <footer class="card-foot">
+        <span class="dim" x-show="version">
+          <span x-text="'recon ' + version"></span>
+        </span>
+        <span class="fill"></span>
+        <button type="button" class="btn" @click="$store.settings.open = false">
+          CLOSE <span class="btn-key">[ESC]</span>
+        </button>
+        <button type="button" class="btn btn--primary" @click="save()" :disabled="saving">
+          <span x-text="saving ? 'SAVING…' : 'SAVE'"></span>
+          <span class="btn-key" x-show="!saving">[↲]</span>
+        </button>
+      </footer>
+    </div>
+  </div>
 
   <template id="screen-not-found">
     <div class="screen">
