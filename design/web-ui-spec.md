@@ -81,17 +81,35 @@ file manager (macOS `open -R`, linux `xdg-open`, win `explorer /select`).
 Path confinement check refuses targets outside workspace root. Used
 by OUTPUT's REVEAL buttons.
 
-### 0.3 Deferred / TODO
+### 0.3 Shipped since the initial v4 commit
 
-- `POST /api/workspaces/{path}/brief` so the PLAN research-brief
-  textarea can persist to disk (currently client-state only, lost on
-  reload; seeds from `workspace.domain`).
+- **File contents endpoint**: `GET /api/files` reads any text file
+  under the workspace root (200KB cap, utf-8-only, path confinement).
+  Drives the OUTPUT tab markdown preview via `marked` + `DOMPurify`
+  (CDN).
+- **Brief persistence**: `PATCH /api/workspace` writes `brief` through
+  to `recon.yaml:domain`. PLAN auto-saves on keystroke (600ms debounce).
+- **Pause/resume/cancel**: each run parks its `cancel_event` /
+  `pause_event` asyncio handles in a `_run_controls` dict keyed by
+  run_id. Three endpoints (`POST /api/runs/<id>/{pause,resume,cancel}`)
+  look them up and toggle. Publishes `RunPaused` / `RunResumed` /
+  `RunCancelled` events so the UI reaffirms state via SSE. AGENTS
+  menu wired.
+- **Recent delete**: `DELETE /api/recents?path=...` removes from
+  `~/.recon/recent.json`.
+- **Settings overlay** on `[Z]`: global API-keys form using a
+  no-workspace flavor of `POST /api/api-keys` (empty `path` writes
+  only to `~/.recon/.env`).
+
+### 0.4 Still deferred
+
 - `POST /api/template/sections` for user-added schema sections (UI has
   a disabled "Add section" row with a note).
-- `POST /api/runs/{run_id}/pause|resume` + per-task restart +
-  debug-log overlay for the agent-card menu (UI has buttons that alert
-  with "not wired yet").
+- Per-task restart + per-task debug-log overlay in the agent menu (UI
+  has buttons that alert with "coming later"). The existing pipeline
+  doesn't expose per-task restart without refactor.
 - "AI improve" button inside the COMP'S search-terms modal (disabled).
+  Needs new LLM plumbing — deliberately out of reskin scope.
 - Themes stage modal — user chose to defer until later.
 
 ---

@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added -- Web UI v4 follow-up polish
+
+Unblocks items deferred from the initial v4 reskin. Each addition
+scoped to the smallest backend surface the UI needed — no speculative
+helpers.
+
+- **OUTPUT** renders full markdown now. New `GET /api/files` reads any
+  text file under the workspace root (200KB cap, utf-8-only, path
+  confinement) and the tab uses `marked` + `DOMPurify` (CDN) to
+  render. Styled to match the TUI aesthetic (uppercase H1/H2,
+  monospace tables, `·`-bulleted lists).
+- **PLAN** research brief auto-saves (600ms debounce) via a new
+  `PATCH /api/workspace`, writing through to `recon.yaml:domain`. Head
+  of the Research Brief card shows saving… / saved status. Brief
+  survives page reloads.
+- **AGENTS** pause/resume now actually works. Each run's
+  `cancel_event` / `pause_event` is registered in a module-level
+  `_run_controls` dict on `start_run`; three new endpoints
+  (`POST /api/runs/<id>/{pause,resume,cancel}`) look the events up by
+  run_id and toggle them. CANCEL RUN added to the agent menu. The
+  client flips state optimistically and the `RunPaused`/`RunResumed`
+  SSE events reaffirm.
+- **RECON** home delete persists: `DELETE /api/recents?path=...`
+  removes the entry from `~/.recon/recent.json`. UI still soft-fails
+  on HTTP error so the local list updates regardless.
+- **Settings overlay** on `[Z]` from any screen. Global Anthropic /
+  Gemini API key form with saved indicators; `POST /api/api-keys` now
+  accepts empty `path` and writes only to `~/.recon/.env`. Footer
+  shows `recon <version>`.
+
 ### Changed -- Web UI v4 redesign (TUI reskin + wizard paradigm)
 
 Full rebuild of the frontend around new Figma designs. The old
