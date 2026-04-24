@@ -16,7 +16,7 @@ from typing import Any
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, Checkbox, Footer, Header, Input, SelectionList, Static
+from textual.widgets import Button, Checkbox, Input, SelectionList, Static
 
 from recon.tui.theme import RECON_CSS
 from recon.wizard import DecisionContext, DefaultSections, WizardPhase, WizardState
@@ -68,13 +68,13 @@ class _IdentityPhase(Vertical):
     def compose(self) -> ComposeResult:
         ctx_items = [(ctx.value, idx) for idx, ctx in enumerate(DecisionContext)]
 
-        yield Static("[#a89984]Company name[/]", classes="wizard-label")
+        yield Static("[#a59a86]Company name[/]", classes="wizard-label")
         yield Input(placeholder="e.g. Acme Corp", id="input-company")
-        yield Static("[#a89984]Products (comma-separated)[/]", classes="wizard-label")
+        yield Static("[#a59a86]Products (comma-separated)[/]", classes="wizard-label")
         yield Input(placeholder="e.g. Acme CI, Acme Deploy", id="input-products")
-        yield Static("[#a89984]Domain description[/]", classes="wizard-label")
+        yield Static("[#a59a86]Domain description[/]", classes="wizard-label")
         yield Input(placeholder="e.g. CI/CD Tools", id="input-domain")
-        yield Static("[#a89984]Decision context (Space to toggle)[/]", classes="wizard-label")
+        yield Static("[#a59a86]Decision context (Space to toggle)[/]", classes="wizard-label")
         yield SelectionList(*ctx_items, id="ctx-selection")
         yield Checkbox("Research own products through the same lens", id="cb-own-product")
         with Horizontal(classes="button-row"):
@@ -91,7 +91,7 @@ class _SectionsPhase(Vertical):
             (f"{s['title']} -- {s['description']}", s["key"], s["key"] in self._selected_keys)
             for s in DefaultSections.ALL
         ]
-        yield Static(f"[#a89984]Select sections ({len(self._selected_keys)} recommended)[/]")
+        yield Static(f"[#a59a86]Select sections ({len(self._selected_keys)} recommended)[/]")
         yield SelectionList(*items, id="section-selection")
         with Horizontal(classes="button-row"):
             yield Button("Back", id="btn-back")
@@ -104,7 +104,7 @@ class _SourcesPhase(Vertical):
         self._state = state
 
     def compose(self) -> ComposeResult:
-        yield Static("[#a89984]Source preferences (defaults shown, accept to continue)[/]")
+        yield Static("[#a59a86]Source preferences (defaults shown, accept to continue)[/]")
         yield Static("")
         for section in DefaultSections.ALL:
             key = section["key"]
@@ -113,7 +113,7 @@ class _SourcesPhase(Vertical):
             sources = self._state.get_source_preferences(key)
             primary = ", ".join(sources.get("primary", []))
             yield Static(f"[bold]{section['title']}[/]")
-            yield Static(f"  [#a89984]Primary:[/] {primary}")
+            yield Static(f"  [#a59a86]Primary:[/] {primary}")
             yield Static("")
         with Horizontal(classes="button-row"):
             yield Button("Back", id="btn-back")
@@ -132,16 +132,16 @@ class _ReviewPhase(Vertical):
         ]
         section_list = "\n".join(f"  {s}" for s in sections)
 
-        yield Static("[bold #e0a044]Review your workspace configuration[/]")
-        yield Static(f"[#a89984]Domain:[/] {self._state.domain}")
-        yield Static(f"[#a89984]Company:[/] {self._state.company_name}")
-        yield Static(f"[#a89984]Products:[/] {', '.join(self._state.products)}")
-        yield Static(f"[#a89984]Own-product research:[/] {'Yes' if self._state.own_product else 'No'}")
+        yield Static("[bold #DDEDC4]Review your workspace configuration[/]")
+        yield Static(f"[#a59a86]Domain:[/] {self._state.domain}")
+        yield Static(f"[#a59a86]Company:[/] {self._state.company_name}")
+        yield Static(f"[#a59a86]Products:[/] {', '.join(self._state.products)}")
+        yield Static(f"[#a59a86]Own-product research:[/] {'Yes' if self._state.own_product else 'No'}")
         yield Static("")
-        yield Static(f"[#a89984]Sections ({len(sections)}):[/]")
+        yield Static(f"[#a59a86]Sections ({len(sections)}):[/]")
         yield Static(section_list)
         yield Static("")
-        yield Static("[#a89984]Anthropic API key (required for research)[/]")
+        yield Static("[#a59a86]Anthropic API key (required for research)[/]")
         yield Input(placeholder="sk-ant-...", id="input-api-key", password=True)
         yield Static("")
         with Horizontal(classes="button-row"):
@@ -168,10 +168,8 @@ class WizardApp(App):
         self.api_key: str = ""
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=False)
         yield Static(self._indicator_text(), id="phase-indicator")
         yield Vertical(id="phase-content")
-        yield Footer()
 
     def on_mount(self) -> None:
         self._refresh_phase()
@@ -179,7 +177,7 @@ class WizardApp(App):
     def _indicator_text(self) -> str:
         idx = _PHASE_ORDER.index(self.state.phase) + 1
         label = _PHASE_LABELS[self.state.phase]
-        return f"[bold #e0a044]Step {idx} of 4 -- {label}[/]"
+        return f"[bold #DDEDC4]Step {idx} of 4 -- {label}[/]"
 
     def _refresh_phase(self) -> None:
         self.query_one("#phase-indicator", Static).update(self._indicator_text())

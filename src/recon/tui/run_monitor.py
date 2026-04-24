@@ -176,25 +176,32 @@ def _truncate_error(error: str) -> str:
     return cleaned
 
 
-_FULL_BLOCK = "\u2588"  # █
-_LIGHT_SHADE = "\u2591"  # ░
+_FULL_BLOCK = "\u2593"   # ▓ — filled (v4 matches web + cli_ui)
+_MEDIUM_SHADE = "\u2592"  # ▒ — half cell at the fill boundary
+_LIGHT_SHADE = "\u2591"   # ░ — empty
 
 
 def render_progress_bar(fraction: float, width: int = 24) -> str:
     """Render a shaded ASCII progress bar.
 
-    Uses Unicode block elements for a smooth visual:
-    ``████████████░░░░░░░░░░░░``
+    Uses the v4 shade trio ``▓▒░`` matching the web UI + CLI. Same
+    rendering algorithm as ``cli_ui.renderables.shaded_bar``: full
+    cells, one half-cell at the fill boundary if we're ≥ 0.5 into
+    the next cell, empty cells after.
     """
-    filled = int(fraction * width)
-    empty = width - filled
+    clamped = max(0.0, min(1.0, float(fraction)))
+    exact = clamped * width
+    filled = int(exact)
+    half = 1 if (exact - filled) >= 0.5 else 0
+    empty = max(0, width - filled - half)
 
-    if fraction >= 1.0:
-        return f"[#98971a]{_FULL_BLOCK * width}[/]"
-    if filled == 0:
+    if filled >= width:
+        return f"[#DDEDC4]{_FULL_BLOCK * width}[/]"
+    if filled == 0 and half == 0:
         return f"[#3a3a3a]{_LIGHT_SHADE * width}[/]"
     return (
-        f"[#e0a044]{_FULL_BLOCK * filled}[/]"
+        f"[#DDEDC4]{_FULL_BLOCK * filled}"
+        f"{_MEDIUM_SHADE * half}[/]"
         f"[#3a3a3a]{_LIGHT_SHADE * empty}[/]"
     )
 
@@ -218,7 +225,7 @@ class CompetitorGrid(Static):
         height: auto;
         width: 100%;
         padding: 0 0;
-        color: #efe5c0;
+        color: #DDEDC4;
     }
     """
 
@@ -325,15 +332,15 @@ class CompetitorGrid(Static):
         pct = f"{s.progress_fraction * 100:.0f}%" if total > 0 else "0%"
 
         lines.append(
-            f"[bold #e0a044]── RESEARCH MONITOR ──[/]  "
-            f"[#a89984]{elapsed}[/]  "
-            f"[#e0a044]{cost}[/]  "
-            f"[#a89984]Workers:[/] [#e0a044]{workers}[/]"
+            f"[bold #DDEDC4]── RESEARCH MONITOR ──[/]  "
+            f"[#a59a86]{elapsed}[/]  "
+            f"[#DDEDC4]{cost}[/]  "
+            f"[#a59a86]Workers:[/] [#DDEDC4]{workers}[/]"
         )
         lines.append("")
 
         if not s.competitors:
-            lines.append("[#a89984]waiting for pipeline...[/]")
+            lines.append("[#a59a86]waiting for pipeline...[/]")
             self.update("\n".join(lines))
             return
 
@@ -352,24 +359,24 @@ class CompetitorGrid(Static):
             # Status indicator on the right
             retrying = sum(1 for v in cs.sections.values() if v == RETRYING)
             if cs.is_complete:
-                indicator = "  [#98971a]\\[ok][/]"
+                indicator = "  [#DDEDC4]\\[ok][/]"
             elif cs.failed > 0:
                 first_error = next(iter(cs.failure_errors.values()), "")
                 error_hint = _truncate_error(first_error) if first_error else ""
                 error_suffix = f": {error_hint}" if error_hint else ""
-                indicator = f"  [#cc241d]{cs.failed} failed{error_suffix}[/]"
+                indicator = f"  [#fb4b4b]{cs.failed} failed{error_suffix}[/]"
             elif retrying > 0:
-                indicator = f"  [#d79921]~> retrying[/]"
+                indicator = f"  [#a59a86]~> retrying[/]"
             elif cs.active_section:
-                indicator = f"  [#e0a044]>> {cs.active_section}[/]"
+                indicator = f"  [#DDEDC4]>> {cs.active_section}[/]"
             else:
                 indicator = ""
 
             lines.append(
-                f"[#efe5c0]{name_padded}[/]  "
+                f"[#DDEDC4]{name_padded}[/]  "
                 f"{bar}  "
-                f"[#a89984]{count:>5}[/]  "
-                f"[#a89984]{pct_str:>4}[/]"
+                f"[#a59a86]{count:>5}[/]  "
+                f"[#a59a86]{pct_str:>4}[/]"
                 f"{indicator}"
             )
 
@@ -378,8 +385,8 @@ class CompetitorGrid(Static):
         global_bar = render_progress_bar(s.progress_fraction, 40)
         lines.append(
             f"{global_bar}  "
-            f"[#e0a044]{done}[/][#a89984]/{total} sections[/]  "
-            f"[#e0a044]{pct}[/]"
+            f"[#DDEDC4]{done}[/][#a59a86]/{total} sections[/]  "
+            f"[#DDEDC4]{pct}[/]"
         )
 
         self.update("\n".join(lines))
@@ -404,7 +411,7 @@ class WorkerPanel(Static):
         width: 100%;
         padding: 0 0;
         margin: 1 0 0 0;
-        color: #a89984;
+        color: #a59a86;
         border-top: solid #3a3a3a;
     }
     """
@@ -423,16 +430,16 @@ class WorkerPanel(Static):
 
         if count == 0:
             self.update(
-                "[#a89984]WORKERS[/]  [#3a3a3a]none active[/]",
+                "[#a59a86]WORKERS[/]  [#3a3a3a]none active[/]",
             )
             return
 
-        label = f"[#a89984]WORKERS[/]  [#e0a044]{count}[/] [#a89984]active[/]"
+        label = f"[#a59a86]WORKERS[/]  [#DDEDC4]{count}[/] [#a59a86]active[/]"
         slots: list[str] = []
         for i, (comp, section) in enumerate(active[: self._max_display]):
             slots.append(
-                f"[#3a3a3a]\\[[/][#e0a044]{i + 1}[/][#3a3a3a]\\][/] "
-                f"[#efe5c0]{comp}[/] [#3a3a3a]·[/] [#a89984]{section}[/]"
+                f"[#3a3a3a]\\[[/][#DDEDC4]{i + 1}[/][#3a3a3a]\\][/] "
+                f"[#DDEDC4]{comp}[/] [#3a3a3a]·[/] [#a59a86]{section}[/]"
             )
 
         if count > self._max_display:

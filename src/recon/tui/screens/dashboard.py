@@ -26,7 +26,9 @@ _log = get_logger(__name__)
 
 
 class DashboardScreen(ReconScreen):
-    """Workspace status dashboard."""
+    """Workspace status dashboard — v4 RECON home tab."""
+
+    tab_key = "recon"
 
     BINDINGS = [
         Binding("r", "run", "run pipeline"),
@@ -38,8 +40,8 @@ class DashboardScreen(ReconScreen):
     ]
 
     keybind_hints = (
-        "[#e0a044]r[/] run · [#e0a044]d[/] discover · [#e0a044]b[/] browse · "
-        "[#e0a044]e[/] edit schema · [#e0a044]q[/] quit · [#e0a044]?[/] help"
+        "[#DDEDC4]r[/] run · [#DDEDC4]d[/] discover · [#DDEDC4]b[/] browse · "
+        "[#DDEDC4]e[/] edit schema · [#DDEDC4]q[/] quit · [#DDEDC4]?[/] help"
     )
 
     DEFAULT_CSS = """
@@ -51,7 +53,7 @@ class DashboardScreen(ReconScreen):
     }
     #workspace-path {
         height: auto;
-        color: #a89984;
+        color: #a59a86;
     }
     #competitor-stats {
         height: auto;
@@ -64,7 +66,7 @@ class DashboardScreen(ReconScreen):
     #empty-prompt {
         height: auto;
         margin: 1 0;
-        padding: 1 2;
+        padding: 0 1;
         border: solid #3a3a3a;
     }
     """
@@ -75,6 +77,11 @@ class DashboardScreen(ReconScreen):
         self._workspace_path = workspace_path
 
     def compose_body(self) -> ComposeResult:
+        yield Static(
+            f"[#DDEDC4]{self._data.company_name}[/] [#787266]·[/] "
+            f"[#a59a86]{self._data.domain}[/]",
+            id="dashboard-summary",
+        )
         if self._data.total_competitors == 0:
             yield from self._compose_empty_prompt()
         else:
@@ -82,30 +89,32 @@ class DashboardScreen(ReconScreen):
 
     def _compose_empty_prompt(self):
         with Vertical(id="empty-prompt"):
-            yield Static("[#efe5c0]No competitors yet.[/]")
+            yield Static("[#DDEDC4]No competitors yet.[/]")
             yield Static("")
             yield Static(
-                "Press [#e0a044]d[/] to discover competitors via web search,\n"
-                "or press [#e0a044]m[/] to add them manually by name.",
+                "Press [#DDEDC4]d[/] to discover competitors via web search,\n"
+                "or press [#DDEDC4]m[/] to add them manually by name.",
                 classes="dim",
             )
 
     def _compose_workspace_status(self):
-        with CardStack(id="dashboard-stack"):
-            yield from self._compose_competitors_card()
-            if self._data.section_statuses:
-                yield from self._compose_sections_card()
-            if self._data.theme_count > 0:
-                yield from self._compose_themes_card()
-            if self._data.total_cost > 0 or self._data.run_count > 0:
-                yield from self._compose_cost_card()
+        from recon.tui.primitives import Card
 
-    def _compose_competitors_card(self):
+        with CardStack(id="dashboard-stack"):
+            yield from self._compose_competitors_card(Card)
+            if self._data.section_statuses:
+                yield from self._compose_sections_card(Card)
+            if self._data.theme_count > 0:
+                yield from self._compose_themes_card(Card)
+            if self._data.total_cost > 0 or self._data.run_count > 0:
+                yield from self._compose_cost_card(Card)
+
+    def _compose_competitors_card(self, Card):
         meta = f"{self._data.total_competitors} total"
-        with TerminalBox(title="COMPETITORS", meta=meta, id="competitors-card"):
+        with Card(title="COMPETITORS", meta=meta, id="competitors-card"):
             if self._data.status_counts:
                 parts = [
-                    f"[#a89984]{status}[/] [#e0a044]{count}[/]"
+                    f"[#a59a86]{status}[/] [#DDEDC4]{count}[/]"
                     for status, count in sorted(self._data.status_counts.items())
                 ]
                 yield Static(
@@ -113,48 +122,46 @@ class DashboardScreen(ReconScreen):
                     id="status-breakdown",
                 )
             else:
-                yield Static("[#a89984]no status breakdown[/]")
-            # Keep the legacy id alive so existing tests can query it
+                yield Static("[#a59a86]no status breakdown[/]")
             yield Static(
-                f"[#3a3a3a]total:[/] [#e0a044]{self._data.total_competitors}[/]",
+                f"[#787266]total:[/] [#DDEDC4]{self._data.total_competitors}[/]",
                 id="competitor-stats",
                 classes="hidden-legacy",
             )
 
-    def _compose_sections_card(self):
+    def _compose_sections_card(self, Card):
         meta = f"{self._data.total_sections} defined"
-        with TerminalBox(title="SECTIONS", meta=meta, id="sections-card"):
+        with Card(title="SECTIONS", meta=meta, id="sections-card"):
             for ss in self._data.section_statuses:
                 dots = "·" * max(1, 24 - len(ss.title))
                 if ss.completed == ss.total and ss.total > 0:
-                    progress = "[#98971a]complete[/]"
+                    progress = "[#DDEDC4]complete[/]"
                 elif ss.completed == 0:
-                    progress = f"[#a89984]{ss.completed}/{ss.total}[/]"
+                    progress = f"[#787266]{ss.completed}/{ss.total}[/]"
                 else:
-                    progress = f"[#e0a044]{ss.completed}/{ss.total}[/]"
+                    progress = f"[#DDEDC4]{ss.completed}/{ss.total}[/]"
                 yield Static(
-                    f"[#efe5c0]{ss.title}[/] [#3a3a3a]{dots}[/] {progress}",
+                    f"[#DDEDC4]{ss.title}[/] [#686359]{dots}[/] {progress}",
                 )
 
-    def _compose_themes_card(self):
+    def _compose_themes_card(self, Card):
         meta = (
             f"{self._data.theme_count} discovered  ·  "
             f"{self._data.themes_selected} selected"
         )
-        # Body intentionally empty -- the card acts as a stat header.
-        # The keybind hint strip already advertises `r run`.
-        yield TerminalBox(title="THEMES", meta=meta, id="themes-card")
+        # Body intentionally empty — the card acts as a stat header.
+        yield Card(title="THEMES", meta=meta, id="themes-card")
 
-    def _compose_cost_card(self):
+    def _compose_cost_card(self, Card):
         run_word = "run" if self._data.run_count == 1 else "runs"
         meta = f"${self._data.total_cost:.2f} across {self._data.run_count} {run_word}"
-        with TerminalBox(title="COST", meta=meta, id="cost-card"):
+        with Card(title="COST", meta=meta, id="cost-card"):
             if self._data.last_run_cost > 0:
                 yield Static(
-                    f"[#a89984]last run:[/] [#e0a044]${self._data.last_run_cost:.2f}[/]",
+                    f"[#a59a86]last run:[/] [#DDEDC4]${self._data.last_run_cost:.2f}[/]",
                 )
             else:
-                yield Static("[#a89984]no run history yet[/]")
+                yield Static("[#787266]no run history yet[/]")
 
     def on_screen_resume(self) -> None:
         """Re-read workspace state every time the dashboard becomes
@@ -300,9 +307,8 @@ class DashboardScreen(ReconScreen):
             _log.warning("no API key found; discovery will be manual only")
             return None
 
-        os.environ["ANTHROPIC_API_KEY"] = api_key
         try:
-            client = create_llm_client(model="claude-sonnet-4-5")
+            client = create_llm_client(model="claude-sonnet-4-5", api_key=api_key)
         except ClientCreationError as exc:
             _log.warning("create_llm_client failed: %s", exc)
             return None
@@ -563,10 +569,10 @@ class DashboardScreen(ReconScreen):
     def _api_key_status(self) -> str:
         env_path = self._workspace_path / ".env"
         if env_path.exists() and "ANTHROPIC_API_KEY" in env_path.read_text():
-            return "[#98971a]API key: configured[/]"
+            return "[#DDEDC4]API key: configured[/]"
         if os.environ.get("ANTHROPIC_API_KEY"):
-            return "[#98971a]API key: set in environment[/]"
-        return "[#cc241d]API key: not configured[/]"
+            return "[#DDEDC4]API key: set in environment[/]"
+        return "[#fb4b4b]API key: not configured[/]"
 
 
 def _estimate_full_run_cost(workspace) -> float:  # noqa: ANN001 -- runtime workspace type

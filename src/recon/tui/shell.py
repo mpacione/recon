@@ -96,18 +96,57 @@ class WorkspaceContext:
 
 
 def _detect_api_key(workspace_root: Path) -> bool:
-    """Cheap check: env var or .env in workspace root."""
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return True
+    """Check for an API key and validate it with a lightweight ping."""
+    key = _extract_api_key(workspace_root)
+    if not key:
+        return False
+    return _validate_api_key(key)
+
+
+def _extract_api_key(workspace_root: Path) -> str:
+    """Extract the API key from env var or .env file."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if key:
+        return key
     env_path = workspace_root / ".env"
     if env_path.exists():
         try:
             for line in env_path.read_text().splitlines():
                 if line.startswith("ANTHROPIC_API_KEY="):
-                    return True
+                    return line.split("=", 1)[1].strip()
         except OSError:
             pass
-    return False
+    return ""
+
+
+def _validate_api_key(key: str) -> bool:
+    """Lightweight ping to verify the API key is valid.
+
+    Uses a minimal count-tokens request to avoid spending credits.
+    Falls back to presence-check if the request fails for network reasons.
+    """
+    if not key or not key.startswith("sk-ant-"):
+        return bool(key)
+    try:
+        import urllib.error
+        import urllib.request
+
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages/count_tokens",
+            data=b'{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}',
+            headers={
+                "x-api-key": key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status == 200
+    except urllib.error.HTTPError as exc:
+        return exc.code != 401
+    except Exception:
+        return True
 
 
 # ----------------------------------------------------------------------
@@ -116,14 +155,17 @@ def _detect_api_key(workspace_root: Path) -> bool:
 
 
 class ReconHeaderBar(Static):
-    """Top status strip. Workspace context summary in retro terminal style."""
+    """Top status strip. Workspace context summary in retro terminal style.
+
+    Flows as a normal child (no dock) so the v4 TabStrip above it can
+    sit at y=0 without overlap. Two dock:top siblings collide.
+    """
 
     DEFAULT_CSS = """
     ReconHeaderBar {
-        dock: top;
         height: 1;
-        background: #1d1d1d;
-        color: #efe5c0;
+        background: #000000;
+        color: #a59a86;
         padding: 0 1;
     }
     """
@@ -142,7 +184,7 @@ class ReconHeaderBar(Static):
 
     def _render_context(self, ctx: WorkspaceContext) -> str:
         if ctx.workspace_path is None:
-            return "[bold #e0a044]recon[/]  [#a89984]no workspace loaded[/]"
+            return "[#a59a86]no workspace loaded[/]"
 
         ws_label = humanize_path(ctx.workspace_path, max_width=42)
         company_label = ctx.company_name or "—"
@@ -151,28 +193,31 @@ class ReconHeaderBar(Static):
         cost_str = f"${ctx.total_cost:.2f}"
         runs_str = f"{ctx.run_count} run{'s' if ctx.run_count != 1 else ''}"
 
-        api_label = "[#98971a]API ✓[/]" if ctx.api_key_present else "[#cc241d]API ✗[/]"
+        api_label = "[#DDEDC4]API ✓[/]" if ctx.api_key_present else "[#fb4b4b]API ✗[/]"
 
         state_color = {
-            "idle": "#a89984",
-            "running": "#e0a044",
-            "paused": "#d79921",
-            "stopping": "#a89984",
-            "done": "#98971a",
-            "error": "#cc241d",
-            "cancelled": "#cc241d",
-        }.get(ctx.run_state, "#a89984")
-        state_label = f"[{state_color}]{ctx.run_state}[/]"
-        if ctx.run_phase and ctx.run_phase != ctx.run_state:
-            state_label += f" [{state_color}]·[/] [{state_color}]{ctx.run_phase}[/]"
+            "idle": "#a59a86",
+            "running": "#DDEDC4",
+            "paused": "#a59a86",
+            "stopping": "#a59a86",
+            "done": "#DDEDC4",
+            "error": "#fb4b4b",
+            "cancelled": "#fb4b4b",
+        }.get(ctx.run_state, "#a59a86")
+        # Hide "idle" state label — it's the default and adds no info
+        if ctx.run_state == "idle":
+            state_label = ""
+        else:
+            state_label = f"[{state_color}]{ctx.run_state}[/]"
+            if ctx.run_phase and ctx.run_phase != ctx.run_state:
+                state_label += f" [{state_color}]·[/] [{state_color}]{ctx.run_phase}[/]"
 
         return (
-            f"[bold #e0a044]recon[/] [#a89984]│[/] "
-            f"[#efe5c0]{company_label}[/] · [#efe5c0]{domain_label}[/] "
-            f"[#a89984]│[/] [#a89984]{ws_label}[/] "
-            f"[#a89984]│[/] {cost_str} · {runs_str} "
-            f"[#a89984]│[/] {api_label} "
-            f"[#a89984]│[/] {state_label}"
+            f"[#DDEDC4]{company_label}[/] [#787266]·[/] [#a59a86]{domain_label}[/] "
+            f"[#787266]│[/] [#787266]{ws_label}[/] "
+            f"[#787266]│[/] [#DDEDC4]{cost_str}[/] [#787266]·[/] [#a59a86]{runs_str}[/] "
+            f"[#787266]│[/] {api_label} "
+            f"[#787266]│[/] {state_label}"
         )
 
 
@@ -182,17 +227,18 @@ class KeybindHint(Static):
     DEFAULT_CSS = """
     KeybindHint {
         height: 1;
-        background: #1d1d1d;
-        color: #a89984;
-        padding: 0 1;
+        background: #000000;
+        color: #a59a86;
+        padding: 0 2;
+        border-top: solid #2e2b27;
     }
     """
 
     def __init__(self, hints: str = "") -> None:
-        super().__init__(hints or "[#a89984]q quit · ? help[/]", markup=True)
+        super().__init__(hints or "[#a59a86]q quit · ? help[/]", markup=True)
 
     def set_hints(self, hints: str) -> None:
-        self.update(hints or "[#a89984]q quit · ? help[/]")
+        self.update(hints or "[#a59a86]q quit · ? help[/]")
 
 
 class LogPane(Static):
@@ -206,9 +252,9 @@ class LogPane(Static):
 
     DEFAULT_CSS = """
     LogPane {
-        height: 8;
-        background: #0d0d0d;
-        color: #a89984;
+        height: 5;
+        background: #000000;
+        color: #787266;
         padding: 0 1;
         border-top: solid #3a3a3a;
     }
@@ -216,11 +262,11 @@ class LogPane(Static):
 
     LEVEL_COLORS = {
         "DEBUG": "#3a3a3a",
-        "INFO": "#a89984",
-        "WARNING": "#d79921",
-        "WARN": "#d79921",
-        "ERROR": "#cc241d",
-        "CRITICAL": "#cc241d",
+        "INFO": "#a59a86",
+        "WARNING": "#a59a86",
+        "WARN": "#a59a86",
+        "ERROR": "#fb4b4b",
+        "CRITICAL": "#fb4b4b",
     }
 
     def __init__(self, capacity: int = 6) -> None:
@@ -247,14 +293,14 @@ class LogPane(Static):
             return
         lines = []
         for entry in entries:
-            color = self.LEVEL_COLORS.get(entry.level, "#a89984")
+            color = self.LEVEL_COLORS.get(entry.level, "#a59a86")
             level = entry.level[:4].ljust(4)
             # Escape any markup in user-supplied messages
             message = entry.message.replace("[", "\\[")
             line = (
-                f"[#3a3a3a]│[/] [#a89984]{entry.timestamp}[/] "
+                f"[#3a3a3a]│[/] [#a59a86]{entry.timestamp}[/] "
                 f"[{color}]{level}[/] "
-                f"[#a89984]{entry.name}[/] "
+                f"[#a59a86]{entry.name}[/] "
                 f"{message}"
             )
             lines.append(line)
@@ -289,16 +335,16 @@ class ActivityFeed(Static):
 
     DEFAULT_CSS = """
     ActivityFeed {
-        height: 8;
-        background: #0d0d0d;
-        color: #efe5c0;
+        height: 4;
+        background: #000000;
+        color: #a59a86;
         padding: 0 1;
         border-top: solid #3a3a3a;
     }
     """
 
     DEFAULT_CAPACITY = 20
-    VISIBLE_LINES = 6
+    VISIBLE_LINES = 3
 
     def __init__(self, capacity: int = DEFAULT_CAPACITY) -> None:
         super().__init__("", markup=True)
@@ -354,65 +400,65 @@ class ActivityFeed(Static):
     def _format_event(self, event: Event) -> str | None:
         if isinstance(event, RunStarted):
             op = event.operation or "run"
-            return f"[#e0a044]▶[/] [#efe5c0]run started[/] [#a89984]· {op}[/]"
+            return f"[#DDEDC4]▶[/] [#DDEDC4]run started[/] [#a59a86]· {op}[/]"
         if isinstance(event, RunStageStarted):
             return (
-                f"[#e0a044]→[/] [#efe5c0]stage[/] [#a89984]:[/] "
-                f"[#efe5c0]{event.stage}[/]"
+                f"[#DDEDC4]→[/] [#DDEDC4]stage[/] [#a59a86]:[/] "
+                f"[#DDEDC4]{event.stage}[/]"
             )
         if isinstance(event, RunStageCompleted):
             return (
-                f"[#98971a]✓[/] [#efe5c0]stage[/] [#a89984]:[/] "
-                f"[#efe5c0]{event.stage}[/]"
+                f"[#DDEDC4]✓[/] [#DDEDC4]stage[/] [#a59a86]:[/] "
+                f"[#DDEDC4]{event.stage}[/]"
             )
         if isinstance(event, RunCompleted):
             return (
-                f"[#98971a]✓[/] [#efe5c0]run complete[/] "
-                f"[#a89984]·[/] [#e0a044]${event.total_cost_usd:.2f}[/]"
+                f"[#DDEDC4]✓[/] [#DDEDC4]run complete[/] "
+                f"[#a59a86]·[/] [#DDEDC4]${event.total_cost_usd:.2f}[/]"
             )
         if isinstance(event, RunFailed):
             err = (event.error or "")[:60]
             return (
-                f"[#cc241d]✗[/] [#efe5c0]run failed[/] "
-                f"[#a89984]·[/] [#cc241d]{err}[/]"
+                f"[#fb4b4b]✗[/] [#DDEDC4]run failed[/] "
+                f"[#a59a86]·[/] [#fb4b4b]{err}[/]"
             )
         if isinstance(event, RunCancelled):
-            return "[#cc241d]⊘[/] [#efe5c0]run cancelled[/]"
+            return "[#fb4b4b]⊘[/] [#DDEDC4]run cancelled[/]"
         if isinstance(event, CostRecorded):
             return (
-                f"[#e0a044]$[/] [#e0a044]${event.cost_usd:.2f}[/] "
-                f"[#a89984]({event.model})[/]"
+                f"[#DDEDC4]$[/] [#DDEDC4]${event.cost_usd:.2f}[/] "
+                f"[#a59a86]({event.model})[/]"
             )
         if isinstance(event, SectionResearched):
             return (
-                f"[#98971a]✓[/] [#efe5c0]{event.competitor_name}[/]"
-                f"[#3a3a3a].[/][#a89984]{event.section_key}[/]"
+                f"[#DDEDC4]✓[/] [#DDEDC4]{event.competitor_name}[/]"
+                f"[#3a3a3a].[/][#a59a86]{event.section_key}[/]"
             )
         if isinstance(event, SectionRetrying):
             return (
-                f"[#d79921]~>[/] [#efe5c0]{event.competitor_name}[/]"
-                f"[#3a3a3a].[/][#a89984]{event.section_key}[/]"
-                f" [#a89984]retry {event.attempt}[/]"
+                f"[#a59a86]~>[/] [#DDEDC4]{event.competitor_name}[/]"
+                f"[#3a3a3a].[/][#a59a86]{event.section_key}[/]"
+                f" [#a59a86]retry {event.attempt}[/]"
             )
         if isinstance(event, SectionFailed):
             error_hint = ""
             if event.error:
                 short = event.error.strip().split("\n")[0][:30]
-                error_hint = f" [#a89984]({short})[/]"
+                error_hint = f" [#a59a86]({short})[/]"
             return (
-                f"[#cc241d]✗[/] [#efe5c0]{event.competitor_name}[/]"
-                f"[#3a3a3a].[/][#a89984]{event.section_key}[/]"
+                f"[#fb4b4b]✗[/] [#DDEDC4]{event.competitor_name}[/]"
+                f"[#3a3a3a].[/][#a59a86]{event.section_key}[/]"
                 f"{error_hint}"
             )
         if isinstance(event, ThemesDiscovered):
             return (
-                f"[#e0a044]◎[/] [#e0a044]{event.theme_count}[/] "
-                f"[#efe5c0]themes discovered[/]"
+                f"[#DDEDC4]◎[/] [#DDEDC4]{event.theme_count}[/] "
+                f"[#DDEDC4]themes discovered[/]"
             )
         if isinstance(event, ProfileCreated):
             return (
-                f"[#98971a]+[/] [#efe5c0]profile[/] [#a89984]:[/] "
-                f"[#efe5c0]{event.name}[/]"
+                f"[#DDEDC4]+[/] [#DDEDC4]profile[/] [#a59a86]:[/] "
+                f"[#DDEDC4]{event.name}[/]"
             )
         return None
 
@@ -439,9 +485,10 @@ class RunStatusBar(Static):
     DEFAULT_CSS = """
     RunStatusBar {
         height: 1;
-        background: #1d1d1d;
-        color: #efe5c0;
+        background: #2e2b27;
+        color: #DDEDC4;
         padding: 0 1;
+        border-top: solid #2e2b27;
     }
     RunStatusBar.idle {
         display: none;
@@ -521,10 +568,10 @@ class RunStatusBar(Static):
         elapsed = self._elapsed_str()
         cost_str = f"${self._cost:.2f}"
         self.update(
-            f"[#e0a044]●[/] [#efe5c0]{stage_label}[/]  "
+            f"[#DDEDC4]●[/] [#DDEDC4]{stage_label}[/]  "
             f"{bar}  "
-            f"[#a89984]{elapsed}[/]  "
-            f"[#e0a044]{cost_str}[/]",
+            f"[#a59a86]{elapsed}[/]  "
+            f"[#DDEDC4]{cost_str}[/]",
         )
 
 
@@ -554,14 +601,37 @@ class ReconScreen(Screen):
     show_activity_feed: bool = True
     show_run_status_bar: bool = True
     show_keybind_hint: bool = True
+    show_tab_strip: bool = True
+    show_header_bar: bool = True
+
+    # v4 tab key this screen represents. Drives the TabStrip highlight
+    # AND the 0-5 hotkey routing in ``ReconApp``. ``None`` means this
+    # screen is modal / utility (Wizard, CompetitorSelector, etc.).
+    tab_key: str | None = None
 
     DEFAULT_CSS = """
     ReconScreen {
         background: #000000;
     }
+    #recon-tab-strip {
+        /* Do NOT dock here — ReconHeaderBar already docks to the top;
+         * two dock:top siblings collide at y=0 and the later-mounted
+         * one overpaints the earlier. TabStrip is the first yielded
+         * child so it ends up above the header naturally. */
+        height: 1;
+        padding: 0 2;
+        background: #2e2b27;
+        color: #a59a86;
+    }
+    #flow-breadcrumb {
+        height: 1;
+        padding: 0 2;
+        background: #000000;
+        color: #787266;
+    }
     #recon-body {
         height: 1fr;
-        padding: 1 2;
+        padding: 2 3 1 3;
         overflow-y: auto;
     }
     #recon-footer {
@@ -571,12 +641,38 @@ class ReconScreen(Screen):
     }
     """
 
-    keybind_hints: str = "[#a89984]q quit · ? help[/]"
+    keybind_hints: str = "[#a59a86]q quit · ? help[/]"
+
+    # Flow step for breadcrumb. None = not part of the v2 flow.
+    flow_step: int | None = None
+
+    _FLOW_STEPS = [
+        ("describe", "Describe"),
+        ("discovery", "Discovery"),
+        ("template", "Template"),
+        ("confirm", "Confirm"),
+        ("run", "Run"),
+        ("results", "Results"),
+    ]
 
     def compose(self) -> ComposeResult:
-        # Header is reactive: pulls live context from the app on mount
-        ctx = self._current_workspace_context()
-        yield ReconHeaderBar(ctx)
+        from recon.tui.primitives import TabStrip
+
+        # v4 tab strip at the very top — shows numbered tabs with the
+        # current screen's tab_key highlighted.
+        if self.show_tab_strip:
+            yield TabStrip(active=self.tab_key, id="recon-tab-strip")
+
+        # Header is reactive: pulls live context from the app on mount.
+        # Screens with no workspace info to show (e.g. WelcomeScreen)
+        # opt out via ``show_header_bar = False``.
+        if self.show_header_bar:
+            ctx = self._current_workspace_context()
+            yield ReconHeaderBar(ctx)
+
+        # Breadcrumb for v2 flow screens
+        if self.flow_step is not None:
+            yield Static(self._render_breadcrumb(), id="flow-breadcrumb")
 
         with Vertical(id="recon-body"):
             yield from self.compose_body()
@@ -599,6 +695,19 @@ class ReconScreen(Screen):
         """Override in subclasses to render the screen's actual content."""
         yield Static("")
 
+    def _render_breadcrumb(self) -> str:
+        parts: list[str] = []
+        for i, (_key, label) in enumerate(self._FLOW_STEPS):
+            if i < self.flow_step:
+                parts.append(f"[#DDEDC4]{label}[/]")
+            elif i == self.flow_step:
+                parts.append(f"[bold #DDEDC4]{label}[/]")
+            else:
+                parts.append(f"[#3a3a3a]{label}[/]")
+        step_num = (self.flow_step or 0) + 1
+        total = len(self._FLOW_STEPS)
+        return f"[#a59a86]Step {step_num}/{total}[/]  " + " [#3a3a3a]→[/] ".join(parts)
+
     def _current_workspace_context(self) -> WorkspaceContext:
         ctx = getattr(self.app, "workspace_context", None)
         if isinstance(ctx, WorkspaceContext):
@@ -606,7 +715,13 @@ class ReconScreen(Screen):
         return WorkspaceContext.empty()
 
     def refresh_chrome(self) -> None:
-        """Re-render the header bar from the current app context."""
+        """Re-render the header bar from the current app context.
+
+        No-op when the screen opted out of the header bar via
+        ``show_header_bar = False`` — the query_one lookup would fail.
+        """
+        if not self.show_header_bar:
+            return
         try:
             header = self.query_one(ReconHeaderBar)
         except Exception:

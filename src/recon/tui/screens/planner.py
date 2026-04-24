@@ -85,7 +85,7 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
         max-height: 95%;
         padding: 1 2;
         border: solid #3a3a3a;
-        background: #0d0d0d;
+        background: #000000;
     }
     #planner-header {
         height: auto;
@@ -102,10 +102,10 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
         padding: 0 1;
         border: none;
         background: transparent;
-        color: #efe5c0;
+        color: #DDEDC4;
     }
     .operation-row:hover {
-        background: #2a1f10;
+        background: #000000;
     }
     .action-bar {
         height: auto;
@@ -118,7 +118,7 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
     #planner-hint {
         height: auto;
         margin: 1 0 0 0;
-        color: #a89984;
+        color: #a59a86;
     }
     """
 
@@ -144,9 +144,9 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="planner-container"):
             with Vertical(id="planner-header"):
-                yield Static("[bold #e0a044]── RUN PLANNER ──[/]", id="planner-title")
+                yield Static("[bold #DDEDC4]── RUN PLANNER ──[/]", id="planner-title")
                 yield Static(
-                    f"[#a89984]workspace: {self._competitor_count} competitors · "
+                    f"[#a59a86]workspace: {self._competitor_count} competitors · "
                     f"{self._section_count} sections[/]",
                     id="planner-stats",
                 )
@@ -157,8 +157,8 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
                         else 0.0
                     )
                     yield Static(
-                        f"[#a89984]est. full run: "
-                        f"[#e0a044]${self._estimated_full_run_cost:.2f}[/]"
+                        f"[#a59a86]est. full run: "
+                        f"[#DDEDC4]${self._estimated_full_run_cost:.2f}[/]"
                         f"  (~${per_competitor:.2f} per competitor)[/]",
                         id="planner-cost",
                     )
@@ -176,7 +176,7 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
             with Horizontal(classes="action-bar"):
                 yield Button("Back", id="btn-back")
             yield Static(
-                "[#a89984]press a number 1-7 or click an option to run[/]",
+                "[#a59a86]press a number 1-7 or click an option to run[/]",
                 id="planner-hint",
             )
 

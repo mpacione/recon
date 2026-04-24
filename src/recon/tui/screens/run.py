@@ -20,6 +20,7 @@ from textual.widgets import Static
 from recon.logging import get_logger
 from recon.tui.run_monitor import CompetitorGrid, WorkerPanel
 from recon.tui.shell import ReconScreen
+from recon.tui.stage_monitor import StageMonitor
 from recon.tui.widgets import format_progress_bar
 
 _log = get_logger(__name__)
@@ -28,17 +29,26 @@ PipelineFn = Callable[["RunScreen"], Coroutine[Any, Any, None]]
 
 
 class RunScreen(ReconScreen):
-    """Live pipeline monitor with reactive state."""
+    """Live pipeline monitor — v4 AGENTS tab."""
+
+    tab_key = "agents"
+    flow_step = 4
 
     BINDINGS = [
         Binding("p", "pause", "pause/resume"),
         Binding("s", "stop", "stop"),
         Binding("b", "back", "back to dashboard"),
+        # `esc` matches the "back" hotkey on every other tab so the
+        # whole TUI reads with a single mental model: esc = go up.
+        Binding("escape", "back", "back", show=False),
+        # `o` — jump straight to OUTPUT tab. Matches the web UI which
+        # auto-navigates there once a run completes.
+        Binding("o", "goto_output", "output", show=False),
     ]
 
     keybind_hints = (
-        "[#e0a044]p[/] pause/resume · [#e0a044]s[/] stop · "
-        "[#e0a044]b[/] back · [#e0a044]q[/] quit"
+        "[#DDEDC4]p[/] pause/resume · [#DDEDC4]s[/] stop · "
+        "[#DDEDC4]o[/] output · [#DDEDC4]esc[/] back · [#DDEDC4]q[/] quit"
     )
 
     DEFAULT_CSS = """
@@ -58,6 +68,9 @@ class RunScreen(ReconScreen):
     #run-activity-section {
         height: auto;
         margin: 1 0;
+    }
+    .hidden-legacy {
+        display: none;
     }
     """
 
@@ -109,22 +122,21 @@ class RunScreen(ReconScreen):
 
 
     def compose_body(self) -> ComposeResult:
-        # Legacy phase/progress/cost Statics for backward compat with
-        # tests that query these by ID. The CompetitorGrid renders its
-        # own header with the same info, so these are supplementary.
-        yield Static(self._format_phase(), id="run-phase")
-        yield Static(self._format_progress(), id="run-progress")
-        yield Static(self._format_cost(), id="run-cost")
-        yield Static("")
-
-        # The new competitor grid — subscribes to the bus and renders
-        # per-competitor ASCII progress bars in real time.
-        self._grid = CompetitorGrid(
+        # v2: StageMonitor replaces the legacy phase/progress/cost
+        # statics and the CompetitorGrid+WorkerPanel combo with a
+        # two-column layout (competitor list + worker cards).
+        self._monitor = StageMonitor(
             competitor_names=self._competitor_names(),
             section_keys=self._section_keys(),
         )
-        yield self._grid
-        yield WorkerPanel(grid=self._grid)
+        yield self._monitor
+
+        # Legacy IDs kept as hidden placeholders so existing tests
+        # that query by ID don't crash. They're updated by watchers
+        # but not visible to the user.
+        yield Static(self._format_phase(), id="run-phase", classes="hidden-legacy")
+        yield Static(self._format_progress(), id="run-progress", classes="hidden-legacy")
+        yield Static(self._format_cost(), id="run-cost", classes="hidden-legacy")
 
     def _competitor_names(self) -> list[str]:
         """Pull competitor names from the workspace for grid init."""
@@ -157,6 +169,18 @@ class RunScreen(ReconScreen):
     def action_back(self) -> None:
         _log.info("RunScreen action_back")
         self.app.switch_mode("dashboard")
+
+    def action_goto_output(self) -> None:
+        """Jump to the OUTPUT tab — matches the web UI's post-run flow.
+
+        The app-level ``goto_tab('output')`` handler rebuilds the
+        dashboard in ``output`` mode. Safe to call while a run is
+        mid-flight; the RunScreen instance stays alive in the ``run``
+        mode and the user can press ``4`` / ``agents`` to return.
+        """
+        _log.info("RunScreen action_goto_output")
+        with contextlib.suppress(Exception):
+            self.app.action_goto_tab("output")
 
     def action_pause(self) -> None:
         _log.info("RunScreen action_pause")
@@ -260,7 +284,7 @@ class RunScreen(ReconScreen):
     _STATE_KEYWORDS = ("idle", "running", "paused", "stopping", "done", "cancelled", "error")
 
     def _format_phase(self) -> str:
-        return f"[#efe5c0]Phase:[/] {self.current_phase.capitalize()}"
+        return f"[#DDEDC4]Phase:[/] {self.current_phase.capitalize()}"
 
     def _bar_state(self) -> str:
         """Map current_phase to a progress-bar visual state."""
@@ -276,12 +300,26 @@ class RunScreen(ReconScreen):
         return format_progress_bar(self.progress, state=self._bar_state())
 
     def _format_cost(self) -> str:
-        return f"[#efe5c0]Cost:[/] ${self.cost_usd:.2f}"
+        return f"[#DDEDC4]Cost:[/] ${self.cost_usd:.2f}"
 
     def set_run_summary(self, output_files: list[dict[str, str]]) -> None:
-        """Display a post-run summary with output file paths."""
+        """Display a post-run summary with output file paths.
+
+        Also posts a notification pointing at the OUTPUT tab —
+        matches the web UI's "Research complete · SEE OUTPUTS [↲]"
+        modal. The TUI uses the lightweight notification instead of
+        a blocking modal so the user can keep scrolling the activity
+        log or hit ``o`` to switch tabs whenever they're ready.
+        """
         self._run_summary = output_files
         self._render_run_summary()
+        with contextlib.suppress(Exception):
+            self.app.notify(
+                "Press [o] to view outputs, [esc] to return to dashboard.",
+                title="Research complete",
+                severity="information",
+                timeout=10,
+            )
 
     def _render_run_summary(self) -> None:
         if not self._run_summary:
@@ -289,19 +327,19 @@ class RunScreen(ReconScreen):
 
         lines = [
             "",
-            "[bold #e0a044]── RUN COMPLETE ──[/]",
+            "[bold #DDEDC4]── RUN COMPLETE ──[/]",
             "",
-            "[#efe5c0]Output files:[/]",
+            "[#DDEDC4]Output files:[/]",
         ]
         for i, entry in enumerate(self._run_summary):
             lines.append(
-                f"  [#a89984]{i + 1}.[/] [#efe5c0]{entry['label']}[/]  "
+                f"  [#a59a86]{i + 1}.[/] [#DDEDC4]{entry['label']}[/]  "
                 f"[#3a3a3a]{entry['path']}[/]"
             )
 
         lines.append("")
         lines.append(
-            "[#a89984]press [/][#e0a044]b[/][#a89984] to return to dashboard[/]"
+            "[#a59a86]press [/][#DDEDC4]b[/][#a59a86] to return to dashboard[/]"
         )
 
         self.add_activity("\n".join(lines))

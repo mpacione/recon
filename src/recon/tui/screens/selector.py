@@ -36,7 +36,7 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
         max-height: 80%;
         padding: 1 2;
         border: solid #3a3a3a;
-        background: #0d0d0d;
+        background: #000000;
         overflow-y: auto;
     }
     .selector-item {
@@ -77,12 +77,12 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
     def compose(self) -> ComposeResult:
         with Vertical(id="selector-container"):
             yield Static(
-                f"[bold #e0a044]── SELECT COMPETITORS ──[/]  "
-                f"[#e0a044]{len(self._competitors)}[/] available",
+                f"[bold #DDEDC4]── SELECT COMPETITORS ──[/]  "
+                f"[#DDEDC4]{len(self._competitors)}[/] available",
                 id="selector-title",
             )
             yield Static(
-                "[#a89984]toggle to choose which profiles the run targets[/]",
+                "[#a59a86]toggle to choose which profiles the run targets[/]",
                 id="selector-hint",
             )
             yield Static("")
@@ -105,8 +105,8 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
         # parser eats `[x]` as an unknown tag and the marker silently
         # disappears.
         if self._selected_flags[index]:
-            return f"[#e0a044]\\[x][/]  {self._competitors[index]}"
-        return f"[#3a3a3a]\\[ ][/]  [#a89984]{self._competitors[index]}[/]"
+            return f"[#DDEDC4]\\[x][/]  {self._competitors[index]}"
+        return f"[#3a3a3a]\\[ ][/]  [#a59a86]{self._competitors[index]}[/]"
 
     def action_cancel(self) -> None:
         """Dismiss the selector with an empty selection (Esc keybind)."""

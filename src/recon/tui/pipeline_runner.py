@@ -112,6 +112,8 @@ def build_pipeline_fn(
     workspace_path: Path,
     operation: Operation,
     targets: list[str] | None = None,
+    model_name: str | None = None,
+    worker_count: int | None = None,
 ) -> PipelineFn:
     """Create a pipeline_fn bound to a workspace + operation.
 
@@ -147,16 +149,25 @@ def build_pipeline_fn(
                 _log.warning("pipeline_fn: no API key for workspace %s", workspace_path)
                 return
 
-            os.environ["ANTHROPIC_API_KEY"] = api_key
-
             # Defer heavy imports until we're actually going to run the pipeline
             from recon.client_factory import ClientCreationError, create_llm_client
             from recon.pipeline import Pipeline
             from recon.state import StateStore
             from recon.workspace import Workspace
 
+            # Resolve model ID from short name
+            from recon.cost import get_model_pricing
+
+            _model_id = "claude-sonnet-4-5"
+            if model_name:
+                try:
+                    pricing = get_model_pricing(model_name)
+                    _model_id = pricing.model_id
+                except ValueError:
+                    pass
+
             try:
-                client = create_llm_client(model="claude-sonnet-4-5")
+                client = create_llm_client(model=_model_id, api_key=api_key)
             except ClientCreationError as exc:
                 screen.current_phase = "error"
                 screen.app.notify(
@@ -176,6 +187,10 @@ def build_pipeline_fn(
                 from dataclasses import replace
 
                 config = replace(config, targets=list(targets))
+            if worker_count is not None:
+                from dataclasses import replace as _replace
+
+                config = _replace(config, max_research_workers=worker_count)
 
             async def on_progress(stage: str, phase: str) -> None:
                 screen.current_phase = f"{stage} {phase}" if phase != "start" else stage
@@ -220,6 +235,9 @@ def build_pipeline_fn(
                 with contextlib.suppress(AttributeError):
                     screen.app._pipeline_pause_event = None
 
+            total_cost = await store.get_run_total_cost(run_id)
+            screen.cost_usd = float(total_cost)
+
             if cancel_event.is_set():
                 screen.current_phase = "cancelled"
                 screen.add_activity("Pipeline cancelled by user")
@@ -231,8 +249,16 @@ def build_pipeline_fn(
                 output_files = _collect_output_files(ws.root)
                 screen.set_run_summary(output_files)
 
-            total_cost = await store.get_run_total_cost(run_id)
-            screen.cost_usd = float(total_cost)
+                # v2: push results screen with summary
+                _push_results_screen(
+                    screen=screen,
+                    workspace_root=ws.root,
+                    competitor_count=len(ws.list_profiles()),
+                    section_count=len(ws.schema.sections) if ws.schema else 0,
+                    theme_count=len(pipeline.discovered_themes),
+                    total_cost=float(total_cost),
+                    elapsed=screen._monitor.state.elapsed_str if hasattr(screen, "_monitor") else "0:00",
+                )
         except Exception as exc:  # noqa: BLE001 -- surface any pipeline failure to the user
             _log.exception("pipeline_fn failed")
             screen.current_phase = "error"
@@ -282,3 +308,30 @@ def _collect_output_files(workspace_root: Path) -> list[dict[str, str]]:
             })
 
     return output_files
+
+
+def _push_results_screen(
+    *,
+    screen: object,
+    workspace_root: Path,
+    competitor_count: int,
+    section_count: int,
+    theme_count: int,
+    total_cost: float,
+    elapsed: str,
+) -> None:
+    """Push the ResultsScreen after a successful pipeline run."""
+    try:
+        from recon.tui.screens.results import ResultsScreen
+
+        results_screen = ResultsScreen(
+            workspace_root=workspace_root,
+            competitor_count=competitor_count,
+            section_count=section_count,
+            theme_count=theme_count,
+            total_cost=total_cost,
+            elapsed=elapsed,
+        )
+        screen.app.push_screen(results_screen)  # type: ignore[union-attr]
+    except Exception:
+        _log.exception("failed to push results screen")

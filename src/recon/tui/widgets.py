@@ -13,8 +13,150 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from textual.message import Message
+from textual.widgets import Static
+
 from recon.tui.models.curation import ThemeCurationModel  # noqa: TCH001
 from recon.tui.models.monitor import RunMonitorModel, WorkerStatus  # noqa: TCH001
+
+
+# ---------------------------------------------------------------------------
+# Shared selection widgets
+# ---------------------------------------------------------------------------
+
+
+class ChecklistItem(Static):
+    """Compact 1-line toggleable checkbox row.
+
+    Click to toggle. Amber [x] when selected, dim [ ] when not.
+    Emits a ``Toggled`` message on click.
+    """
+
+    class Toggled(Message):
+        def __init__(self, index: int, selected: bool) -> None:
+            super().__init__()
+            self.index = index
+            self.selected = selected
+
+    DEFAULT_CSS = """
+    ChecklistItem {
+        height: 1;
+        width: 100%;
+        padding: 0 1;
+    }
+    ChecklistItem:hover {
+        background: #2e2b27;
+    }
+    """
+
+    def __init__(
+        self,
+        label: str,
+        description: str = "",
+        selected: bool = False,
+        index: int = 0,
+    ) -> None:
+        self._label = label
+        self._description = description
+        self._selected = selected
+        self._index = index
+        super().__init__()
+
+    def render(self) -> str:
+        # v4 glyphs: filled square (▣) for selected, dashed square (▢)
+        # for empty — mirrors the web UI's Lucide square-check /
+        # square-dashed pair so both surfaces read identically.
+        marker = "[#DDEDC4]\u25a3[/]" if self._selected else "[#3a3a3a]\u25a2[/]"
+        desc = f"  [#3a3a3a]{self._description}[/]" if self._description else ""
+        color = "#DDEDC4" if self._selected else "#a59a86"
+        return f"{marker} [{color}]{self._label}[/]{desc}"
+
+    @property
+    def selected(self) -> bool:
+        return self._selected
+
+    def toggle(self) -> None:
+        self._selected = not self._selected
+        self.refresh()
+
+    def on_click(self) -> None:
+        self.toggle()
+        self.post_message(self.Toggled(self._index, self._selected))
+
+
+class RadioItem(Static):
+    """Compact 1-line radio option row.
+
+    Click to select. Amber bullet when selected, dim circle when not.
+    Emits a ``Selected`` message on click.
+    """
+
+    class Selected(Message):
+        def __init__(self, index: int) -> None:
+            super().__init__()
+            self.index = index
+
+    DEFAULT_CSS = """
+    RadioItem {
+        height: 1;
+        width: 100%;
+        padding: 0 1;
+    }
+    RadioItem:hover {
+        background: #2e2b27;
+    }
+    """
+
+    def __init__(
+        self,
+        label: str,
+        selected: bool = False,
+        index: int = 0,
+    ) -> None:
+        self._label = label
+        self._selected = selected
+        self._index = index
+        super().__init__()
+
+    def render(self) -> str:
+        # v4 glyphs: filled square for selected, dashed square for not.
+        # Mirrors the web UI's radio rendering (which uses the same
+        # square-check / square-dashed pair as the checkbox primitive
+        # so the whole interface reads as one consistent vocabulary).
+        marker = "[#DDEDC4]\u25a3[/]" if self._selected else "[#3a3a3a]\u25a2[/]"
+        color = "#DDEDC4" if self._selected else "#a59a86"
+        return f"{marker} [{color}]{self._label}[/]"
+
+    @property
+    def selected(self) -> bool:
+        return self._selected
+
+    def set_selected(self, value: bool) -> None:
+        self._selected = value
+        self.refresh()
+
+    def on_click(self) -> None:
+        self.post_message(self.Selected(self._index))
+
+
+def truncate_name(name: str, max_width: int = 24) -> str:
+    """Truncate a competitor name smartly.
+
+    Drops parenthetical suffixes first ("Amazon Q Developer (formerly
+    CodeWhisperer)" → "Amazon Q Developer"), then truncates with
+    ellipsis if still too long.
+    """
+    import re
+
+    if len(name) <= max_width:
+        return name
+
+    # Drop parenthetical suffix first
+    short = re.sub(r"\s*\(.*\)\s*$", "", name)
+    if len(short) <= max_width:
+        return short
+
+    return short[: max_width - 1] + "\u2026"
 
 
 def humanize_path(path: Path | str, max_width: int = 64) -> str:
@@ -95,39 +237,45 @@ def format_progress_bar(
     width: int = 40,
     state: str = "running",
 ) -> str:
-    """Format an ASCII progress bar string.
+    """Format a v4 ``▓▒░`` shaded-block progress bar.
 
-    ``state`` controls the visual treatment so a stopped/errored bar
-    looks distinct from a happy in-progress one. Valid states:
-    ``idle`` (empty bar, white), ``running`` (orange fill), ``done``
-    (green fill), ``paused`` (yellow fill), ``stopping`` (gray fill),
-    ``cancelled`` / ``error`` (red fill, X-marks instead of dashes).
+    ``state`` controls the visual treatment. Matches the web + CLI
+    bars: full cells are ``▓``, a single half-cell ``▒`` at the fill
+    boundary, ``░`` for empty. Errors substitute ``X`` for empties so
+    a broken run reads distinctly.
+
+    Valid states: ``idle``, ``running``, ``done``, ``paused``,
+    ``stopping``, ``cancelled``, ``error``.
 
     The outer brackets are escaped (``\\[`` / ``\\]``) so Textual
     markup parsing doesn't try to interpret them as color tags.
     """
     progress = max(0.0, min(1.0, progress))
-    filled = int(progress * width)
-    empty = width - filled
+    exact = progress * width
+    filled = int(exact)
+    half = 1 if (exact - filled) >= 0.5 else 0
+    empty = max(0, width - filled - half)
     pct = f"{progress * 100:.0f}%"
 
+    FULL, HALF, DOT = "▓", "▒", "░"
+
     if state in ("error", "cancelled"):
-        bar = f"[#cc241d]{'=' * filled}{'X' * empty}[/]"
-        pct_colored = f"[#cc241d]{pct}[/]"
+        bar = f"[#fb4b4b]{FULL * filled}{HALF * half}{'X' * empty}[/]"
+        pct_colored = f"[#fb4b4b]{pct}[/]"
     elif state == "stopping":
-        bar = f"[#a89984]{'=' * filled}[/][#3a3a3a]{'-' * empty}[/]"
-        pct_colored = f"[#a89984]{pct}[/]"
+        bar = f"[#a59a86]{FULL * filled}{HALF * half}[/][#3a3a3a]{DOT * empty}[/]"
+        pct_colored = f"[#a59a86]{pct}[/]"
     elif state == "paused":
-        bar = f"[#d79921]{'=' * filled}[/][#3a3a3a]{'-' * empty}[/]"
-        pct_colored = f"[#d79921]{pct}[/]"
+        bar = f"[#a59a86]{FULL * filled}{HALF * half}[/][#3a3a3a]{DOT * empty}[/]"
+        pct_colored = f"[#a59a86]{pct}[/]"
     elif state == "done":
-        bar = f"[#98971a]{'=' * width}[/]"
-        pct_colored = f"[#98971a]{pct}[/]"
+        bar = f"[#DDEDC4]{FULL * width}[/]"
+        pct_colored = f"[#DDEDC4]{pct}[/]"
     elif state == "idle":
-        bar = f"[#3a3a3a]{'-' * width}[/]"
-        pct_colored = f"[#a89984]{pct}[/]"
+        bar = f"[#3a3a3a]{DOT * width}[/]"
+        pct_colored = f"[#787266]{pct}[/]"
     else:  # running
-        bar = f"[#e0a044]{'=' * filled}[/][#3a3a3a]{'-' * empty}[/]"
-        pct_colored = f"[#e0a044]{pct}[/]"
+        bar = f"[#DDEDC4]{FULL * filled}{HALF * half}[/][#3a3a3a]{DOT * empty}[/]"
+        pct_colored = f"[#DDEDC4]{pct}[/]"
 
     return f"\\[{bar}\\] {pct_colored}"

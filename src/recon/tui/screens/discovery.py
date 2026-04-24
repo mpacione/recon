@@ -1,8 +1,8 @@
 """DiscoveryScreen for recon TUI.
 
-Accumulating competitor search. Users toggle candidates on/off,
-search for more, view the full roster, and dismiss with accepted
-candidates when done.
+Full-screen competitor search. Users toggle candidates on/off,
+search for more, view the full roster, and proceed when ready.
+Uses buttons for actions so keybinds don't conflict with input.
 """
 
 from __future__ import annotations
@@ -15,42 +15,57 @@ from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Input, Static
 
 from recon.discovery import DiscoveryCandidate, DiscoveryState  # noqa: TCH001
 from recon.logging import get_logger
+from recon.tui.shell import ReconScreen
 
 _log = get_logger(__name__)
 
 SearchFn = Callable[[DiscoveryState | None], Coroutine[Any, Any, list[DiscoveryCandidate]]]
 
+_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
-    """Interactive competitor discovery with accumulating roster."""
+
+class DiscoveryScreen(ReconScreen):
+    """Full-screen competitor discovery — v4 COMP'S tab."""
+
+    tab_key = "comps"
+    flow_step = 1
 
     BINDINGS = [
-        Binding("up", "cursor_up", "Up", show=False),
-        Binding("down", "cursor_down", "Down", show=False),
-        Binding("space", "toggle_current", "Toggle", show=False),
+        # Row nav — ↑↓ are handled natively by DataTable but j/k
+        # need to forward there explicitly.
+        Binding("j", "cursor_down", "down", show=False),
+        Binding("k", "cursor_up", "up", show=False),
+        # Space / Enter toggle the candidate under the DataTable cursor.
+        Binding("space", "toggle_current", "toggle", show=False),
+        # Main actions — match the web COMP'S tab hotkeys:
+        #   s = search  ·  a = accept all  ·  d = reject all
+        #   m = add manual  ·  r = run  ·  esc = back
+        Binding("s", "search_more", "search", show=False),
+        Binding("a", "accept_all", "accept all", show=False),
+        Binding("d", "reject_all", "reject all", show=False),
+        Binding("m", "add_manually", "add manual", show=False),
+        Binding("r", "done", "run", show=False),
         Binding("escape", "cancel", "Back", show=False),
-        Binding("a", "accept_all", "Accept all", show=False),
-        Binding("x", "reject_all", "Reject all", show=False),
-        Binding("s", "search_more", "Search more", show=False),
-        Binding("n", "add_manually", "Add manually", show=False),
-        Binding("d", "done", "Done", show=False),
     ]
+
+    keybind_hints = (
+        "[#DDEDC4]↑↓[/] nav · [#DDEDC4]space[/] toggle · "
+        "[#DDEDC4]s[/] search · [#DDEDC4]a[/] all · [#DDEDC4]d[/] none · "
+        "[#DDEDC4]m[/] add · [#DDEDC4]r[/] run · [#DDEDC4]esc[/] back"
+    )
 
     DEFAULT_CSS = """
     DiscoveryScreen {
-        align: center middle;
+        background: #000000;
     }
     #discovery-container {
-        width: 100;
+        width: 100%;
         height: auto;
-        max-height: 90%;
         padding: 1 2;
-        border: round #3a3a3a;
         background: #000000;
         overflow-y: auto;
     }
@@ -58,46 +73,18 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         height: auto;
         margin: 1 0 0 0;
     }
-    .discovery-card {
-        margin: 0 0 1 0;
-    }
-    .discovery-card.accepted {
-        border: round #e0a044;
-    }
-    .discovery-card.rejected {
-        border: round #3a3a3a;
-        color: #a89984;
-    }
-    /* Action-bar buttons styled to match the cyberspace.online
-       thin-bordered minimal aesthetic. Textual Buttons need at
-       least 3 rows to show their label (top chrome + content row +
-       bottom chrome), so we use height 3 but set `border: none`
-       and `background: transparent` so the chrome rows render as
-       empty space. The result is a flat text button with no box. */
-    .discovery-actions {
-        height: auto;
-        margin: 1 0 0 0;
+    #discovery-actions {
+        dock: bottom;
+        height: 3;
+        padding: 0 2;
         layout: horizontal;
+        background: #000000;
     }
-    .discovery-actions Button {
+    #discovery-actions Button {
         height: 3;
         min-width: 0;
         margin: 0 1 0 0;
         padding: 0 1;
-        background: transparent;
-        color: #a89984;
-        border: none;
-    }
-    .discovery-actions Button:hover {
-        background: #1d1d1d;
-        color: #efe5c0;
-    }
-    .discovery-actions Button.-primary {
-        color: #e0a044;
-    }
-    .discovery-actions Button.-primary:hover {
-        background: #e0a044;
-        color: #000000;
     }
     #roster-summary {
         height: auto;
@@ -105,7 +92,18 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         padding: 1 2;
         border: round #3a3a3a;
     }
+    .api-key-input {
+        height: 3;
+        margin: 0 0;
+    }
+    .hidden-legacy {
+        display: none;
+    }
     """
+
+    show_log_pane = False
+    show_activity_feed = False
+    show_run_status_bar = False
 
     def __init__(self, state: DiscoveryState, domain: str) -> None:
         super().__init__()
@@ -115,6 +113,7 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         self._cursor_index: int = 0
         self._is_searching: bool = False
         self._auto_started: bool = False
+        self._spinner_frame: int = 0
 
     @property
     def state(self) -> DiscoveryState:
@@ -125,9 +124,6 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         return self._cursor_index
 
     def set_search_fn(self, fn: SearchFn) -> None:
-        """Wire a search function. Call before push_screen to enable
-        auto-start on mount. Safe to call before the screen is mounted
-        -- the actual search is deferred until on_mount fires."""
         self._search_fn = fn
 
     def on_mount(self) -> None:
@@ -147,8 +143,37 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
             _log.info("DiscoveryScreen: auto-starting initial search on mount")
             self._do_search()
 
+        # Spinner tick during search
+        self.set_interval(0.25, self._spinner_tick, name="spinner")
+
+    def _spinner_tick(self) -> None:
+        if self._is_searching:
+            self._spinner_frame = (self._spinner_frame + 1) % len(_SPINNER_FRAMES)
+            self._update_search_status()
+
+    def _update_search_status(self) -> None:
+        try:
+            progress = self.query_one("#search-progress", Static)
+            if self._is_searching:
+                frame = _SPINNER_FRAMES[self._spinner_frame]
+                progress.update(
+                    f"[bold #DDEDC4]── SEARCH ──[/] "
+                    f"[#a59a86]round {self._state.round_count + 1}[/]\n"
+                    f"[#a59a86]searching for competitors...[/]  [#DDEDC4]{frame}[/]"
+                )
+            elif self._state.round_count > 0:
+                progress.update(
+                    f"[bold #DDEDC4]── SEARCH ──[/] "
+                    f"[#DDEDC4]{self._state.round_count} round{'s' if self._state.round_count != 1 else ''} complete[/]"
+                )
+            else:
+                progress.update(
+                    "[bold #DDEDC4]── SEARCH ──[/]"
+                )
+        except Exception:
+            pass
+
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Toggle acceptance when the user presses Enter on a row."""
         index = event.cursor_row
         candidates = self._state.all_candidates
         if 0 <= index < len(candidates):
@@ -156,41 +181,10 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
             self._populate_table()
             self._update_summary()
 
-    def action_cursor_up(self) -> None:
-        count = len(self._state.all_candidates)
-        if count > 0:
-            self._cursor_index = (self._cursor_index - 1) % count
-
-    def action_cursor_down(self) -> None:
-        count = len(self._state.all_candidates)
-        if count > 0:
-            self._cursor_index = (self._cursor_index + 1) % count
-
-    def action_toggle_current(self) -> None:
-        """Toggle the candidate at the DataTable cursor position."""
-        try:
-            table = self.query_one("#discovery-table", DataTable)
-            index = table.cursor_row
-        except Exception:
-            index = self._cursor_index
-        candidates = self._state.all_candidates
-        if candidates and 0 <= index < len(candidates):
-            self._state.toggle(index)
-            self._refresh_display()
-
     def action_cancel(self) -> None:
-        """Dismiss the discovery screen (Esc keybind).
-
-        Returns the currently-accepted candidates, matching what the
-        Done button does. This is the universal "back out without
-        losing work" convention: pressing Escape finalizes whatever
-        the user has already accepted rather than throwing away the
-        whole round.
-        """
         self.dismiss(self._state.accepted_candidates)
 
     def action_done(self) -> None:
-        """Finalize the current accepted roster and close."""
         self.dismiss(self._state.accepted_candidates)
 
     def action_accept_all(self) -> None:
@@ -214,35 +208,117 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
     def action_add_manually(self) -> None:
         self._show_manual_inputs()
 
-    def compose(self) -> ComposeResult:
+    # -- keyboard nav (forward to DataTable) ------------------------------
+
+    def action_cursor_down(self) -> None:
+        try:
+            table = self.query_one("#discovery-table", DataTable)
+        except Exception:
+            return
+        table.action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        try:
+            table = self.query_one("#discovery-table", DataTable)
+        except Exception:
+            return
+        table.action_cursor_up()
+
+    def action_toggle_current(self) -> None:
+        """Toggle the candidate under the DataTable cursor.
+
+        ``on_data_table_row_selected`` already handles Enter via the
+        DataTable's built-in contract; this action is wired to Space
+        so the user can toggle without losing cursor position.
+        """
+        try:
+            table = self.query_one("#discovery-table", DataTable)
+        except Exception:
+            return
+        index = table.cursor_row
+        candidates = self._state.all_candidates
+        if 0 <= index < len(candidates):
+            self._state.toggle(index)
+            self._populate_table()
+            # Restore the cursor position — ``_populate_table`` clears
+            # + re-adds rows so the cursor resets to 0 otherwise.
+            try:
+                table.move_cursor(row=index)
+            except Exception:
+                pass
+            self._update_summary()
+
+    def compose_body(self) -> ComposeResult:
+        from recon.tui.primitives import Card
+
         with Vertical(id="discovery-container"):
-            yield Static(
-                f"[bold #e0a044]── DISCOVERY ──[/] [#a89984]·[/] "
-                f"[#efe5c0]{self._domain}[/]",
-                id="discovery-title",
+            count = len(self._state.all_candidates)
+            accepted = len(self._state.accepted_candidates)
+
+            # Competitors card — matches the web COMP'S tab. Title +
+            # meta (domain / accepted count / round state) + body
+            # (candidate rows).
+            meta_bits = [self._domain]
+            if count:
+                meta_bits.append(f"{accepted}/{count} selected")
+            if self._state.round_count:
+                meta_bits.append(
+                    f"{self._state.round_count} round{'s' if self._state.round_count != 1 else ''}"
+                )
+            comps_meta = "  ·  ".join(meta_bits)
+
+            with Card(title="DISCOVERY · COMPETITORS", meta=comps_meta, id="discovery-card"):
+                # Hidden static preserving #discovery-title for tests
+                # that query the legacy id. Card border labels are
+                # where the human sees the title/meta visually.
+                count_label = f"  [#a59a86]{count} found[/]" if count > 0 else ""
+                yield Static(
+                    f"[bold #DDEDC4]── COMPETITOR DISCOVERY ──[/] "
+                    f"[#a59a86]·[/] [#DDEDC4]{self._domain}[/]"
+                    f"{count_label}",
+                    id="discovery-title",
+                    classes="hidden-legacy",
+                )
+                yield self._build_search_progress()
+                yield self._build_summary()
+                with Vertical(id="discovery-candidates"):
+                    yield from self._build_candidate_list()
+                yield from self._build_roster_summary()
+
+        with Horizontal(id="discovery-actions"):
+            yield Button("Run", id="btn-done", variant="primary")
+            yield Button("Search", id="btn-search-more")
+            yield Button("Add", id="btn-add-manual")
+            yield Button("Accept All", id="btn-accept-all")
+            yield Button("Reject All", id="btn-reject-all")
+
+    def _build_search_progress(self) -> Static:
+        if self._is_searching:
+            frame = _SPINNER_FRAMES[self._spinner_frame]
+            return Static(
+                f"[bold #DDEDC4]── SEARCH ──[/] "
+                f"[#a59a86]round {self._state.round_count + 1}[/]\n"
+                f"[#a59a86]searching for competitors...[/]  [#DDEDC4]{frame}[/]",
+                id="search-progress",
             )
-            yield self._build_summary()
-            with Vertical(id="discovery-candidates"):
-                yield from self._build_candidate_list()
-            yield from self._build_roster_summary()
-            # Button labels go through Rich markup parsing, so any
-            # `[s]`/`[x]` pattern gets eaten as an unknown tag.
-            # Escape the open bracket with a backslash so the label
-            # renders as a literal key hint.
-            with Horizontal(classes="discovery-actions"):
-                yield Button("\\[↵] done", id="btn-done", variant="primary")
-                yield Button("\\[s] search more", id="btn-search-more")
-                yield Button("\\[n] add manually", id="btn-add-manual")
-                yield Button("\\[a] accept all", id="btn-accept-all")
-                yield Button("\\[x] reject all", id="btn-reject-all")
+        if self._state.round_count > 0:
+            return Static(
+                f"[bold #DDEDC4]── SEARCH ──[/] "
+                f"[#DDEDC4]{self._state.round_count} round{'s' if self._state.round_count != 1 else ''} complete[/]",
+                id="search-progress",
+            )
+        return Static(
+            "[bold #DDEDC4]── SEARCH ──[/]",
+            id="search-progress",
+        )
 
     def _build_summary(self) -> Static:
         accepted = len(self._state.accepted_candidates)
         rejected = len(self._state.rejected_candidates)
         return Static(
-            f"[#a89984]rounds:[/] [#e0a044]{self._state.round_count}[/]  "
-            f"[#3a3a3a]·[/]  [#a89984]accepted:[/] [#e0a044]{accepted}[/]  "
-            f"[#3a3a3a]·[/]  [#a89984]rejected:[/] [#e0a044]{rejected}[/]",
+            f"[#a59a86]rounds:[/] [#DDEDC4]{self._state.round_count}[/]  "
+            f"[#3a3a3a]·[/]  [#a59a86]accepted:[/] [#DDEDC4]{accepted}[/]  "
+            f"[#3a3a3a]·[/]  [#a59a86]rejected:[/] [#DDEDC4]{rejected}[/]",
             id="discovery-summary",
         )
 
@@ -251,15 +327,15 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         if not candidates:
             if self._is_searching:
                 yield Static(
-                    "[#e0a044]Searching the web for competitors...[/]\n"
-                    "[#a89984]This usually takes 10-30 seconds.[/]",
+                    "[#DDEDC4]Searching the web for competitors...[/]\n"
+                    "[#a59a86]This usually takes 10-30 seconds.[/]",
                     id="discovery-empty",
                 )
             else:
                 yield Static(
-                    "[#a89984]No candidates yet. Press "
-                    "[#e0a044]s[/] to search or "
-                    "[#e0a044]n[/] to add manually.[/]",
+                    "[#a59a86]No candidates yet. Click "
+                    "[#DDEDC4]Search More[/] or "
+                    "[#DDEDC4]Add Manually[/].[/]",
                     id="discovery-empty",
                 )
             return
@@ -268,11 +344,6 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         yield table
 
     def _populate_table(self) -> None:
-        """Fill (or refill) the DataTable from the current state.
-
-        Called on mount and after any state change (search round,
-        toggle, accept all, reject all).
-        """
         try:
             table = self.query_one("#discovery-table", DataTable)
         except Exception:
@@ -283,7 +354,10 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         table.cursor_type = "row"
 
         for candidate in self._state.all_candidates:
-            marker = "✓" if candidate.accepted else "·"
+            # v4 glyphs: filled square selected, dashed square empty.
+            # Same pair as the web UI's Lucide square-check /
+            # square-dashed so both surfaces read identically.
+            marker = "\u25a3" if candidate.accepted else "\u25a2"
             tier = candidate.suggested_tier.value.capitalize()
             url_short = candidate.url[:40] if candidate.url else ""
             table.add_row(marker, candidate.name, tier, url_short)
@@ -295,8 +369,8 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         names = ", ".join(c.name for c in accepted[:10])
         suffix = f" ... ({len(accepted)} total)" if len(accepted) > 10 else ""
         yield Static(
-            f"[bold #e0a044]ACCEPTED ROSTER[/] ({len(accepted)})\n"
-            f"[#a89984]{names}{suffix}[/]",
+            f"[bold #DDEDC4]ACCEPTED ROSTER[/] ({len(accepted)})\n"
+            f"[#a59a86]{names}{suffix}[/]",
             id="roster-summary",
         )
 
@@ -305,23 +379,11 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
-        _log.info(
-            "DiscoveryScreen button pressed id=%s candidates=%d has_search_fn=%s",
-            button_id,
-            len(self._state.all_candidates),
-            self._search_fn is not None,
-        )
+        _log.info("DiscoveryScreen button pressed id=%s", button_id)
         if button_id == "btn-done":
             self.dismiss(self._state.accepted_candidates)
         elif button_id == "btn-search-more":
-            if self._search_fn is None:
-                self.app.notify(
-                    "Search function not configured. API key may be missing.",
-                    title="Cannot search",
-                    severity="error",
-                )
-                return
-            self._do_search()
+            self.action_search_more()
         elif button_id == "btn-add-manual":
             self._show_manual_inputs()
         elif button_id == "btn-accept-all":
@@ -330,46 +392,36 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         elif button_id == "btn-reject-all":
             self._state.reject_all()
             self._refresh_display()
-        elif button_id.startswith("btn-toggle-"):
-            try:
-                index = int(button_id.removeprefix("btn-toggle-"))
-            except ValueError:
-                return
-            self._state.toggle(index)
-            self._refresh_display()
 
     @work(exclusive=True)
     async def _do_search(self) -> None:
         if self._search_fn is None:
-            _log.warning("DiscoveryScreen._do_search called but _search_fn is None")
             return
 
         if self._is_searching:
-            _log.info("DiscoveryScreen: search already in progress, ignoring")
             return
 
         self._is_searching = True
-        _log.info("DiscoveryScreen: starting search in domain=%s", self._domain)
-        await self.recompose()
+        self._update_search_status()
 
         try:
             candidates = await self._search_fn(self._state)
         except Exception as exc:
             _log.exception("DiscoveryScreen: search raised exception")
             self._is_searching = False
+            self._update_search_status()
+            message = str(exc)
+            if "401" in message and "invalid x-api-key" in message:
+                message = "Invalid Anthropic API key. Check ~/.recon/.env or your active environment."
             self.app.notify(
-                f"Search failed: {exc}",
+                f"Search failed: {message}",
                 title="Discovery error",
                 severity="error",
                 timeout=10,
             )
-            await self.recompose()
             return
 
-        _log.info(
-            "DiscoveryScreen: search returned %d candidates",
-            len(candidates),
-        )
+        _log.info("DiscoveryScreen: search returned %d candidates", len(candidates))
         self._is_searching = False
 
         if candidates:
@@ -381,23 +433,17 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
             )
         else:
             self.app.notify(
-                "Agent returned no candidates. The LLM may need web search "
-                "enabled in your Anthropic console, or the domain may be too "
-                "narrow. Try Add Manually.",
+                "No candidates found. Try different search terms or Add Manually.",
                 title="Discovery",
                 severity="warning",
                 timeout=10,
             )
 
+        self._update_search_status()
         await self.recompose()
+        self._populate_table()
 
     def _refresh_display(self) -> None:
-        """Rebuild the DataTable and summary from current state.
-
-        Much cheaper than a full recompose — just clears and re-adds
-        rows. Falls back to recompose if the table isn't mounted yet
-        (e.g., first render before any candidates exist).
-        """
         try:
             self._populate_table()
             self._update_summary()
@@ -405,15 +451,26 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
             self._schedule_recompose()
 
     def _update_summary(self) -> None:
-        """Refresh the summary line (accepted / rejected counts)."""
         try:
             summary = self.query_one("#discovery-summary", Static)
             accepted = len(self._state.accepted_candidates)
             rejected = len(self._state.rejected_candidates)
             summary.update(
-                f"[#a89984]rounds:[/] [#e0a044]{self._state.round_count}[/]  "
-                f"[#3a3a3a]·[/]  [#a89984]accepted:[/] [#e0a044]{accepted}[/]  "
-                f"[#3a3a3a]·[/]  [#a89984]rejected:[/] [#e0a044]{rejected}[/]",
+                f"[#a59a86]rounds:[/] [#DDEDC4]{self._state.round_count}[/]  "
+                f"[#3a3a3a]·[/]  [#a59a86]accepted:[/] [#DDEDC4]{accepted}[/]  "
+                f"[#3a3a3a]·[/]  [#a59a86]rejected:[/] [#DDEDC4]{rejected}[/]",
+            )
+        except Exception:
+            pass
+        # Update title with candidate count
+        try:
+            title = self.query_one("#discovery-title", Static)
+            count = len(self._state.all_candidates)
+            count_label = f"  [#a59a86]{count} found[/]" if count > 0 else ""
+            title.update(
+                f"[bold #DDEDC4]── COMPETITOR DISCOVERY ──[/] "
+                f"[#a59a86]·[/] [#DDEDC4]{self._domain}[/]"
+                f"{count_label}"
             )
         except Exception:
             pass
@@ -423,30 +480,18 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         await self.recompose()
 
     def _show_manual_inputs(self) -> None:
-        """Mount inline name + URL inputs for adding a manual candidate.
-
-        Submitting either input commits the entry via
-        :meth:`DiscoveryState.add_manual` and tears the inputs back down.
-        Pressing Esc on an input dismisses without saving.
-        """
         try:
             container = self.query_one("#discovery-container", Vertical)
         except Exception:
             return
         if self.query("#manual-name"):
-            return  # already showing
+            return
 
         container.mount(
-            Input(
-                placeholder="Competitor name",
-                id="manual-name",
-            ),
+            Input(placeholder="Competitor name", id="manual-name"),
         )
         container.mount(
-            Input(
-                placeholder="URL (optional, https://...)",
-                id="manual-url",
-            ),
+            Input(placeholder="URL (optional, https://...)", id="manual-url"),
         )
         with contextlib.suppress(Exception):
             self.query_one("#manual-name", Input).focus()
@@ -464,7 +509,6 @@ class DiscoveryScreen(ModalScreen[list[DiscoveryCandidate]]):
         url = url_input.value.strip()
 
         if not name:
-            # Just tear down without saving
             self._tear_down_manual_inputs()
             return
 
