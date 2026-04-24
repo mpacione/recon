@@ -15,6 +15,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from recon.logging import get_logger
+from recon.tui.widgets import button_label
 
 _log = get_logger(__name__)
 
@@ -168,13 +169,13 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
                 for i, op in enumerate(operations):
                     label, description = _OPERATION_LABELS[op]
                     yield Button(
-                        f" [{i + 1}]  {label}  — {description}",
+                        button_label(f"{label}  — {description}", str(i + 1)),
                         id=f"btn-op-{i}",
                         classes="operation-row",
                     )
 
             with Horizontal(classes="action-bar"):
-                yield Button("Back", id="btn-back")
+                yield Button(button_label("BACK", "Esc"), id="btn-back")
             yield Static(
                 "[#a59a86]press a number 1-7 or click an option to run[/]",
                 id="planner-hint",

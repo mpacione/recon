@@ -13,11 +13,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from rich.text import Text
 from textual.message import Message
 from textual.widgets import Static
 
 from recon.tui.models.curation import ThemeCurationModel  # noqa: TCH001
 from recon.tui.models.monitor import RunMonitorModel, WorkerStatus  # noqa: TCH001
+
+
+def button_label(label: str, hotkey: str | None = None) -> Text:
+    """Return a literal button label with an optional bracketed hotkey."""
+    if hotkey:
+        return Text(f"{label} [{hotkey}]")
+    return Text(label)
 
 
 # ---------------------------------------------------------------------------

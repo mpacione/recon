@@ -67,9 +67,9 @@ class TestReconAppModes:
             await pilot.pause()
             assert app.workspace_path == tmp_workspace
 
-    async def test_new_project_pushes_wizard_screen(self, tmp_path: Path) -> None:
+    async def test_new_project_pushes_describe_screen(self, tmp_path: Path) -> None:
         from recon.tui.screens.welcome import WelcomeScreen
-        from recon.tui.screens.wizard import WizardScreen
+        from recon.tui.screens.describe import DescribeScreen
 
         app = ReconApp()
         async with app.run_test(size=(120, 40)) as pilot:
@@ -82,4 +82,4 @@ class TestReconAppModes:
             await pilot.pause()
             await pilot.pause()
             assert app.is_running
-            assert isinstance(app.screen, WizardScreen)
+            assert isinstance(app.screen, DescribeScreen)

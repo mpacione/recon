@@ -31,6 +31,7 @@ from textual.widgets import Button, Markdown, Static
 
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
+from recon.tui.widgets import button_label
 
 _log = get_logger(__name__)
 
@@ -173,9 +174,9 @@ class ResultsScreen(ReconScreen):
                         yield from self._compose_preview()
 
         with Horizontal(id="results-actions"):
-            yield Button("Open Folder", id="btn-open-folder", variant="primary")
-            yield Button("View Summary", id="btn-view-summary")
-            yield Button("Back", id="btn-back")
+            yield Button(button_label("OPEN FOLDER", "L"), id="btn-open-folder", variant="primary")
+            yield Button(button_label("VIEW SUMMARY", "V"), id="btn-view-summary")
+            yield Button(button_label("BACK", "Esc"), id="btn-back")
 
     def _compose_tree_rows(self) -> ComposeResult:
         if not self._files:

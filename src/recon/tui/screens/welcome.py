@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,10 +17,12 @@ from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
+from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Static
 
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
+from recon.tui.widgets import button_label
 
 _log = get_logger(__name__)
 
@@ -109,6 +112,7 @@ class RecentProjectsManager:
 
 
 _DEFAULT_RECENT_PATH = Path.home() / ".recon" / "recent.json"
+_DEFAULT_WORKSPACES_PARENT = Path.home() / "recon-workspaces"
 
 
 _RECON_BANNER = """\
@@ -119,6 +123,128 @@ _RECON_BANNER = """\
 [bold #DDEDC4]│  ██  ██  ▀▀██  ██▄▄  ██▄▄██ ██  ██  │[/]
 [bold #DDEDC4]│         recon  v0.2.0+              │[/]
 [bold #DDEDC4]└─────────────────────────────────────┘[/]"""
+
+
+def _slugify_workspace_name(name: str) -> str:
+    slug = name.lower().strip()
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    slug = re.sub(r"[\s_]+", "-", slug)
+    return re.sub(r"-+", "-", slug).strip("-") or "project"
+
+
+def _next_workspace_path(name: str, parent: Path = _DEFAULT_WORKSPACES_PARENT) -> Path:
+    slug = _slugify_workspace_name(name)
+    target = parent / slug
+    suffix = 2
+    while target.exists():
+        target = parent / f"{slug}-{suffix}"
+        suffix += 1
+    return target
+
+
+class _PromptModal(ModalScreen[str | None]):
+    BINDINGS = [
+        Binding("escape", "cancel", "cancel", show=False),
+    ]
+
+    DEFAULT_CSS = """
+    _PromptModal {
+        align: center middle;
+    }
+    #prompt-modal {
+        width: 76;
+        height: auto;
+        padding: 1 2;
+        border: solid #3a3a3a;
+        background: #000000;
+    }
+    #prompt-copy {
+        height: auto;
+        margin: 0 0 1 0;
+        color: #a59a86;
+    }
+    #prompt-actions {
+        height: auto;
+        margin: 1 0 0 0;
+    }
+    #prompt-actions Button {
+        margin: 0 1 0 0;
+        width: 18;
+    }
+    """
+
+    def __init__(
+        self,
+        *,
+        title: str,
+        copy: str,
+        placeholder: str,
+        submit_label: tuple[str, str] | tuple[str, None],
+        input_id: str,
+    ) -> None:
+        super().__init__()
+        self._title = title
+        self._copy = copy
+        self._placeholder = placeholder
+        self._submit_label = submit_label
+        self._input_id = input_id
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="prompt-modal"):
+            yield Static(f"[bold #DDEDC4]── {self._title} ──[/]")
+            yield Static(self._copy, id="prompt-copy")
+            yield Input(placeholder=self._placeholder, id=self._input_id)
+            with Horizontal(id="prompt-actions"):
+                yield Button(button_label(*self._submit_label), id="prompt-submit", variant="primary")
+                yield Button(button_label("CANCEL", "Esc"), id="prompt-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one(Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "prompt-submit":
+            self.action_submit()
+        elif event.button.id == "prompt-cancel":
+            self.action_cancel()
+
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
+        self.action_submit()
+
+    def action_submit(self) -> None:
+        value = self.query_one(Input).value.strip()
+        if not value:
+            self.app.notify("Enter a value to continue.", severity="warning")
+            return
+        self.dismiss(value)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class _NewProjectModal(_PromptModal):
+    def __init__(self) -> None:
+        parent = str(_DEFAULT_WORKSPACES_PARENT).replace(str(Path.home()), "~")
+        super().__init__(
+            title="NEW PROJECT",
+            copy=(
+                "[#a59a86]Name the workspace.[/] "
+                f"[#787266]Recon will create it in {parent}.[/]"
+            ),
+            placeholder="e.g. Acme competitive intelligence",
+            submit_label=("CREATE", "↲"),
+            input_id="new-project-name-input",
+        )
+
+
+class _OpenWorkspaceModal(_PromptModal):
+    def __init__(self) -> None:
+        super().__init__(
+            title="OPEN WORKSPACE",
+            copy="[#a59a86]Enter a workspace path to open directly.[/]",
+            placeholder="~/recon-workspaces/acme",
+            submit_label=("OPEN", "↲"),
+            input_id="open-workspace-path-input",
+        )
 
 
 class WelcomeScreen(ReconScreen):
@@ -188,13 +314,12 @@ class WelcomeScreen(ReconScreen):
         padding: 1 0 0 0;
         border-top: solid #3a3a3a;
     }
+    #welcome-projects-foot Button {
+        margin: 0 0 0 1;
+    }
     #welcome-foot-copy {
         width: 1fr;
         color: #787266;
-    }
-    #welcome-input-slot {
-        height: auto;
-        margin: 1 0 0 0;
     }
     """
 
@@ -227,6 +352,14 @@ class WelcomeScreen(ReconScreen):
     # header bar is just noise. TabStrip above carries the screen
     # identity.
     show_header_bar = False
+    keybar_items = (
+        ("↑↓", "NAV"),
+        ("↲", "OPEN"),
+        ("N", "NEW"),
+        ("O", "OPEN PATH"),
+        ("1-9", "RECENT"),
+        ("Q", "QUIT"),
+    )
 
     keybind_hints = (
         "[#DDEDC4]↑↓[/] nav · [#DDEDC4]↲[/] open · [#DDEDC4]n[/] new · "
@@ -276,10 +409,17 @@ class WelcomeScreen(ReconScreen):
                     yield from self._compose_project_rows(projects)
                 with Horizontal(id="welcome-projects-foot"):
                     yield Static("[#787266][↑↓][/][#686359] keyboard nav[/]", id="welcome-foot-copy")
-                    yield Button("OPEN [↲]", id="welcome-open")
-                    yield Button("NEW [N]", id="welcome-new", variant="primary")
-
-            yield Vertical(id="welcome-input-slot")
+                    yield Button(
+                        button_label("OPEN", "↲"),
+                        id="welcome-open",
+                        classes="welcome-action",
+                    )
+                    yield Button(
+                        button_label("NEW", "N"),
+                        id="welcome-new",
+                        variant="primary",
+                        classes="welcome-action",
+                    )
 
     def _compose_project_rows(self, projects):
         if not projects:
@@ -364,11 +504,11 @@ class WelcomeScreen(ReconScreen):
 
     def action_new(self) -> None:
         _log.info("WelcomeScreen action_new")
-        self._show_new_input()
+        self.app.push_screen(_NewProjectModal(), self._handle_new_project_name)
 
     def action_open(self) -> None:
         _log.info("WelcomeScreen action_open")
-        self._show_open_input()
+        self.app.push_screen(_OpenWorkspaceModal(), self._handle_open_workspace_path)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "welcome-new":
@@ -394,9 +534,9 @@ class WelcomeScreen(ReconScreen):
 
     def action_open_selected(self) -> None:
         # Enter is only meaningful when a recent row is highlighted.
-        # If the user has a ``new-path-input`` or ``open-path-input``
-        # focused the Input widget's own ``on_input_submitted`` fires
-        # instead — Textual routes Enter to the focused widget first.
+        # If the user has a modal prompt focused, that Input widget's
+        # own ``on_input_submitted`` fires instead — Textual routes
+        # Enter to the focused widget first.
         self.action_open_recent(self._selected_index)
 
     def _refresh_selection(self) -> None:
@@ -440,62 +580,22 @@ class WelcomeScreen(ReconScreen):
         p = Path(path)
         return p.exists() and p.is_dir()
 
-    def _show_new_input(self) -> None:
-        container = self.query_one("#welcome-input-slot", Vertical)
-        existing = self.query("#new-path-input")
-        if existing:
+    def _handle_new_project_name(self, name: str | None) -> None:
+        if not name:
             return
-        default_path = str(Path.home() / "recon-workspaces" / "new-project")
-        path_input = Input(
-            value=default_path,
-            placeholder="Directory for new project",
-            id="new-path-input",
-        )
-        container.mount(path_input)
-        path_input.focus()
-        self._scroll_input_into_view(path_input)
+        target = _next_workspace_path(name)
+        _log.info("WelcomeScreen new project name=%s target=%s", name, target)
+        self.post_message(self.NewProjectRequested(str(target)))
 
-    def _show_open_input(self) -> None:
-        container = self.query_one("#welcome-input-slot", Vertical)
-        existing = self.query("#open-path-input")
-        if existing:
-            return
-        path_input = Input(
-            placeholder="Path to workspace directory",
-            id="open-path-input",
-        )
-        container.mount(path_input)
-        path_input.focus()
-        self._scroll_input_into_view(path_input)
-
-    def _scroll_input_into_view(self, widget: Input) -> None:
-        """Scroll the welcome body so a freshly mounted Input is visible.
-
-        Without this, screens with a full recents list push the Input
-        below the viewport fold and the user sees no visible change
-        when they press ``n`` / ``o``. ``scroll_visible`` walks
-        ancestor scrollables until the widget is in frame.
-        """
-        # Defer a tick so the mount completes before we scroll.
-        self.call_after_refresh(widget.scroll_visible, animate=False)
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        path_str = event.value.strip()
-        _log.debug(
-            "WelcomeScreen input submitted id=%s value=%s",
-            event.input.id,
-            path_str,
-        )
+    def _handle_open_workspace_path(self, path_str: str | None) -> None:
         if not path_str:
             return
-        if event.input.id == "open-path-input":
-            if not self._is_valid_workspace_path(path_str):
-                self.app.notify(
-                    f"{path_str} does not exist or is not a directory.",
-                    title="Workspace unavailable",
-                    severity="error",
-                )
-                return
-            self.post_message(self.WorkspaceSelected(path_str))
-        elif event.input.id == "new-path-input":
-            self.post_message(self.NewProjectRequested(path_str))
+        normalized = str(Path(path_str).expanduser())
+        if not self._is_valid_workspace_path(normalized):
+            self.app.notify(
+                f"{normalized} does not exist or is not a directory.",
+                title="Workspace unavailable",
+                severity="error",
+            )
+            return
+        self.post_message(self.WorkspaceSelected(normalized))

@@ -15,6 +15,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from recon.logging import get_logger
+from recon.tui.widgets import button_label
 
 _log = get_logger(__name__)
 
@@ -94,10 +95,10 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
                 )
             yield Static("")
             with Horizontal(classes="action-bar"):
-                yield Button("Done", id="btn-done", variant="primary")
-                yield Button("Select All", id="btn-select-all")
-                yield Button("Clear All", id="btn-clear-all")
-                yield Button("Cancel", id="btn-cancel")
+                yield Button(button_label("DONE"), id="btn-done", variant="primary")
+                yield Button(button_label("SELECT ALL"), id="btn-select-all")
+                yield Button(button_label("CLEAR ALL"), id="btn-clear-all")
+                yield Button(button_label("CANCEL", "Esc"), id="btn-cancel")
 
     def _item_label(self, index: int) -> str:
         # Open bracket in Rich markup must be escaped with a backslash

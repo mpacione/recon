@@ -18,6 +18,7 @@ from textual.widgets import Button, Input, Static, TextArea
 from recon.api_keys import load_api_keys, mask_api_key, save_api_key
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
+from recon.tui.widgets import button_label
 
 _log = get_logger(__name__)
 
@@ -133,7 +134,7 @@ class DescribeScreen(ReconScreen):
             with Horizontal(classes="button-row"):
                 yield Button("Continue", id="btn-continue", variant="primary")
                 yield Button("Edit API Keys", id="btn-edit-keys")
-                yield Button("Back", id="btn-back")
+                yield Button(button_label("BACK", "Esc"), id="btn-back")
 
     def on_mount(self) -> None:
         # Hide key inputs initially, show status

@@ -603,6 +603,7 @@ class ReconScreen(Screen):
     show_keybind_hint: bool = True
     show_tab_strip: bool = True
     show_header_bar: bool = True
+    keybar_items: tuple[tuple[str, str], ...] = ()
 
     # v4 tab key this screen represents. Drives the TabStrip highlight
     # AND the 0-5 hotkey routing in ``ReconApp``. ``None`` means this
@@ -656,7 +657,7 @@ class ReconScreen(Screen):
     ]
 
     def compose(self) -> ComposeResult:
-        from recon.tui.primitives import TabStrip
+        from recon.tui.primitives import KeyBar, TabStrip
 
         # v4 tab strip at the very top — shows numbered tabs with the
         # current screen's tab_key highlighted.
@@ -689,7 +690,10 @@ class ReconScreen(Screen):
             if getattr(self, "show_log_pane", True):
                 yield LogPane()
             if getattr(self, "show_keybind_hint", True):
-                yield KeybindHint(self.keybind_hints)
+                if self.keybar_items:
+                    yield KeyBar(self.keybar_items, id="recon-key-bar")
+                else:
+                    yield KeybindHint(self.keybind_hints)
 
     def compose_body(self) -> ComposeResult:
         """Override in subclasses to render the screen's actual content."""

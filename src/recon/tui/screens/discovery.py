@@ -20,6 +20,7 @@ from textual.widgets import Button, DataTable, Input, Static
 from recon.discovery import DiscoveryCandidate, DiscoveryState  # noqa: TCH001
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
+from recon.tui.widgets import button_label
 
 _log = get_logger(__name__)
 
@@ -286,11 +287,11 @@ class DiscoveryScreen(ReconScreen):
                 yield from self._build_roster_summary()
 
         with Horizontal(id="discovery-actions"):
-            yield Button("Run", id="btn-done", variant="primary")
-            yield Button("Search", id="btn-search-more")
-            yield Button("Add", id="btn-add-manual")
-            yield Button("Accept All", id="btn-accept-all")
-            yield Button("Reject All", id="btn-reject-all")
+            yield Button(button_label("RUN", "R"), id="btn-done", variant="primary")
+            yield Button(button_label("SEARCH", "S"), id="btn-search-more")
+            yield Button(button_label("ADD", "M"), id="btn-add-manual")
+            yield Button(button_label("ACCEPT ALL", "A"), id="btn-accept-all")
+            yield Button(button_label("REJECT ALL", "D"), id="btn-reject-all")
 
     def _build_search_progress(self) -> Static:
         if self._is_searching:

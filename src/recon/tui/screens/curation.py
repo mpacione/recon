@@ -18,6 +18,7 @@ from textual.widgets import Button, Static
 from recon.logging import get_logger
 from recon.themes import DiscoveredTheme  # noqa: TCH001
 from recon.tui.models.curation import ThemeCurationModel  # noqa: TCH001
+from recon.tui.widgets import button_label
 
 _log = get_logger(__name__)
 
@@ -93,13 +94,13 @@ class ThemeCurationScreen(ModalScreen[list[DiscoveredTheme]]):
             yield Static("")
             with Horizontal(classes="action-bar"):
                 yield Button(
-                    "Done — synthesize selected",
+                    button_label("DONE — SYNTHESIZE SELECTED"),
                     id="btn-done",
                     variant="primary",
                 )
-                yield Button("Select All", id="btn-select-all-themes")
-                yield Button("Clear All", id="btn-clear-all-themes")
-                yield Button("Cancel", id="btn-cancel-curation")
+                yield Button(button_label("SELECT ALL"), id="btn-select-all-themes")
+                yield Button(button_label("CLEAR ALL"), id="btn-clear-all-themes")
+                yield Button(button_label("CANCEL", "Esc"), id="btn-cancel-curation")
 
     def _theme_label(self, index: int) -> str:
         entry = self._model.entries[index]

@@ -17,7 +17,7 @@ from textual.widgets import Button, Input, Static
 
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
-from recon.tui.widgets import ChecklistItem
+from recon.tui.widgets import ChecklistItem, button_label
 
 _log = get_logger(__name__)
 
@@ -127,10 +127,10 @@ class TemplateScreen(ReconScreen):
                 )
 
         with Horizontal(id="template-actions"):
-            yield Button("Proceed", id="btn-proceed", variant="primary")
-            yield Button("Select All", id="btn-select-all")
-            yield Button("Deselect All", id="btn-deselect-all")
-            yield Button("Back", id="btn-back")
+            yield Button(button_label("PROCEED", "N"), id="btn-proceed", variant="primary")
+            yield Button(button_label("SELECT ALL", "A"), id="btn-select-all")
+            yield Button(button_label("DESELECT ALL", "D"), id="btn-deselect-all")
+            yield Button(button_label("BACK", "Esc"), id="btn-back")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""

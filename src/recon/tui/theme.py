@@ -167,8 +167,11 @@ Button {
     color: #DDEDC4;
     border: solid #3a3a3a;
     height: 3;
+    min-height: 3;
+    max-height: 3;
     min-width: 8;
     padding: 0 1;
+    content-align: center middle;
     text-style: none;
 }
 
@@ -189,24 +192,29 @@ Button:focus {
 /* Primary variant — cream fill, black text (matches the web UI's
  * .btn--primary). Used for NEW / NEXT / primary confirms. */
 Button.-primary {
-    background: #DDEDC4;
-    color: #000000;
-    border: solid #DDEDC4;
-    text-style: bold;
+    background: transparent;
+    color: #DDEDC4;
+    border: solid #3a3a3a;
+    height: 3;
+    min-height: 3;
+    max-height: 3;
+    padding: 0 1;
+    content-align: center middle;
+    text-style: none;
 }
 
 Button.-primary:hover {
-    background: #ffffff;
-    color: #000000;
-    border: solid #ffffff;
-    text-style: bold;
+    background: transparent;
+    color: #ffffff;
+    border: solid #DDEDC4;
+    text-style: none;
 }
 
 Button.-primary:focus {
-    background: #ffffff;
-    color: #000000;
-    border: solid #ffffff;
-    text-style: bold;
+    background: transparent;
+    color: #ffffff;
+    border: solid #DDEDC4;
+    text-style: none;
 }
 
 Button.-error {
@@ -325,7 +333,6 @@ TabStrip > .tab-strip--separator {
 }
 
 KeyBar {
-    dock: bottom;
     height: 1;
     background: #2e2b27;
     color: #787266;

@@ -19,6 +19,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, SelectionList, Static
 
 from recon.logging import get_logger
+from recon.tui.widgets import button_label
 from recon.wizard import DecisionContext, DefaultSections, WizardPhase, WizardState
 
 _log = get_logger(__name__)
@@ -54,7 +55,7 @@ class _IdentityPhase(Vertical):
         yield SelectionList(*ctx_items, id="ctx-selection")
         yield Checkbox("Research own products through the same lens", id="cb-own-product")
         with Horizontal(classes="button-row"):
-            yield Button("Continue", id="btn-continue", variant="primary")
+            yield Button(button_label("CONTINUE"), id="btn-continue", variant="primary")
 
 
 class _SectionsPhase(Vertical):
@@ -70,8 +71,8 @@ class _SectionsPhase(Vertical):
         yield Static(f"[#a59a86]Select sections ({len(self._selected_keys)} recommended)[/]")
         yield SelectionList(*items, id="section-selection")
         with Horizontal(classes="button-row"):
-            yield Button("Back", id="btn-back")
-            yield Button("Continue", id="btn-continue", variant="primary")
+            yield Button(button_label("BACK", "Esc"), id="btn-back")
+            yield Button(button_label("CONTINUE"), id="btn-continue", variant="primary")
 
 
 class _SourcesPhase(Vertical):
@@ -92,8 +93,8 @@ class _SourcesPhase(Vertical):
             yield Static(f"  [#a59a86]Primary:[/] {primary}")
             yield Static("")
         with Horizontal(classes="button-row"):
-            yield Button("Back", id="btn-back")
-            yield Button("Accept Defaults", id="btn-continue", variant="primary")
+            yield Button(button_label("BACK", "Esc"), id="btn-back")
+            yield Button(button_label("ACCEPT DEFAULTS"), id="btn-continue", variant="primary")
 
 
 class _ReviewPhase(Vertical):
@@ -123,8 +124,8 @@ class _ReviewPhase(Vertical):
         yield Input(placeholder="sk-ant-...", id="input-api-key", password=True)
         yield Static("")
         with Horizontal(classes="button-row"):
-            yield Button("Back", id="btn-back")
-            yield Button("Create Workspace", id="btn-confirm", variant="primary")
+            yield Button(button_label("BACK", "Esc"), id="btn-back")
+            yield Button(button_label("CREATE WORKSPACE"), id="btn-confirm", variant="primary")
 
 
 class WizardScreen(ModalScreen[WizardResult]):

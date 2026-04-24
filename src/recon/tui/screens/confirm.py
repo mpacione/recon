@@ -16,7 +16,7 @@ from textual.widgets import Button, Static
 from recon.cost import estimate_full_run, get_model_pricing, list_available_models
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
-from recon.tui.widgets import RadioItem
+from recon.tui.widgets import RadioItem, button_label
 
 _log = get_logger(__name__)
 
@@ -142,11 +142,11 @@ class ConfirmScreen(ReconScreen):
 
         with Horizontal(id="confirm-actions"):
             yield Button(
-                "Start Research",
+                button_label("RUN", "N"),
                 id="btn-start",
                 variant="primary",
             )
-            yield Button("Back", id="btn-back")
+            yield Button(button_label("BACK", "Esc"), id="btn-back")
 
     def _render_cost_breakdown(self) -> str:
         pricing = get_model_pricing(self._current_model_name)
@@ -286,4 +286,3 @@ class ConfirmScreen(ReconScreen):
             model_name=self._current_model_name,
             workers=self._workers,
         ))
-
