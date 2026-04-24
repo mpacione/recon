@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio  # noqa: TCH003 -- used at runtime in type hints
 import datetime as dt
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,6 +31,8 @@ from recon.prompts import compose_research_prompt, compose_system_prompt
 from recon.schema import ReconSchema  # noqa: TCH001
 from recon.workers import WorkerPool
 from recon.workspace import Workspace  # noqa: TCH001
+
+CostCallback = Callable[[int, int], Awaitable[None]]
 
 _log = get_logger(__name__)
 
@@ -81,6 +84,7 @@ class ResearchOrchestrator:
     schema_override: ReconSchema | None = None
     use_web_search: bool = True
     max_retries: int = 1
+    cost_callback: CostCallback | None = None
 
     @property
     def _schema(self) -> ReconSchema:
@@ -274,6 +278,12 @@ class ResearchOrchestrator:
             )
 
             self._append_to_profile(task.competitor_slug, task.section_key, response.text)
+
+            if self.cost_callback is not None:
+                try:
+                    await self.cost_callback(response.input_tokens, response.output_tokens)
+                except Exception:
+                    _log.exception("cost_callback raised")
 
             return {
                 "competitor": task.competitor_name,

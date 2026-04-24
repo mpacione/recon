@@ -344,14 +344,23 @@ class Pipeline:
     # ------------------------------------------------------------------
 
     async def _stage_research(self, run_id: str, cost_tracker: CostTracker) -> None:
-        """Execute the research stage."""
+        """Execute the research stage.
+
+        Cost is recorded per-section via a callback, not aggregated
+        after the batch. This enables streaming cost in the TUI/web UI.
+        """
+
+        async def _on_cost(input_tokens: int, output_tokens: int) -> None:
+            await self._record_tokens(run_id, cost_tracker, input_tokens, output_tokens)
+
         orchestrator = ResearchOrchestrator(
             workspace=self.workspace,
             llm_client=self.llm_client,
             max_workers=self.config.max_research_workers,
+            cost_callback=_on_cost,
         )
 
-        results = await orchestrator.research_all(
+        await orchestrator.research_all(
             targets=self.config.targets,
             stale_only=self.config.stale_only,
             max_age_days=self.config.max_age_days,
@@ -359,10 +368,6 @@ class Pipeline:
             cancel_event=self.cancel_event,
             pause_event=self.pause_event,
         )
-
-        total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
-        total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)
-        await self._record_tokens(run_id, cost_tracker, total_input, total_output)
 
     async def _stage_verify(self, run_id: str, cost_tracker: CostTracker) -> None:
         """Execute the verification stage.
@@ -470,42 +475,47 @@ class Pipeline:
         path.write_text(frontmatter.dumps(post))
 
     async def _stage_enrich(self, run_id: str, cost_tracker: CostTracker) -> None:
-        """Execute all enrichment passes."""
+        """Execute all enrichment passes.
+
+        Cost is recorded per-profile via a callback, not aggregated
+        after each pass. This enables streaming cost in the TUI/web UI.
+        """
+
+        async def _on_cost(input_tokens: int, output_tokens: int) -> None:
+            await self._record_tokens(run_id, cost_tracker, input_tokens, output_tokens)
+
         for enrichment_pass in EnrichmentPass:
             orchestrator = EnrichmentOrchestrator(
                 workspace=self.workspace,
                 llm_client=self.llm_client,
                 enrichment_pass=enrichment_pass,
                 max_workers=self.config.max_enrich_workers,
+                cost_callback=_on_cost,
             )
-            results = await orchestrator.enrich_all(
+            await orchestrator.enrich_all(
                 targets=self.config.targets,
                 cancel_event=self.cancel_event,
                 pause_event=self.pause_event,
             )
 
-            total_input = sum(r.get("tokens", {}).get("input", 0) for r in results)
-            total_output = sum(r.get("tokens", {}).get("output", 0) for r in results)
-            await self._record_tokens(run_id, cost_tracker, total_input, total_output)
-
     async def _stage_index(self, run_id: str) -> None:
-        """Execute the indexing stage."""
+        """Execute the indexing stage.
+
+        Use the incremental indexer so repeated pipeline runs do not
+        append duplicate chunks for unchanged files.
+        """
+        from recon.incremental import IncrementalIndexer
+
         manager = self._open_index_manager()
-
-        profiles = self.workspace.list_profiles()
-        for profile_meta in profiles:
-            full = self.workspace.read_profile(profile_meta["_slug"])
-            if not full or not full.get("_content", "").strip():
-                continue
-
-            chunks = chunk_markdown(
-                content=full["_content"],
-                source_path=str(profile_meta["_path"]),
-                frontmatter_meta={
-                    k: v for k, v in profile_meta.items() if not k.startswith("_")
-                },
+        try:
+            indexer = IncrementalIndexer(
+                workspace=self.workspace,
+                index_manager=manager,
+                state_store=self.state_store,
             )
-            manager.add_chunks(chunks)
+            await indexer.index(force=False)
+        finally:
+            manager.close()
 
     async def _stage_themes(self, run_id: str, cost_tracker: CostTracker) -> None:
         """Discover themes, optionally curate them, and tag profiles."""
@@ -573,7 +583,11 @@ class Pipeline:
         manager = self._open_index_manager()
         syntheses: list[SynthesisResult] = []
 
+        from recon.events import SynthesisCompleted, SynthesisStarted
+        from recon.events import publish as _publish
+
         for theme in self.discovered_themes:
+            _publish(SynthesisStarted(theme_label=theme.label))
             chunks = self._retrieve_for_theme(manager, theme)
             try:
                 result = await engine.synthesize(
@@ -594,6 +608,7 @@ class Pipeline:
                 result.total_input_tokens,
                 result.total_output_tokens,
             )
+            _publish(SynthesisCompleted(theme_label=theme.label))
 
         self.syntheses = syntheses
 
@@ -606,10 +621,14 @@ class Pipeline:
         distilled_dir = self.workspace.root / "themes" / "distilled"
         distilled_dir.mkdir(parents=True, exist_ok=True)
 
+        from recon.events import DeliveryCompleted, DeliveryStarted
+        from recon.events import publish as _publish
+
         distiller = Distiller(llm_client=self.llm_client)
         distilled_payloads: list[dict[str, Any]] = []
 
         for synthesis in self.syntheses:
+            _publish(DeliveryStarted(theme_label=synthesis.theme))
             try:
                 distilled = await distiller.distill(synthesis)
             except Exception:
@@ -624,6 +643,7 @@ class Pipeline:
             await self._record_tokens(
                 run_id, cost_tracker, distilled.input_tokens, distilled.output_tokens,
             )
+            _publish(DeliveryCompleted(theme_label=synthesis.theme))
 
         if not distilled_payloads:
             return
