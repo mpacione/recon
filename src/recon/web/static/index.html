@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RECON</title>
+  <link rel="stylesheet" href="/static/primitives.css">
+  <link rel="stylesheet" href="/static/recon.css">
+  <!--RECON_CONFIG-->
+  <script src="https://code.iconify.design/iconify-icon/2.0.0/iconify-icon.min.js"></script>
+  <!-- marked for markdown rendering in the OUTPUT tab. Loaded non-defer
+       so it's available synchronously from Alpine init; DOMPurify
+       sanitizes the rendered HTML before we inject it. -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
+  <script defer src="/static/app.js"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body x-data="reconShell()" x-cloak
+      @keydown.window="$store.hotkeys.handle($event)">
+
+  <!-- ============== Top nav ==============
+       RECON brand (home) on the left; 5 numbered flow tabs on the right.
+       Brand acts as the "home" tab — no number, clicking it jumps to #/
+       which is the RECON projects list. -->
+  <header class="topnav">
+    <a class="topnav-brand"
+       :class="{ 'is-active': screen === 'home' }"
+       href="#/"
+       aria-label="Recon home">
+      <iconify-icon icon="lucide:globe" width="12"></iconify-icon>
+      <span>RECON</span>
+    </a>
+
+    <nav class="topnav-tabs"
+         role="tablist"
+         aria-label="Research flow">
+      <template x-for="tab in tabs" :key="tab.key">
+        <a role="tab"
+           :href="tabHref(tab.key)"
+           :aria-selected="isTabActive(tab.key)"
+           :aria-disabled="!hasProject"
+           :class="{ 'is-active': isTabActive(tab.key), 'is-disabled': !hasProject }"
+           :tabindex="hasProject ? 0 : -1">
+          <iconify-icon :icon="'lucide:' + tab.icon" width="12"></iconify-icon>
+          <span x-text="tab.label"></span>
+          <span class="topnav-tab-num" x-text="'[' + tab.number + ']'"></span>
+        </a>
+      </template>
+    </nav>
+  </header>
+
+  <!-- ============== Main screen slot ============== -->
+  <main class="shell-main">
+    <div id="screen-slot" x-ref="slot"></div>
+  </main>
+
+  <!-- ============== Bottom nav ==============
+       Left group: global quit/save hints. Right group: settings. The
+       hint set rotates as screens register scoped bindings — see the
+       hotkeys store. Static fallback set here. -->
+  <footer class="botnav" aria-label="keybinds">
+    <div class="botnav-group">
+      <template x-for="hint in $store.hotkeys.leftHints" :key="hint.key">
+        <span class="botnav-hint">
+          <span class="botnav-key" x-text="'[' + hint.key + ']'"></span>
+          <span class="botnav-label" x-text="hint.label"></span>
+        </span>
+      </template>
+    </div>
+    <div class="botnav-group botnav-group-right">
+      <template x-for="hint in $store.hotkeys.rightHints" :key="hint.key">
+        <span class="botnav-hint">
+          <template x-if="hint.icon">
+            <iconify-icon :icon="'lucide:' + hint.icon" width="11"></iconify-icon>
+          </template>
+          <span class="botnav-label" x-text="hint.label"></span>
+          <span class="botnav-key" x-text="'[' + hint.key + ']'"></span>
+        </span>
+      </template>
+    </div>
+  </footer>
+
+  <!-- ============== Screen templates ==============
+       Each template is cloned into #screen-slot on route change. The
+       factory functions (planScreen, schemaScreen, etc.) live in app.js
+       and are stubbed in phase 1 — each renders a placeholder until its
+       phase implementation lands. -->
+
+  <template id="screen-home">
+    <div x-data="homeScreen()" class="screen home">
+
+      <!-- Intro blurb -->
+      <p class="home-intro">
+        <span class="home-intro-mark">▌</span>
+        <span class="fg">Automated grounded competitive intelligence research.</span>
+        <span class="body"> Recon orchestrates LLM agents to discover competitors, research them section-by-section against a structured schema, and synthesize the results into thematic analyses and executive summaries — all stored locally as Obsidian-compatible markdown.</span>
+      </p>
+
+      <!-- Projects table (always present — empty state lives inside) -->
+      <section class="card home-projects" aria-label="Projects">
+        <header class="card-head">
+          <span class="card-title">Projects</span>
+          <button type="button" class="btn btn--ghost btn--sm card-meta" @click="deleteSelected()" :disabled="!projects.length">
+            <iconify-icon icon="lucide:trash-2" width="11"></iconify-icon>
+            <span>DELETE</span>
+            <span class="btn-key">[DEL]</span>
+          </button>
+        </header>
+
+        <div class="card-body stack stack-tight" role="listbox" aria-label="Projects" tabindex="0" x-ref="list">
+
+          <!-- Loading skeleton -->
+          <template x-if="loading">
+            <div class="skeleton" aria-busy="true">Loading projects…</div>
+          </template>
+
+          <!-- Error -->
+          <template x-if="error">
+            <p class="alert alert--err" x-text="error"></p>
+          </template>
+
+          <!-- Empty state -->
+          <template x-if="!loading && !error && !projects.length">
+            <p class="dim" style="padding: 8px 0;">
+              No projects yet. Press <kbd>N</kbd> to create one.
+            </p>
+          </template>
+
+          <!-- Rows -->
+          <template x-for="(p, i) in projects" :key="p.path">
+            <button type="button"
+                    role="option"
+                    :aria-selected="selectedIndex === i"
+                    :class="selectedIndex === i ? 'proj-row is-selected' : 'proj-row'"
+                    @click="selectedIndex = i"
+                    @dblclick="openSelected()">
+              <span class="proj-row-mark" x-text="selectedIndex === i ? '▌' : '░'"></span>
+              <span class="proj-row-idx" x-text="(i + 1) + '.'"></span>
+              <span class="proj-row-name trunc" x-text="p.name"></span>
+              <span class="proj-row-sep">·</span>
+              <span class="proj-row-status" x-text="formatStatus(p.status)"></span>
+              <span class="proj-row-sep">·</span>
+              <span class="proj-row-count" x-text="formatCompCount(p)"></span>
+              <span class="proj-row-sep">·</span>
+              <span class="proj-row-date" x-text="formatDate(p.last_opened)"></span>
+              <span class="proj-row-sep">·</span>
+              <span class="proj-row-path trunc" x-text="formatPath(p.path)"></span>
+            </button>
+          </template>
+        </div>
+
+        <footer class="card-foot">
+          <span class="dim">
+            <kbd>↑↓</kbd> KEYBOARD NAV
+          </span>
+          <span class="fill"></span>
+          <button type="button" class="btn" @click="openSelected()" :disabled="!projects.length">
+            OPEN <span class="btn-key">[↲]</span>
+          </button>
+          <button type="button" class="btn btn--primary" @click="openNew()">
+            NEW <span class="btn-key">[N]</span>
+          </button>
+        </footer>
+      </section>
+
+      <!-- NEW PROJECT modal -->
+      <template x-if="newModalOpen">
+        <div class="modal"
+             role="dialog"
+             aria-modal="true"
+             aria-label="New project"
+             @click.self="closeNew()">
+          <div class="modal-sheet modal-sheet--narrow card" @click.stop>
+            <header class="card-head">
+              <span class="card-title">New Project</span>
+            </header>
+
+            <div class="card-body stack stack-tight">
+              <label class="field">
+                <span class="field-label">Company name</span>
+                <input type="text"
+                       x-model="form.company"
+                       x-ref="companyInput"
+                       placeholder="Input a company to research…"
+                       autocomplete="off">
+              </label>
+
+              <label class="field">
+                <span class="field-label">Anthropic API key</span>
+                <input type="password"
+                       x-model="form.anthropic"
+                       :placeholder="keysStatus.anthropic ? '•••• already saved' : 'sk_ant_******************'"
+                       autocomplete="off">
+              </label>
+
+              <label class="field">
+                <span class="field-label">Gemini API key</span>
+                <input type="password"
+                       x-model="form.google"
+                       :placeholder="keysStatus.google_ai ? '•••• already saved' : '****************'"
+                       autocomplete="off">
+              </label>
+
+              <template x-if="formError">
+                <p class="field-err" x-text="formError"></p>
+              </template>
+            </div>
+
+            <footer class="card-foot">
+              <span class="fill"></span>
+              <button type="button" class="btn" @click="closeNew()">
+                CANCEL <span class="btn-key">[ESC]</span>
+              </button>
+              <button type="button" class="btn btn--primary" @click="submitNew()" :disabled="submitting || !form.company.trim()">
+                <span x-text="submitting ? 'CREATING…' : 'CREATE'"></span>
+                <span class="btn-key" x-show="!submitting">[↲]</span>
+              </button>
+            </footer>
+          </div>
+        </div>
+      </template>
+
+    </div>
+  </template>
+
+  <template id="screen-plan">
+    <div x-data="planScreen()" class="screen plan">
+
+      <!-- Path header -->
+      <header class="plan-pathbar">
+        <iconify-icon icon="lucide:folder" width="12"></iconify-icon>
+        <span class="plan-pathbar-text trunc" x-text="displayPath"></span>
+        <span class="fill"></span>
+        <button type="button" class="btn btn--sm" @click="revealInFinder()">
+          <iconify-icon icon="lucide:folder-open" width="12"></iconify-icon>
+          <span>LOCAL DIR</span>
+          <span class="btn-key">[L]</span>
+        </button>
+      </header>
+
+      <!-- Error state -->
+      <template x-if="error">
+        <p class="alert alert--err" x-text="error"></p>
+      </template>
+
+      <!-- Loading skeleton -->
+      <template x-if="loading">
+        <div class="skeleton">Loading plan…</div>
+      </template>
+
+      <!-- Research Brief card -->
+      <template x-if="!loading && !error">
+        <section class="card">
+          <header class="card-head">
+            <span class="card-title">Research Brief<span class="dim" x-show="companyName"> — <span x-text="companyName"></span></span></span>
+            <span class="card-meta">
+              <span class="dim" x-show="briefSaving">saving…</span>
+              <span class="fg" x-show="briefSaved && !briefSaving">saved</span>
+            </span>
+          </header>
+          <div class="card-body">
+            <textarea class="plan-brief"
+                      x-model="brief"
+                      @input="onBriefInput()"
+                      rows="3"
+                      placeholder="Type a short description of what you are looking to learn about this company and it's competitive space."></textarea>
+          </div>
+        </section>
+      </template>
+
+      <!-- AI Models card -->
+      <template x-if="!loading && !error && models.length">
+        <section class="card">
+          <header class="card-head">
+            <span class="card-title">AI Models</span>
+            <span class="card-meta">EST COST @ ~<span x-text="competitorCount"></span>/COMPETITORS</span>
+          </header>
+
+          <div class="card-body stack stack-tight">
+            <template x-for="(m, i) in models" :key="m.id">
+              <button type="button"
+                      class="plan-model-row"
+                      :class="{ 'is-selected': model === m.id, 'is-focused': focusIdx === i }"
+                      @click="focusIdx = i; model = m.id">
+                <iconify-icon class="plan-model-check"
+                              :icon="model === m.id ? 'lucide:square-check' : 'lucide:square-dashed'"
+                              width="12"></iconify-icon>
+                <span class="plan-model-label" x-text="m.label"></span>
+                <span class="plan-model-sep">—</span>
+                <span class="plan-model-desc trunc" x-text="m.description"></span>
+                <span class="plan-model-cost" x-text="formatCost(m.estimated_total)"></span>
+              </button>
+            </template>
+          </div>
+
+          <!-- Worker count stepper -->
+          <div class="card-body plan-workers">
+            <span class="field-label">Workers</span>
+            <button type="button" class="btn btn--sm" @click="decWorkers()" :disabled="workers <= 1">−</button>
+            <span class="plan-workers-num" x-text="workers"></span>
+            <button type="button" class="btn btn--sm" @click="incWorkers()" :disabled="workers >= 16">+</button>
+            <span class="dim">parallel</span>
+          </div>
+
+          <footer class="card-foot">
+            <span class="dim"><kbd>↑↓</kbd> KEYBOARD NAV</span>
+            <span class="fill"></span>
+            <button type="button" class="btn" @click="back()">
+              BACK <span class="btn-key">[ESC]</span>
+            </button>
+            <button type="button" class="btn" @click="selectFocused()">
+              SELECT <span class="btn-key">[↲]</span>
+            </button>
+            <button type="button" class="btn btn--primary" @click="next()">
+              NEXT <span class="btn-key">[N]</span>
+            </button>
+          </footer>
+        </section>
+      </template>
+
+      <!-- Empty state — workspace has no recon.yaml -->
+      <template x-if="!loading && error && /no recon\.yaml/i.test(error)">
+        <div class="card card--pad-loose stack stack-tight">
+          <span class="card-title">No schema yet</span>
+          <p class="body">
+            This workspace has no <code>recon.yaml</code>. Head to
+            <a :href="'#/p/' + encodedPath + '/schema'" class="fg">SCHEMA [2]</a>
+            to bootstrap one.
+          </p>
+        </div>
+      </template>
+    </div>
+  </template>
+
+  <template id="screen-schema">
+    <div x-data="schemaScreen()" class="screen schema">
+
+      <!-- Error -->
+      <template x-if="error">
+        <p class="alert alert--err" x-text="error"></p>
+      </template>
+
+      <!-- Loading -->
+      <template x-if="loading">
+        <div class="skeleton">Loading schema…</div>
+      </template>
+
+      <!-- Sections card -->
+      <template x-if="!loading && !error">
+        <section class="card">
+          <header class="card-head">
+            <span class="card-title">Dossier Schema</span>
+            <span class="card-meta">
+              <span x-text="selectedCount"></span> / <span x-text="sections.length"></span> SELECTED
+              <template x-if="saving">
+                <span class="dim"> · saving…</span>
+              </template>
+              <template x-if="!saving && justSaved">
+                <span class="fg"> · saved</span>
+              </template>
+            </span>
+          </header>
+
+          <div class="card-body stack stack-tight" role="listbox" aria-label="Schema sections">
+            <template x-for="(s, i) in sections" :key="s.key">
+              <button type="button"
+                      class="schema-row"
+                      :class="{ 'is-focused': focusIdx === i, 'is-disabled': !s.selected }"
+                      @click="focusIdx = i; toggle(i)">
+                <iconify-icon class="schema-row-check"
+                              :icon="s.selected ? 'lucide:square-check' : 'lucide:square-dashed'"
+                              width="12"></iconify-icon>
+                <span class="schema-row-title" x-text="s.title"></span>
+                <span class="schema-row-sep">—</span>
+                <span class="schema-row-desc trunc" x-text="s.description"></span>
+                <span class="schema-row-format tag" x-text="s.preferred_format"></span>
+              </button>
+            </template>
+
+            <!-- Add section affordance (disabled until backend lands) -->
+            <button type="button"
+                    class="schema-row schema-row--add"
+                    @click="openAdd()"
+                    aria-disabled="true"
+                    title="Coming soon — edit recon.yaml directly for now">
+              <iconify-icon icon="lucide:plus" width="12"></iconify-icon>
+              <span class="muted">Add section</span>
+              <span class="dim">— requires backend support (phase 9)</span>
+            </button>
+          </div>
+
+          <footer class="card-foot">
+            <span class="dim"><kbd>↑↓</kbd> NAV · <kbd>space</kbd> TOGGLE</span>
+            <span class="fill"></span>
+            <button type="button" class="btn" @click="back()">
+              BACK <span class="btn-key">[ESC]</span>
+            </button>
+            <button type="button" class="btn btn--primary" @click="next()" :disabled="selectedCount === 0">
+              NEXT <span class="btn-key">[N]</span>
+            </button>
+          </footer>
+        </section>
+      </template>
+    </div>
+  </template>
+
+  <template id="screen-comps">
+    <div x-data="compsScreen()" class="screen comps">
+
+      <!-- Error -->
+      <template x-if="error">
+        <p class="alert alert--err" x-text="error"></p>
+      </template>
+
+      <!-- Loading / discovering -->
+      <template x-if="discovering">
+        <div class="skeleton">
+          <span x-text="discoveryMessage"></span>
+        </div>
+      </template>
+
+      <!-- Competitor list -->
+      <template x-if="!error">
+        <section class="card">
+          <header class="card-head">
+            <span class="card-title">Competitors</span>
+            <span class="card-meta">
+              <span x-text="selectedCount"></span> / <span x-text="competitors.length"></span> SELECTED
+              <span class="dim">·</span>
+              <span>EST COST</span>
+              <span class="fg" x-text="formatCost(estimatedCost)"></span>
+            </span>
+          </header>
+
+          <div class="card-body stack stack-tight" role="listbox" aria-label="Competitors">
+
+            <template x-if="!competitors.length && !discovering">
+              <p class="dim" style="padding: 8px 0;">
+                No competitors yet. Press <kbd>S</kbd> to search.
+              </p>
+            </template>
+
+            <template x-for="(c, i) in competitors" :key="c.slug">
+              <button type="button"
+                      class="comp-row"
+                      :class="{ 'is-focused': focusIdx === i, 'is-deselected': !isSelected(c) }"
+                      @click="focusIdx = i; toggleSelection(c)">
+                <iconify-icon class="comp-row-check"
+                              :icon="isSelected(c) ? 'lucide:square-check' : 'lucide:square-dashed'"
+                              width="12"></iconify-icon>
+                <span class="comp-row-idx" x-text="(i + 1) + '.'"></span>
+                <span class="comp-row-name" x-text="c.name"></span>
+                <span class="comp-row-sep">—</span>
+                <span class="comp-row-blurb trunc" x-text="c.blurb || ''"></span>
+                <template x-if="c.url">
+                  <a class="comp-row-url trunc" :href="c.url" target="_blank" rel="noopener"
+                     @click.stop>
+                    <iconify-icon icon="lucide:external-link" width="10"></iconify-icon>
+                    <span x-text="shortUrl(c.url)"></span>
+                  </a>
+                </template>
+              </button>
+            </template>
+          </div>
+
+          <footer class="card-foot comps-foot">
+            <span class="dim"><kbd>↑↓</kbd> NAV · <kbd>space</kbd> TOGGLE</span>
+            <span class="fill"></span>
+            <button type="button" class="btn" @click="back()">
+              BACK <span class="btn-key">[ESC]</span>
+            </button>
+            <button type="button" class="btn" @click="openTerms()" title="Edit search terms">
+              <iconify-icon icon="lucide:settings-2" width="11"></iconify-icon>
+              TERMS <span class="btn-key">[T]</span>
+            </button>
+            <button type="button" class="btn" @click="search()" :disabled="discovering">
+              <iconify-icon icon="lucide:search" width="11"></iconify-icon>
+              <span x-text="discovering ? 'SEARCHING…' : 'SEARCH'"></span>
+              <span class="btn-key" x-show="!discovering">[S]</span>
+            </button>
+            <button type="button" class="btn btn--primary" @click="run()" :disabled="starting || selectedCount === 0">
+              <span x-text="starting ? 'STARTING…' : 'RUN'"></span>
+              <span class="btn-key" x-show="!starting">[R]</span>
+            </button>
+          </footer>
+        </section>
+      </template>
+
+      <!-- EDIT TERMS modal -->
+      <template x-if="termsModalOpen">
+        <div class="modal"
+             role="dialog"
+             aria-modal="true"
+             aria-label="Edit search terms"
+             @click.self="closeTerms()">
+          <div class="modal-sheet card" @click.stop>
+            <header class="card-head">
+              <span class="card-title">Search Terms</span>
+            </header>
+            <div class="card-body stack stack-tight">
+              <label class="field">
+                <span class="field-label">Focus area</span>
+                <textarea x-ref="termsInput" x-model="terms.focus" rows="3"
+                          placeholder="e.g. Open-source sunglasses brands targeting cyclists…"></textarea>
+              </label>
+              <label class="field">
+                <span class="field-label">Seed names <span class="dim">(comma-separated, optional)</span></span>
+                <input type="text" x-model="terms.seeds"
+                       placeholder="e.g. Oakley, Roka, Pit Viper">
+              </label>
+            </div>
+            <footer class="card-foot">
+              <button type="button" class="btn btn--ghost" @click="improveWithAi()" disabled title="Coming soon">
+                <iconify-icon icon="lucide:sparkles" width="11"></iconify-icon>
+                AI IMPROVE
+              </button>
+              <span class="fill"></span>
+              <button type="button" class="btn" @click="closeTerms()">
+                CANCEL <span class="btn-key">[ESC]</span>
+              </button>
+              <button type="button" class="btn btn--primary" @click="search()">
+                SEARCH <span class="btn-key">[↲]</span>
+              </button>
+            </footer>
+          </div>
+        </div>
+      </template>
+    </div>
+  </template>
+
+  <template id="screen-agents">
+    <div x-data="agentsScreen()" class="screen agents">
+
+      <!-- Error -->
+      <template x-if="error">
+        <p class="alert alert--err" x-text="error"></p>
+      </template>
+
+      <!-- No-run state -->
+      <template x-if="!runId && !error">
+        <div class="card card--pad-loose stack stack-tight">
+          <span class="card-title">No active run</span>
+          <p class="body">
+            Nothing is running. Head to
+            <a :href="'#/p/' + encodedPath + '/comps'" class="fg">COMP'S [3]</a>
+            to kick off research.
+          </p>
+        </div>
+      </template>
+
+      <!-- Live: headline, progress, agents, competitors -->
+      <template x-if="runId && !error">
+        <div class="stack">
+
+          <!-- Headline row: stage + cost + overall progress -->
+          <section class="card">
+            <header class="card-head">
+              <span class="card-title">Run</span>
+              <span class="card-meta">
+                <span class="dim">STAGE</span>
+                <span class="fg ucase" :class="{ 'cursor-blink': !terminal }" x-text="currentStage"></span>
+                <span class="dim">·</span>
+                <span class="dim">COST</span>
+                <span class="fg" x-text="formatCost(cost)"></span>
+              </span>
+            </header>
+            <div class="card-body">
+              <div class="progress">
+                <span class="progress-bar" x-text="progressBar(progressPct, 36)"></span>
+                <span class="progress-pct">
+                  <span x-text="String(progressPct).padStart(3, ' ')"></span>%
+                </span>
+                <span class="dim" style="margin-left: auto;">
+                  <span x-text="doneTasks"></span> / <span x-text="totalTasks"></span> tasks
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <!-- Agents grid: one card per worker -->
+          <section class="card">
+            <header class="card-head">
+              <span class="card-title">Agents</span>
+              <span class="card-meta" x-text="agents.length + ' WORKERS'"></span>
+            </header>
+            <div class="card-body agents-grid">
+              <template x-for="(a, i) in agents" :key="a.id">
+                <div class="agent-card" :class="{ 'is-idle': !a.task, 'is-error': a.state === 'error' }">
+                  <div class="agent-card-head">
+                    <iconify-icon class="agent-card-icon" :icon="'lucide:' + a.icon" width="14"></iconify-icon>
+                    <span class="agent-card-name" x-text="a.name"></span>
+                    <button type="button" class="agent-card-menu"
+                            @click.stop="openAgentMenu(i)"
+                            aria-label="Worker options">
+                      <iconify-icon icon="lucide:more-horizontal" width="11"></iconify-icon>
+                    </button>
+                  </div>
+                  <div class="agent-card-role" x-text="a.stage || 'IDLE'"></div>
+                  <div class="agent-card-task trunc" x-text="a.task || '—'"></div>
+                  <div class="agent-card-bar">
+                    <span class="progress-bar" x-text="progressBar(a.taskPct, 16)"></span>
+                    <span class="progress-pct" x-text="(a.task ? 'BUSY' : 'IDLE')"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </section>
+
+          <!-- Competitors panel -->
+          <section class="card">
+            <header class="card-head">
+              <span class="card-title">Competitors</span>
+              <span class="card-meta" x-text="competitorList.length + ' TARGETS'"></span>
+            </header>
+            <div class="card-body stack stack-tight">
+              <template x-if="!competitorList.length">
+                <p class="dim" style="padding: 8px 0;">Waiting for first task…</p>
+              </template>
+              <template x-for="c in competitorList" :key="c.name">
+                <div class="agent-comp-row">
+                  <iconify-icon class="agent-comp-mark"
+                                :icon="c.status === 'done' ? 'lucide:square-check'
+                                     : c.status === 'failed' ? 'lucide:square-x'
+                                     : 'lucide:square-dashed'"
+                                width="12"></iconify-icon>
+                  <span class="agent-comp-name trunc" x-text="c.name"></span>
+                  <span class="agent-comp-section dim" x-text="c.currentSection || ''"></span>
+                  <span class="progress-bar agent-comp-bar" x-text="progressBar(c.pct, 20)"></span>
+                  <span class="progress-pct agent-comp-pct">
+                    <span x-text="c.done"></span>/<span x-text="c.total"></span>
+                  </span>
+                  <span class="agent-comp-status" x-text="c.status.toUpperCase()"></span>
+                </div>
+              </template>
+            </div>
+          </section>
+
+          <!-- Completion modal -->
+          <template x-if="completionModalOpen">
+            <div class="modal" role="dialog" aria-modal="true" @click.self="closeCompletion()">
+              <div class="modal-sheet modal-sheet--narrow card" @click.stop>
+                <header class="card-head">
+                  <span class="card-title">Research complete</span>
+                </header>
+                <div class="card-body">
+                  <p class="body">
+                    All <span class="fg" x-text="doneTasks"></span> tasks finished.
+                    Total cost <span class="fg" x-text="formatCost(cost)"></span>.
+                  </p>
+                </div>
+                <footer class="card-foot">
+                  <span class="fill"></span>
+                  <button type="button" class="btn" @click="closeCompletion()">
+                    DISMISS <span class="btn-key">[ESC]</span>
+                  </button>
+                  <button type="button" class="btn btn--primary" @click="goOutput()">
+                    SEE OUTPUTS <span class="btn-key">[↲]</span>
+                  </button>
+                </footer>
+              </div>
+            </div>
+          </template>
+
+          <!-- Agent menu popover -->
+          <template x-if="menuOpen != null">
+            <div class="modal"
+                 role="dialog"
+                 aria-modal="true"
+                 @click.self="menuOpen = null">
+              <div class="modal-sheet modal-sheet--narrow card" @click.stop>
+                <header class="card-head">
+                  <span class="card-title" x-text="agents[menuOpen]?.name"></span>
+                  <button type="button" class="btn btn--ghost btn--sm card-meta" @click="menuOpen = null">
+                    <iconify-icon icon="lucide:x" width="11"></iconify-icon>
+                  </button>
+                </header>
+                <div class="card-body stack stack-tight">
+                  <button type="button" class="btn" @click="pauseRun()" :disabled="terminal">
+                    <iconify-icon :icon="runPaused ? 'lucide:play' : 'lucide:pause'" width="11"></iconify-icon>
+                    <span x-text="runPaused ? 'RESUME RUN' : 'PAUSE RUN'"></span>
+                  </button>
+                  <button type="button" class="btn" @click="cancelRun()" :disabled="terminal">
+                    <iconify-icon icon="lucide:square" width="11"></iconify-icon>
+                    CANCEL RUN
+                  </button>
+                  <button type="button" class="btn" @click="restartTask()" :disabled="terminal">
+                    <iconify-icon icon="lucide:rotate-ccw" width="11"></iconify-icon>
+                    RESTART TASK
+                  </button>
+                  <button type="button" class="btn" @click="debugTask()">
+                    <iconify-icon icon="lucide:bug" width="11"></iconify-icon>
+                    DEBUG
+                  </button>
+                  <p class="dim" style="font-size: 0.92em;">
+                    Pause &amp; cancel are wired. Restart + debug land later.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </template>
+
+  <template id="screen-output">
+    <div x-data="outputScreen()" class="screen output">
+
+      <!-- Error -->
+      <template x-if="error">
+        <p class="alert alert--err" x-text="error"></p>
+      </template>
+
+      <!-- Loading -->
+      <template x-if="loading">
+        <div class="skeleton">Loading outputs…</div>
+      </template>
+
+      <!-- Empty state -->
+      <template x-if="!loading && !error && tree.length === 0">
+        <div class="card card--pad-loose stack stack-tight">
+          <span class="card-title">No outputs yet</span>
+          <p class="body">
+            Run research first.
+            <a :href="'#/p/' + encodedPath + '/comps'" class="fg">COMP'S [3]</a>
+          </p>
+        </div>
+      </template>
+
+      <!-- Output viewer: tree on the left, preview on the right -->
+      <template x-if="!loading && !error && tree.length > 0">
+        <section class="card output-shell">
+          <header class="card-head">
+            <span class="card-title">Outputs</span>
+            <span class="card-meta">
+              <span x-text="fileCount"></span> FILES
+              <span class="dim">·</span>
+              <button type="button" class="btn btn--sm" @click="revealWorkspace()">
+                <iconify-icon icon="lucide:folder-open" width="11"></iconify-icon>
+                OPEN LOCAL DIR <span class="btn-key">[L]</span>
+              </button>
+            </span>
+          </header>
+
+          <div class="card-body output-grid">
+            <!-- File tree -->
+            <aside class="output-tree" role="tree" aria-label="Output files">
+              <pre class="output-tree-root" x-text="treeHeader"></pre>
+              <template x-for="(node, i) in treeLines" :key="i">
+                <button type="button"
+                        class="output-tree-line"
+                        :class="{ 'is-selected': selected === node.ref, 'is-dir': !node.ref }"
+                        @click="node.ref && select(node.ref)">
+                  <span class="output-tree-prefix" x-text="node.prefix"></span>
+                  <span class="output-tree-name" x-text="node.name"></span>
+                </button>
+              </template>
+            </aside>
+
+            <!-- Preview pane -->
+            <section class="output-preview" aria-label="File preview">
+              <template x-if="!selected || !selected.kind">
+                <p class="dim" style="padding: 8px 0;">Select a file.</p>
+              </template>
+              <template x-if="selected">
+                <div class="stack stack-tight">
+                  <div class="inline inline-tight">
+                    <iconify-icon :icon="iconFor(selected)" width="12"></iconify-icon>
+                    <span class="fg" x-text="selected.name"></span>
+                    <span class="fill"></span>
+                    <span class="dim" x-show="previewLoading">loading…</span>
+                    <button type="button" class="btn btn--sm" @click="reveal(selected)">
+                      <iconify-icon icon="lucide:folder-open" width="11"></iconify-icon>
+                      REVEAL
+                    </button>
+                  </div>
+
+                  <template x-if="previewError">
+                    <p class="alert alert--err" x-text="previewError"></p>
+                  </template>
+
+                  <template x-if="!previewError && previewHtml">
+                    <div class="output-md" x-html="previewHtml"></div>
+                  </template>
+
+                  <template x-if="!previewError && !previewHtml && !previewLoading">
+                    <p class="dim" style="padding: 8px 0;">(empty file)</p>
+                  </template>
+                </div>
+              </template>
+            </section>
+          </div>
+        </section>
+      </template>
+    </div>
+  </template>
+
+  <!-- Settings overlay — available from every screen via [Z]. Keys are
+       stored in ~/.recon/api_keys.yaml via the existing /api/api-keys
+       endpoints. -->
+  <div x-data="settingsOverlay()"
+       x-show="$store.settings.open"
+       x-cloak
+       class="modal"
+       @click.self="$store.settings.open = false"
+       @keydown.escape.window="$store.settings.open = false">
+    <div class="modal-sheet modal-sheet--wide card" @click.stop>
+      <header class="card-head">
+        <span class="card-title">Settings</span>
+        <span class="card-meta">
+          <span class="dim">Stored in</span>
+          <code class="fg">~/.recon/api_keys.yaml</code>
+        </span>
+      </header>
+      <div class="card-body stack stack-tight">
+        <template x-for="p in providers" :key="p.name">
+          <label class="field">
+            <span class="field-head">
+              <span class="field-label" x-text="p.label"></span>
+              <span :class="p.saved ? 'fg' : 'dim'" x-text="p.saved ? 'SAVED' : 'NOT SET'"></span>
+            </span>
+            <input type="password"
+                   x-model="p.value"
+                   :placeholder="p.saved ? '•••• already saved — enter a new value to overwrite' : p.placeholder"
+                   autocomplete="off">
+          </label>
+        </template>
+        <template x-if="message">
+          <p class="alert alert--ok" x-text="message"></p>
+        </template>
+        <template x-if="errorMsg">
+          <p class="alert alert--err" x-text="errorMsg"></p>
+        </template>
+      </div>
+      <footer class="card-foot">
+        <span class="dim" x-show="version">
+          <span x-text="'recon ' + version"></span>
+        </span>
+        <span class="fill"></span>
+        <button type="button" class="btn" @click="$store.settings.open = false">
+          CLOSE <span class="btn-key">[ESC]</span>
+        </button>
+        <button type="button" class="btn btn--primary" @click="save()" :disabled="saving">
+          <span x-text="saving ? 'SAVING…' : 'SAVE'"></span>
+          <span class="btn-key" x-show="!saving">[↲]</span>
+        </button>
+      </footer>
+    </div>
+  </div>
+
+  <template id="screen-not-found">
+    <div class="screen">
+      <h1 class="screen-stub-title">404</h1>
+      <p class="screen-stub-body">That route does not exist. <a href="#/">Return home</a>.</p>
+    </div>
+  </template>
+
+</body>
+</html>

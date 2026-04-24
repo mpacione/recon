@@ -1,0 +1,801 @@
+/*
+ * recon web UI — v4 layout
+ *
+ * Rules specific to the Recon v4 shell (top nav, bottom nav, screen
+ * stubs). Everything here composes on top of primitives.css; no token
+ * values live in this file — only layout + the handful of v4-specific
+ * classes that aren't general-purpose enough for primitives.
+ *
+ * Shell anatomy:
+ *
+ *   ┌──────────────────────────────────────────────────┐  ← topnav
+ *   │ RECON                 PLAN SCHEMA COMP'S … OUT'  │
+ *   ├──────────────────────────────────────────────────┤
+ *   │                                                  │
+ *   │                   <screen>                       │
+ *   │                                                  │
+ *   ├──────────────────────────────────────────────────┤  ← botnav
+ *   │ [Q] QUIT  [S] SAVE PROGRESS       ⚙ SETTINGS [Z] │
+ *   └──────────────────────────────────────────────────┘
+ */
+
+/* ===================================================================
+ * Page scaffold  —  overrides .page from primitives.css
+ * =================================================================== */
+
+body {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+/* The legacy `.page` wrapper from primitives is no longer used; v4
+ * layout bolts directly to <body>. Remove the class from any leftover
+ * scopes that still define it. */
+
+/* ===================================================================
+ * Top nav
+ * =================================================================== */
+
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--recon-nav-bg);
+  border-bottom: var(--border-w) solid var(--recon-nav-br);
+}
+
+.topnav-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--recon-fg);
+  text-decoration: none;
+  letter-spacing: 0.08em;
+  padding: 0 var(--sp-1);
+}
+
+.topnav-brand iconify-icon {
+  display: inline-block;
+  vertical-align: -1px;
+}
+
+/* Brand stays cream at all times — the "active" signal for home is
+ * implicit (no tab is highlighted). Keeping the brand from flipping to
+ * pure-white matches Figma Frame 1 exactly. */
+.topnav-brand:hover { color: var(--recon-active); }
+
+.topnav-tabs {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.topnav-tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--recon-body);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+  padding: 0 var(--sp-1);
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  line-height: 1.4;
+}
+
+.topnav-tabs a:hover,
+.topnav-tabs a:focus-visible {
+  color: var(--recon-fg);
+  outline: none;
+}
+
+.topnav-tabs a.is-active {
+  color: var(--recon-active);
+  border-bottom: 1px solid var(--recon-active);
+}
+
+.topnav-tabs a.is-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.topnav-tab-num {
+  color: var(--recon-dim);
+}
+
+.topnav-tabs a.is-active .topnav-tab-num { color: var(--recon-active); }
+
+/* ===================================================================
+ * Main (screen slot)
+ * =================================================================== */
+
+.shell-main {
+  padding: var(--sp-4) var(--sp-3);
+  max-width: 110ch;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* Phase-1 placeholder styling — removed as each tab gains a real screen. */
+.screen-stub-title {
+  color: var(--recon-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.screen-stub-body { color: var(--recon-body); }
+
+/* ===================================================================
+ * Bottom nav
+ * =================================================================== */
+
+.botnav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--recon-bg);
+  border-top: var(--border-w) solid var(--recon-nav-br);
+  color: var(--recon-body);
+}
+
+.botnav-group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.botnav-group-right {
+  margin-left: auto;
+}
+
+.botnav-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  letter-spacing: 0.04em;
+}
+
+.botnav-hint iconify-icon {
+  display: inline-block;
+  vertical-align: -1px;
+  color: var(--recon-body);
+}
+
+.botnav-key {
+  color: var(--recon-fg);
+  letter-spacing: 0;
+}
+
+.botnav-label {
+  color: var(--recon-body);
+  text-transform: uppercase;
+}
+
+/* ===================================================================
+ * iconify-icon  —  drop-in alignment tweaks
+ * =================================================================== */
+
+iconify-icon {
+  display: inline-block;
+  vertical-align: -2px;
+}
+
+/* ===================================================================
+ * Plan tab  —  path header + brief + model list
+ * =================================================================== */
+
+.plan { gap: var(--sp-3); }
+
+.plan-pathbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px 12px;
+  border: var(--border-w) solid var(--recon-border);
+  border-radius: var(--radius);
+  color: var(--recon-body);
+  min-height: 26px;
+}
+.plan-pathbar iconify-icon { color: var(--recon-fg); }
+.plan-pathbar-text {
+  color: var(--recon-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-brief {
+  width: 100%;
+  min-height: 4.5em;
+  resize: vertical;
+}
+
+/* Model row — full-width button, grid layout. */
+.plan-model-row {
+  display: grid;
+  grid-template-columns: 14px 14ch auto minmax(10ch, 1fr) 9ch;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--recon-body);
+  border: none;
+  border-radius: var(--radius);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 22px;
+}
+.plan-model-row:hover,
+.plan-model-row.is-focused {
+  background: color-mix(in oklab, var(--recon-fg) 8%, transparent);
+  color: var(--recon-fg);
+}
+.plan-model-row.is-selected .plan-model-label { color: var(--recon-fg); }
+.plan-model-row.is-selected .plan-model-check { color: var(--recon-fg); }
+.plan-model-check { color: var(--recon-subdued); }
+.plan-model-sep   { color: var(--recon-subdued); }
+.plan-model-desc  { color: inherit; }
+.plan-model-cost  { color: var(--recon-fg); text-align: right; font-variant-numeric: tabular-nums; }
+
+.plan-workers {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-top: 6px;
+  border-top: var(--border-w) dashed var(--recon-border);
+}
+.plan-workers-num {
+  color: var(--recon-fg);
+  min-width: 2ch;
+  text-align: center;
+}
+
+@media (max-width: 700px) {
+  .plan-model-row {
+    grid-template-columns: 14px 11ch 1fr 7ch;
+  }
+  .plan-model-sep,
+  .plan-model-desc { display: none; }
+}
+
+/* ===================================================================
+ * Schema tab  —  section rows with toggle + preferred format
+ * =================================================================== */
+
+.schema-row {
+  display: grid;
+  grid-template-columns: 14px 18ch auto minmax(10ch, 1fr) auto;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--recon-body);
+  border: none;
+  border-radius: var(--radius);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 22px;
+}
+.schema-row:hover,
+.schema-row.is-focused {
+  background: color-mix(in oklab, var(--recon-fg) 8%, transparent);
+}
+.schema-row.is-disabled { opacity: 0.5; }
+.schema-row.is-disabled:hover { opacity: 0.7; }
+
+.schema-row-check  { color: var(--recon-subdued); }
+.schema-row:not(.is-disabled) .schema-row-check { color: var(--recon-fg); }
+.schema-row-title  { color: var(--recon-fg); }
+.schema-row.is-disabled .schema-row-title { color: var(--recon-body); }
+.schema-row-sep    { color: var(--recon-subdued); }
+.schema-row-desc   { color: var(--recon-body); }
+.schema-row-format { text-transform: lowercase; letter-spacing: 0.04em; }
+
+.schema-row--add {
+  grid-template-columns: 14px auto 1fr;
+  color: var(--recon-muted);
+  border-top: var(--border-w) dashed var(--recon-border);
+  margin-top: 4px;
+  padding-top: 8px;
+  cursor: pointer;
+}
+
+@media (max-width: 700px) {
+  .schema-row {
+    grid-template-columns: 14px 1fr auto;
+  }
+  .schema-row-sep,
+  .schema-row-desc { display: none; }
+}
+
+/* ===================================================================
+ * OUTPUT tab  —  file tree + preview
+ * =================================================================== */
+
+/* Fill the vertical space inside the shell card. min-height on the
+ * card + flex on the body lets the grid stretch to whatever room is
+ * left under the header. */
+.output-shell {
+  min-height: 72vh;
+}
+.output-shell > .card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.output-grid {
+  display: grid;
+  grid-template-columns: minmax(20ch, 30ch) minmax(0, 1fr);
+  gap: var(--sp-3);
+  /* Default `stretch` — preview and tree share the grid row height so
+   * the preview column fills all the way down next to a tall tree. */
+  align-items: stretch;
+  min-height: 100%;
+}
+
+.output-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-right: var(--border-w) dashed var(--recon-border);
+  padding-right: var(--sp-2);
+}
+
+.output-tree-root {
+  margin: 0 0 4px;
+  color: var(--recon-fg);
+  font: inherit;
+}
+
+.output-tree-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  padding: 0 4px;
+  color: var(--recon-body);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.output-tree-line.is-dir {
+  color: var(--recon-muted);
+  cursor: default;
+}
+.output-tree-line:not(.is-dir):hover {
+  color: var(--recon-fg);
+}
+.output-tree-line.is-selected {
+  background: var(--recon-fg);
+  color: var(--recon-bg);
+}
+.output-tree-prefix {
+  color: var(--recon-subdued);
+  white-space: pre;
+}
+.output-tree-line.is-selected .output-tree-prefix { color: var(--recon-bg); }
+
+.output-preview {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-height: 0;
+}
+/* The inner stack (file-header row + the preview block) should let the
+ * preview block flex-grow. Alpine renders it via <template>, so apply
+ * the flex settings to its direct-child wrapper. */
+.output-preview > .stack { flex: 1 1 auto; min-height: 0; }
+
+.output-md {
+  margin: 0;
+  padding: 10px 14px;
+  color: var(--recon-fg);
+  background: transparent;
+  border: var(--border-w) solid var(--recon-border);
+  border-radius: var(--radius);
+  font: inherit;
+  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  line-height: 1.55;
+}
+
+/* Markdown element styling — keeps the TUI aesthetic but lets structure
+ * actually read as structure. Inherited size stays the same; spacing
+ * and color do the hierarchy work. */
+.output-md > *:first-child { margin-top: 0; }
+.output-md > *:last-child  { margin-bottom: 0; }
+
+.output-md h1,
+.output-md h2,
+.output-md h3,
+.output-md h4,
+.output-md h5,
+.output-md h6 {
+  margin: 1.2em 0 0.4em;
+  color: var(--recon-active);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: normal;
+}
+.output-md h1 { border-bottom: var(--border-w) solid var(--recon-border); padding-bottom: 0.25em; }
+.output-md h2 { color: var(--recon-fg); }
+.output-md h3,
+.output-md h4,
+.output-md h5,
+.output-md h6 { color: var(--recon-body); }
+
+.output-md p,
+.output-md ul,
+.output-md ol,
+.output-md blockquote,
+.output-md pre,
+.output-md table { margin: 0.6em 0; }
+
+.output-md ul,
+.output-md ol { padding-left: 2.4ch; }
+.output-md ul { list-style: none; }
+.output-md ul > li::before {
+  content: "·";
+  color: var(--recon-muted);
+  display: inline-block;
+  width: 1.4ch;
+  margin-left: -1.4ch;
+}
+.output-md ol { list-style: decimal; }
+
+.output-md a {
+  color: var(--recon-active);
+  text-decoration: underline;
+  text-decoration-color: var(--recon-border);
+  text-underline-offset: 0.2em;
+}
+.output-md a:hover { text-decoration-color: var(--recon-fg); }
+
+.output-md code {
+  padding: 0 4px;
+  background: color-mix(in oklab, var(--recon-fg) 8%, transparent);
+  border-radius: 2px;
+}
+.output-md pre {
+  padding: 10px 12px;
+  background: color-mix(in oklab, var(--recon-fg) 5%, transparent);
+  border: var(--border-w) solid var(--recon-border);
+  border-radius: var(--radius);
+  overflow: auto;
+}
+.output-md pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.output-md blockquote {
+  margin-left: 0;
+  padding: 0.1em 0 0.1em 1.2ch;
+  border-left: 2px solid var(--recon-fg);
+  color: var(--recon-body);
+}
+
+.output-md table { border-collapse: collapse; }
+.output-md th,
+.output-md td {
+  padding: 4px 8px;
+  border: var(--border-w) solid var(--recon-border);
+}
+.output-md th {
+  color: var(--recon-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: normal;
+  text-align: left;
+}
+
+.output-md hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: var(--border-w) dashed var(--recon-border);
+}
+
+@media (max-width: 720px) {
+  .output-grid {
+    grid-template-columns: 1fr;
+  }
+  .output-tree {
+    border-right: none;
+    border-bottom: var(--border-w) dashed var(--recon-border);
+    padding-right: 0;
+    padding-bottom: var(--sp-2);
+    min-height: auto;
+  }
+}
+
+/* ===================================================================
+ * AGENTS tab  —  worker grid + competitor rows
+ * =================================================================== */
+
+.agents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19ch, 1fr));
+  gap: var(--sp-2);
+}
+
+.agent-card {
+  display: grid;
+  grid-template-rows: auto auto auto auto;
+  gap: 4px;
+  padding: 6px 8px;
+  border: var(--border-w) solid var(--recon-border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--recon-body);
+  min-height: 80px;
+}
+.agent-card.is-idle    { border-color: var(--recon-border); color: var(--recon-dim); }
+.agent-card.is-error   { border-color: var(--recon-error); color: var(--recon-error); }
+
+.agent-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-card-icon { color: var(--recon-fg); }
+.agent-card.is-idle .agent-card-icon { color: var(--recon-subdued); }
+.agent-card-name {
+  color: var(--recon-fg);
+  letter-spacing: 0.06em;
+  flex: 1;
+}
+.agent-card.is-idle .agent-card-name { color: var(--recon-body); }
+
+.agent-card-menu {
+  color: var(--recon-body);
+  background: transparent;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.agent-card-menu:hover { color: var(--recon-fg); }
+
+.agent-card-role {
+  color: var(--recon-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.92em;
+}
+.agent-card-task {
+  color: var(--recon-fg);
+}
+.agent-card.is-idle .agent-card-task { color: var(--recon-dim); }
+.agent-card-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.92em;
+}
+
+/* Cheeky idle animation — a subtle icon pulse every ~15s on idle
+ * workers. Keeps the card alive without drawing attention. */
+.agent-card.is-idle .agent-card-icon {
+  animation: agent-idle-pulse 15s infinite;
+}
+@keyframes agent-idle-pulse {
+  0%, 88%, 100% { transform: translateY(0) rotate(0); opacity: 0.7; }
+  91%           { transform: translateY(-1px) rotate(-4deg); opacity: 1; }
+  94%           { transform: translateY(-2px) rotate(4deg); opacity: 1; }
+  97%           { transform: translateY(0) rotate(0); opacity: 0.7; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-card.is-idle .agent-card-icon { animation: none; }
+}
+
+/* Competitor rows inside the agents tab */
+.agent-comp-row {
+  display: grid;
+  grid-template-columns: 14px 18ch 10ch 20ch auto 6ch 9ch;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 3px 6px;
+  color: var(--recon-body);
+  min-height: 20px;
+}
+.agent-comp-mark   { color: var(--recon-fg); }
+.agent-comp-name   { color: var(--recon-fg); }
+.agent-comp-section{ color: var(--recon-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.agent-comp-bar    { color: var(--recon-fg); }
+.agent-comp-pct    { color: var(--recon-body); font-variant-numeric: tabular-nums; text-align: right; }
+.agent-comp-status { color: var(--recon-muted); text-align: right; text-transform: uppercase; letter-spacing: 0.06em; }
+
+@media (max-width: 700px) {
+  .agent-comp-row {
+    grid-template-columns: 14px 1fr auto 9ch;
+  }
+  .agent-comp-section,
+  .agent-comp-bar,
+  .agent-comp-pct { display: none; }
+}
+
+/* ===================================================================
+ * COMP'S tab  —  discovery list with deselect-to-dim
+ * =================================================================== */
+
+.comp-row {
+  display: grid;
+  grid-template-columns: 14px 3ch 18ch auto minmax(10ch, 1fr) auto;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--recon-body);
+  border: none;
+  border-radius: var(--radius);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 22px;
+}
+.comp-row:hover,
+.comp-row.is-focused {
+  background: color-mix(in oklab, var(--recon-fg) 8%, transparent);
+}
+
+/* Deselected = dimmed but still visible + clickable to re-enable. */
+.comp-row.is-deselected {
+  opacity: 0.4;
+}
+.comp-row.is-deselected .comp-row-check { color: var(--recon-subdued); }
+
+.comp-row-check { color: var(--recon-fg); }
+.comp-row-idx   { color: var(--recon-body); }
+.comp-row-name  { color: var(--recon-fg); }
+.comp-row.is-deselected .comp-row-name { color: var(--recon-body); }
+.comp-row-sep   { color: var(--recon-subdued); }
+.comp-row-blurb { color: var(--recon-body); }
+.comp-row-url {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--recon-muted);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 22ch;
+}
+.comp-row-url:hover { color: var(--recon-fg); }
+
+.comps-foot .btn { flex-shrink: 0; }
+
+@media (max-width: 820px) {
+  .comp-row {
+    grid-template-columns: 14px 3ch 1fr auto;
+  }
+  .comp-row-sep,
+  .comp-row-blurb { display: none; }
+}
+
+/* ===================================================================
+ * Home  —  projects list + intro
+ * =================================================================== */
+
+.home { gap: var(--sp-4); }
+
+.home-intro {
+  color: var(--recon-body);
+  line-height: 1.55;
+  padding: 0 6px;
+}
+.home-intro-mark {
+  color: var(--recon-fg);
+  margin-right: 6px;
+}
+
+.home-projects .card-body {
+  padding: 2px 0;
+}
+
+/* Project row  —  one-line, monospace-columnar.
+ *
+ * The row is a grid so the columns align across every row. On narrow
+ * viewports we collapse to name-only. */
+.proj-row {
+  display: grid;
+  grid-template-columns: 2ch 3ch minmax(12ch, 1fr) 1ch 11ch 1ch 11ch 1ch 9ch 1ch minmax(12ch, 24ch);
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 6px;
+  background: transparent;
+  color: var(--recon-dim);
+  border: none;
+  border-radius: var(--radius);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 22px;
+}
+.proj-row:hover  { color: var(--recon-body); }
+.proj-row.is-selected {
+  background: var(--recon-fg);
+  color: var(--recon-bg);
+}
+.proj-row.is-selected .proj-row-mark { color: var(--recon-bg); }
+.proj-row.is-selected .proj-row-sep  { color: var(--recon-bg); }
+
+.proj-row-mark { color: var(--recon-fg); text-align: center; }
+.proj-row-idx  { color: inherit; opacity: 0.9; }
+.proj-row-name { color: inherit; }
+.proj-row-sep  { color: var(--recon-subdued); text-align: center; }
+.proj-row-status,
+.proj-row-count,
+.proj-row-date,
+.proj-row-path { color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 820px) {
+  .proj-row {
+    grid-template-columns: 2ch 3ch minmax(10ch, 1fr) 1ch 10ch 1ch 9ch;
+  }
+  /* Hide everything from the 8th child on (sep#3, date, sep#4, path). */
+  .proj-row > :nth-child(n + 8) { display: none; }
+}
+
+@media (max-width: 560px) {
+  .proj-row {
+    grid-template-columns: 2ch 3ch 1fr 1ch 9ch;
+  }
+  /* Hide from the 6th child on (sep#2, count, sep#3, date, sep#4, path). */
+  .proj-row > :nth-child(n + 6) { display: none; }
+}
+
+/* ===================================================================
+ * Responsive  —  three tiers:
+ *   ≥ 900px   desktop (Figma default)
+ *   600-900   tablet — tighter spacing, tab icons + labels kept
+ *   < 600px   mobile — tabs collapse to icon-only; topnav stacks
+ *                      brand + tabs onto two rows if needed
+ * =================================================================== */
+
+@media (max-width: 900px) {
+  .topnav { gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); }
+  .topnav-tabs { gap: var(--sp-2); }
+  .shell-main  { padding: var(--sp-3) var(--sp-2); }
+  .botnav      { gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); }
+  .botnav-group { gap: var(--sp-2); }
+}
+
+@media (max-width: 600px) {
+  .topnav {
+    flex-wrap: wrap;
+    row-gap: var(--sp-1);
+  }
+  .topnav-brand { flex: 0 0 auto; }
+  .topnav-tabs  { margin-left: auto; flex-wrap: wrap; gap: var(--sp-1); }
+
+  /* Hide the label in tab links; keep icon + number. */
+  .topnav-tabs a span:not(.topnav-tab-num) { display: none; }
+  .topnav-tabs a .topnav-tab-num { margin-left: 2px; }
+
+  .botnav {
+    flex-wrap: wrap;
+    row-gap: var(--sp-1);
+  }
+  .botnav-group,
+  .botnav-group-right {
+    gap: var(--sp-1);
+  }
+  /* Drop the verbose hint label on mobile — keep just the key. */
+  .botnav-hint .botnav-label { display: none; }
+
+  .shell-main { padding: var(--sp-2) var(--sp-2); }
+}
