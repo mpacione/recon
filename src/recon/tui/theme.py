@@ -41,9 +41,9 @@ Screen {
     background: #000000;
     color: #a59a86;
     scrollbar-background: #000000;
-    scrollbar-color: #3a3a3a;
-    scrollbar-color-hover: #DDEDC4;
-    scrollbar-color-active: #DDEDC4;
+    scrollbar-color: #6B7866;
+    scrollbar-color-hover: #6B7866;
+    scrollbar-color-active: #6B7866;
     scrollbar-size-vertical: 1;
 }
 
@@ -306,11 +306,11 @@ TabStrip {
     /* Intentionally NOT docked — ReconScreen.compose yields TabStrip
      * first so it appears at the top naturally. Two dock:top siblings
      * overlap at y=0 in Textual. */
-    height: 1;
-    background: #2e2b27;
+    height: 3;
+    background: #000000;
     color: #a59a86;
     padding: 0 1;
-    border-bottom: solid #2e2b27;
+    border-bottom: none;
 }
 
 TabStrip > .tab-strip--brand {

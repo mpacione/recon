@@ -14,14 +14,14 @@ from typing import Any
 from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.reactive import reactive
-from textual.widgets import Static
+from textual.widgets import Button, Static
 
 from recon.logging import get_logger
-from recon.tui.run_monitor import CompetitorGrid, WorkerPanel
 from recon.tui.shell import ReconScreen
 from recon.tui.stage_monitor import StageMonitor
-from recon.tui.widgets import format_progress_bar
+from recon.tui.widgets import button_label, format_progress_bar
 
 _log = get_logger(__name__)
 
@@ -33,6 +33,7 @@ class RunScreen(ReconScreen):
 
     tab_key = "agents"
     flow_step = 4
+    show_activity_feed = False
 
     BINDINGS = [
         Binding("p", "pause", "pause/resume"),
@@ -58,6 +59,15 @@ class RunScreen(ReconScreen):
     #run-header {
         height: auto;
         margin: 0 0 1 0;
+    }
+    #run-actions {
+        height: 3;
+        margin: 0 0 1 0;
+        layout: horizontal;
+    }
+    #run-actions Button {
+        margin: 0 1 0 0;
+        min-width: 15;
     }
     #run-workers {
         height: auto;
@@ -125,6 +135,12 @@ class RunScreen(ReconScreen):
         # v2: StageMonitor replaces the legacy phase/progress/cost
         # statics and the CompetitorGrid+WorkerPanel combo with a
         # two-column layout (competitor list + worker cards).
+        with Horizontal(id="run-actions"):
+            yield Button(button_label("PAUSE/RESUME", "P"), id="run-pause")
+            yield Button(button_label("STOP", "S"), id="run-stop")
+            yield Button(button_label("OUTPUT", "O"), id="run-output")
+            yield Button(button_label("BACK", "Esc"), id="run-back")
+
         self._monitor = StageMonitor(
             competitor_names=self._competitor_names(),
             section_keys=self._section_keys(),
@@ -137,6 +153,20 @@ class RunScreen(ReconScreen):
         yield Static(self._format_phase(), id="run-phase", classes="hidden-legacy")
         yield Static(self._format_progress(), id="run-progress", classes="hidden-legacy")
         yield Static(self._format_cost(), id="run-cost", classes="hidden-legacy")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id
+        if button_id == "run-pause":
+            self.action_pause()
+        elif button_id == "run-stop":
+            self.action_stop()
+        elif button_id == "run-output":
+            self.action_goto_output()
+        elif button_id == "run-back":
+            self.action_back()
+        else:
+            return
+        event.stop()
 
     def _competitor_names(self) -> list[str]:
         """Pull competitor names from the workspace for grid init."""

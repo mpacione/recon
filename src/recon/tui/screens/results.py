@@ -92,6 +92,10 @@ class ResultsScreen(ReconScreen):
         padding: 0 1;
         border-right: solid #3a3a3a;
         overflow-y: auto;
+        scrollbar-background: #000000;
+        scrollbar-color: #6B7866;
+        scrollbar-color-hover: #6B7866;
+        scrollbar-color-active: #6B7866;
     }
     #results-tree .is-cursor {
         background: #2e2b27;
@@ -102,6 +106,10 @@ class ResultsScreen(ReconScreen):
         height: 100%;
         padding: 0 1 0 2;
         overflow-y: auto;
+        scrollbar-background: #000000;
+        scrollbar-color: #6B7866;
+        scrollbar-color-hover: #6B7866;
+        scrollbar-color-active: #6B7866;
     }
     #results-preview-empty {
         height: auto;
@@ -121,12 +129,20 @@ class ResultsScreen(ReconScreen):
     Markdown#results-markdown {
         padding: 0;
         background: #000000;
+        scrollbar-background: #000000;
+        scrollbar-color: #6B7866;
+        scrollbar-color-hover: #6B7866;
+        scrollbar-color-active: #6B7866;
     }
     """
 
     show_log_pane = False
     show_activity_feed = False
     show_run_status_bar = False
+    # The left OUTPUT pane is narrow once padding + the divider are
+    # accounted for. Keep labels conservative so the ASCII tree never
+    # wraps and breaks the branch rendering.
+    _TREE_LABEL_WIDTH = 18
 
     def __init__(
         self,
@@ -188,13 +204,15 @@ class ResultsScreen(ReconScreen):
             return
 
         # Workspace name at the tree root — same aesthetic as the web
-        # UI's tree prefix rendering.
-        yield Static(f"[#DDEDC4]{self._workspace_root.name}/[/]")
+        # UI's tree prefix rendering, but keep the list itself simple
+        # so long filenames don't destroy ASCII branch alignment.
+        root_label = self._truncate_tree_label(f"{self._workspace_root.name}/")
+        yield Static(f"[#DDEDC4]{root_label}[/]")
 
         prev_group = ""
         for i, entry in enumerate(self._files):
             if entry.group != prev_group:
-                yield Static(f"[#787266]├── {entry.group}/[/]")
+                yield Static(f"[#787266]  {entry.group}/[/]")
                 prev_group = entry.group
             yield Static(
                 self._render_tree_row(i, selected=(i == self._cursor)),
@@ -204,9 +222,17 @@ class ResultsScreen(ReconScreen):
     def _render_tree_row(self, index: int, selected: bool) -> str:
         entry = self._files[index]
         marker = "[#DDEDC4]▌[/]" if selected else "[#3a3a3a] [/]"
-        name = entry.label
+        name = self._truncate_tree_label(entry.label)
         color = "#DDEDC4" if selected else "#a59a86"
-        return f"{marker} [#787266]│   ├──[/] [{color}]{name}[/]"
+        return f"{marker} [#787266]    [/][{color}]{name}[/]"
+
+    @classmethod
+    def _truncate_tree_label(cls, label: str) -> str:
+        if len(label) <= cls._TREE_LABEL_WIDTH:
+            return label
+        if cls._TREE_LABEL_WIDTH <= 3:
+            return label[:cls._TREE_LABEL_WIDTH]
+        return label[: cls._TREE_LABEL_WIDTH - 3] + "..."
 
     def _compose_preview(self) -> ComposeResult:
         if not self._files:

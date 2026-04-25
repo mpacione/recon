@@ -46,13 +46,14 @@ class TemplateScreen(ReconScreen):
         Binding("n", "submit", "next", show=False),
         Binding("a", "select_all", "all", show=False),
         Binding("d", "deselect_all", "none", show=False),
+        Binding("m", "show_add_section", "add section", show=False),
         Binding("escape", "cancel", "Back", show=False),
     ]
 
     keybind_hints = (
         "[#DDEDC4]↑↓[/] nav · [#DDEDC4]space[/] toggle · "
         "[#DDEDC4]a[/] all · [#DDEDC4]d[/] none · "
-        "[#DDEDC4]n[/] next · [#DDEDC4]esc[/] back"
+        "[#DDEDC4]m[/] add section · [#DDEDC4]n[/] next · [#DDEDC4]esc[/] back"
     )
 
     DEFAULT_CSS = """
@@ -90,6 +91,7 @@ class TemplateScreen(ReconScreen):
         # Row under the keyboard cursor. Highlighted with the
         # `is-cursor` class so space/enter know which row to toggle.
         self._cursor: int = 0
+        self._show_custom_input = False
 
     def compose_body(self) -> ComposeResult:
         from recon.tui.primitives import Card
@@ -121,10 +123,12 @@ class TemplateScreen(ReconScreen):
                     "[#a59a86]Describe a custom section to add to the dossier.[/]\n"
                     '[#787266]e.g. "Developer experience — API docs, SDKs, and community"[/]'
                 )
-                yield Input(
-                    placeholder="Describe a custom section...",
-                    id="custom-section-input",
-                )
+                yield Button(button_label("ADD SECTION", "M"), id="btn-add-section")
+                if self._show_custom_input:
+                    yield Input(
+                        placeholder="Describe a custom section...",
+                        id="custom-section-input",
+                    )
 
         with Horizontal(id="template-actions"):
             yield Button(button_label("PROCEED", "N"), id="btn-proceed", variant="primary")
@@ -142,6 +146,8 @@ class TemplateScreen(ReconScreen):
             self._set_all_selected(True)
         elif button_id == "btn-deselect-all":
             self._set_all_selected(False)
+        elif button_id == "btn-add-section":
+            self.action_show_add_section()
 
     def _set_all_selected(self, selected: bool) -> None:
         for section in self._sections:
@@ -197,6 +203,14 @@ class TemplateScreen(ReconScreen):
         self._set_all_selected(False)
         self._refresh_meta()
 
+    def action_show_add_section(self) -> None:
+        if self._show_custom_input:
+            self._focus_custom_input()
+            return
+        self._show_custom_input = True
+        self._schedule_recompose()
+        self.call_after_refresh(self._focus_custom_input)
+
     def _refresh_cursor(self) -> None:
         """Re-apply the `is-cursor` class to exactly one row."""
         for item in self.query(ChecklistItem):
@@ -223,12 +237,16 @@ class TemplateScreen(ReconScreen):
             text = event.input.value.strip()
             if text:
                 self._add_custom_section(text)
-                event.input.value = ""
+                self._show_custom_input = False
                 self.app.notify(f"Added section", severity="information")
                 # Recompose to show the new section
                 self._schedule_recompose()
 
     def action_cancel(self) -> None:
+        if self._show_custom_input:
+            self._show_custom_input = False
+            self._schedule_recompose()
+            return
         self.dismiss(None)
 
     def action_submit(self) -> None:
@@ -238,7 +256,7 @@ class TemplateScreen(ReconScreen):
             custom_text = custom_input.value.strip()
             if custom_text:
                 self._add_custom_section(custom_text)
-                custom_input.value = ""
+                self._show_custom_input = False
         except Exception:
             pass
 
@@ -263,3 +281,9 @@ class TemplateScreen(ReconScreen):
     @work
     async def _schedule_recompose(self) -> None:
         await self.recompose()
+
+    def _focus_custom_input(self) -> None:
+        try:
+            self.query_one("#custom-section-input", Input).focus()
+        except Exception:
+            pass

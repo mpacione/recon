@@ -116,13 +116,13 @@ _DEFAULT_WORKSPACES_PARENT = Path.home() / "recon-workspaces"
 
 
 _RECON_BANNER = """\
-[bold #DDEDC4]┌─────────────────────────────────────┐[/]
-[bold #DDEDC4]│  ▄▄▄▄    ▄▄▄▄  ▄▄▄▄  ▄▄▄▄  ▄▄  ▄▄  │[/]
-[bold #DDEDC4]│  ██  ██ ██    ██     ██  ██ ██▄ ██  │[/]
-[bold #DDEDC4]│  ██▀▀█▄ ██▀▀  ██     ██  ██ ██ ▀██  │[/]
-[bold #DDEDC4]│  ██  ██  ▀▀██  ██▄▄  ██▄▄██ ██  ██  │[/]
-[bold #DDEDC4]│         recon  v0.2.0+              │[/]
-[bold #DDEDC4]└─────────────────────────────────────┘[/]"""
+[bold #DDEDC4]░▒▓██████▓▒░   ░▒▓███████▓▒░ ░▒▓██████▓▒░ ░▒▓██████▓▒░   ░▒▓██████▓▒░[/]
+[bold #DDEDC4]░▒▓█▓▒░▒▓█▓▒░  ░▒▓█▓▒░       ░▒▓█▓▒░░▒▓█▒ ░▒▓█▓▒░░▒▓█▓▒░ ░▒▓█▓▒░▒▓█▓▒░[/]
+[bold #DDEDC4]░▒▓█▓▒ ░▒▓█▓▒░ ░▒▓█▓▒░       ░▒▓█▓▒░      ░▒▓█▓▒ ░▒▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░[/]
+[bold #DDEDC4]░▒▓██████▓▒░   ░▒▓██████▓▒░  ░▒▓█▓▒░      ░▒▓█▓▒ ░▒▓█▓▒░ ░▒▓█▓▒░ ░▒▓█▓▒░[/]
+[bold #DDEDC4]░▒▓█▓▒░▒▓█▓▒░  ░▒▓█▓▒░       ░▒▓█▓▒░      ░▒▓█▓▒ ░▒▓█▓▒░ ░▒▓█▓▒░ ░▒▓█▓▒░[/]
+[bold #DDEDC4]░▒▓█▓▒ ░▒▓█▓▒░ ░▒▓█▓▒░       ░▒▓█▓▒░░▒▓█▒ ░▒▓█▓▒ ░▒▓█▓▒░ ░▒▓█▓▒░ ░▒▓█▓▒░[/]
+[bold #DDEDC4]░▒▓█▓▒ ░▒▓█▓▒░ ░▒▓███████▓▒░ ░▒▓██████▓▒░ ░▒▓██████▓▒░   ░▒▓█▓▒░ ░▒▓█▓▒░[/]"""
 
 
 def _slugify_workspace_name(name: str) -> str:
@@ -348,6 +348,7 @@ class WelcomeScreen(ReconScreen):
     show_log_pane = False
     show_activity_feed = False
     show_run_status_bar = False
+    show_tab_strip = False
     # Welcome has no workspace loaded, so the "recon · no workspace"
     # header bar is just noise. TabStrip above carries the screen
     # identity.
@@ -384,6 +385,7 @@ class WelcomeScreen(ReconScreen):
         with Vertical(id="welcome-body"):
             yield Static(
                 (
+                    f"{_RECON_BANNER}\n\n"
                     "[#DDEDC4]▌[/] [#DDEDC4]Automated grounded competitive intelligence research.[/]  "
                     "[#a59a86]Recon orchestrates LLM agents to discover competitors, research "
                     "them section-by-section against a structured schema, and synthesize the "

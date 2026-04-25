@@ -40,13 +40,13 @@ class ReconApp(App):
         Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
         Binding("?", "help", "Help"),
         # v4 numbered-tab hotkeys — match the web UI + CLI.
-        # 0 = RECON (home), 1-5 = PLAN / SCHEMA / COMP'S / AGENTS / OUTPUT.
-        Binding("0", "goto_tab('recon')",  "Home",   show=False),
-        Binding("1", "goto_tab('plan')",   "Plan",   show=False),
-        Binding("2", "goto_tab('schema')", "Schema", show=False),
-        Binding("3", "goto_tab('comps')",  "Comps",  show=False),
-        Binding("4", "goto_tab('agents')", "Agents", show=False),
-        Binding("5", "goto_tab('output')", "Output", show=False),
+        # 1 = HOME, 2-6 = PLAN / SCHEMA / COMP'S / AGENTS / OUTPUT.
+        Binding("1", "goto_tab('recon')",  "Home",   show=False, priority=True),
+        Binding("2", "goto_tab('plan')",   "Plan",   show=False, priority=True),
+        Binding("3", "goto_tab('schema')", "Schema", show=False, priority=True),
+        Binding("4", "goto_tab('comps')",  "Comps",  show=False, priority=True),
+        Binding("5", "goto_tab('agents')", "Agents", show=False, priority=True),
+        Binding("6", "goto_tab('output')", "Output", show=False, priority=True),
     ]
 
     def __init__(
@@ -722,7 +722,7 @@ class ReconApp(App):
         _log.info("switched to dashboard mode after wizard")
 
     def action_help(self) -> None:
-        self.notify("Q=Quit  ?=Help  0-5=Tabs", title="Keybinds")
+        self.notify("Q=Quit  ?=Help  1-6=Tabs", title="Keybinds")
 
     def _list_competitors(self, ws_path: Path) -> list[dict]:
         """Best-effort competitor fetch for the OUTPUT tab's meta."""
@@ -791,7 +791,7 @@ class ReconApp(App):
     def action_goto_tab(self, tab_key: str) -> None:
         """Jump to the v4 tab identified by ``tab_key``.
 
-        Mirrors the web UI's `1-5` hotkey flow and the CLI's numbered
+        Mirrors the web UI's `1-6` hotkey flow and the CLI's numbered
         subcommands. Only fires when a workspace is active — the
         Welcome screen intentionally ignores these so ``1`` on welcome
         isn't a silent no-op that confuses the user.
@@ -800,10 +800,19 @@ class ReconApp(App):
         if getattr(self, "_workspace_path", None) is None and self.workspace_context.workspace_path is None:
             return
 
-        # Dashboard is the home / RECON tab. Same mode.
-        if tab_key == "recon":
+        def reset_to_dashboard_root() -> None:
             with contextlib.suppress(Exception):
                 self.switch_mode("dashboard")
+            # Top-nav tabs should replace the current view rather than
+            # stacking additional pushed screens on top of the
+            # dashboard's root screen.
+            with contextlib.suppress(Exception):
+                while len(self.screen_stack) > 1:
+                    self.pop_screen()
+
+        # Dashboard is the home / RECON tab. Same mode.
+        if tab_key == "recon":
+            reset_to_dashboard_root()
             return
 
         # All other tabs push a screen from the dashboard state. If the
@@ -822,6 +831,7 @@ class ReconApp(App):
             # mid-wizard constructor args.
             if ws_path is None:
                 return
+            reset_to_dashboard_root()
             from recon.tui.screens.confirm import ConfirmScreen
 
             comps = self._list_competitors(ws_path)
@@ -841,6 +851,7 @@ class ReconApp(App):
             # workspace's ``recon.yaml``.
             if ws_path is None:
                 return
+            reset_to_dashboard_root()
             from recon.tui.screens.template import TemplateScreen
 
             sections, domain = self._schema_sections(ws_path)
@@ -857,6 +868,7 @@ class ReconApp(App):
 
             if ws_path is None:
                 return
+            reset_to_dashboard_root()
             # CompetitorBrowserScreen expects a ``DashboardData`` bag
             # — build it fresh each time so stale data from prior
             # pushes doesn't leak. Empty workspace falls back to a
@@ -894,6 +906,7 @@ class ReconApp(App):
             ws_path = getattr(self, "_workspace_path", None)
             if ws_path is None:
                 return
+            reset_to_dashboard_root()
             # Pull live cost / elapsed from the current workspace
             # context so the meta strip isn't empty. Defaults keep the
             # screen renderable even if we haven't finished a run yet.

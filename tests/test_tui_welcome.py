@@ -136,6 +136,12 @@ class TestWelcomeScreen:
             recent_items = app.query(".recent-item")
             assert len(recent_items) == 2
 
+    async def test_renders_recon_banner_in_intro(self, welcome_app) -> None:
+        app, _ = welcome_app
+        async with app.run_test(size=(120, 40)):
+            intro = app.query_one("#welcome-intro", Static)
+            assert "███████" in str(intro.content)
+
 
 class TestWelcomeScreenKeybindings:
     """Welcome's actions are exposed via keybindings.

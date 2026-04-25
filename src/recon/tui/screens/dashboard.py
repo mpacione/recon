@@ -14,13 +14,14 @@ from pathlib import Path  # noqa: TCH003 -- used at runtime
 from textual import work
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.widgets import Input, Static
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Button, Input, Static
 
 from recon.logging import get_logger
 from recon.tui.models.dashboard import DashboardData  # noqa: TCH001 -- used at runtime
-from recon.tui.primitives import CardStack, TerminalBox
+from recon.tui.primitives import CardStack
 from recon.tui.shell import ReconScreen
+from recon.tui.widgets import button_label
 
 _log = get_logger(__name__)
 
@@ -69,6 +70,15 @@ class DashboardScreen(ReconScreen):
         padding: 0 1;
         border: solid #3a3a3a;
     }
+    #dashboard-actions {
+        height: 3;
+        margin: 1 0;
+        layout: horizontal;
+    }
+    #dashboard-actions Button {
+        margin: 0 1 0 0;
+        min-width: 15;
+    }
     """
 
     def __init__(self, data: DashboardData, workspace_path: Path) -> None:
@@ -82,10 +92,32 @@ class DashboardScreen(ReconScreen):
             f"[#a59a86]{self._data.domain}[/]",
             id="dashboard-summary",
         )
+        yield from self._compose_actions()
         if self._data.total_competitors == 0:
             yield from self._compose_empty_prompt()
         else:
             yield from self._compose_workspace_status()
+
+    def _compose_actions(self):
+        with Horizontal(id="dashboard-actions"):
+            yield Button(button_label("RUN", "R"), id="dashboard-run")
+            yield Button(button_label("DISCOVER", "D"), id="dashboard-discover")
+            yield Button(button_label("COMPS", "B"), id="dashboard-browse")
+            yield Button(button_label("SCHEMA", "E"), id="dashboard-schema")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id
+        if button_id == "dashboard-run":
+            self.action_run()
+        elif button_id == "dashboard-discover":
+            self.action_discover()
+        elif button_id == "dashboard-browse":
+            self.action_browse()
+        elif button_id == "dashboard-schema":
+            self.action_edit_schema()
+        else:
+            return
+        event.stop()
 
     def _compose_empty_prompt(self):
         with Vertical(id="empty-prompt"):

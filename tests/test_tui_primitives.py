@@ -165,3 +165,16 @@ class TestCardStack:
             assert "A" in titles[0]
             assert "B" in titles[1]
             assert "C" in titles[2]
+
+    def test_tab_strip_renders_section_hotkeys(self) -> None:
+        from recon.tui.primitives import TabStrip
+
+        rendered = TabStrip(active="schema").render()
+
+        assert "RECON NAV" in rendered
+        assert "[1] HOME" in rendered
+        assert "[2] PLAN" in rendered
+        assert "[3] SCHEMA" in rendered
+        assert "[6] OUTPUT" in rendered
+        assert "╮" in rendered
+        assert "╯" in rendered

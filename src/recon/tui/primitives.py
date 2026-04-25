@@ -150,20 +150,20 @@ class _Tab:
 #   - web/static/app.js::TABS
 #   - cli_ui/renderables/tab_breadcrumb.py::_TABS
 TABS: tuple[_Tab, ...] = (
-    _Tab("recon",  "RECON",  0),
-    _Tab("plan",   "PLAN",   1),
-    _Tab("schema", "SCHEMA", 2),
-    _Tab("comps",  "COMP'S", 3),
-    _Tab("agents", "AGENTS", 4),
-    _Tab("output", "OUTPUT", 5),
+    _Tab("recon",  "HOME",   1),
+    _Tab("plan",   "PLAN",   2),
+    _Tab("schema", "SCHEMA", 3),
+    _Tab("comps",  "COMP'S", 4),
+    _Tab("agents", "AGENTS", 5),
+    _Tab("output", "OUTPUT", 6),
 )
 
 
 class TabStrip(Static):
-    """Top-dock numbered tab nav. Reactive on ``active`` (tab key).
+    """Top numbered tab nav. Reactive on ``active`` (tab key).
 
-    The active tab highlights with a ``▌`` marker + pure-white bold;
-    others render dim tan. Click routing happens in the owning screen.
+    Renders as a compact three-line ribbon so the global section
+    hotkeys are visible without relying on Textual's hidden bindings.
     """
 
     DEFAULT_CSS = ""  # owned by theme.py::RECON_CSS
@@ -175,15 +175,31 @@ class TabStrip(Static):
         self.active = active
 
     def render(self) -> str:
-        parts = []
+        parts: list[str] = []
+        plain_parts: list[str] = []
         for i, t in enumerate(TABS):
             if i > 0:
-                parts.append("[#686359]  [/]")
+                parts.append("[#686359]  │  [/]")
+                plain_parts.append("  │  ")
+
+            label = f"[{t.number}] {t.label}"
+            plain_parts.append(label)
             if t.key == self.active:
-                parts.append(f"[#ffffff bold]▌[{t.number}] {t.label}[/]")
+                parts.append(f"[#000000 on #DDEDC4]{label}[/]")
             else:
-                parts.append(f"[#a59a86] [{t.number}] {t.label}[/]")
-        return "".join(parts)
+                parts.append(f"[#a59a86]{label}[/]")
+
+        middle_plain = " " + "".join(plain_parts) + " "
+        title = " RECON NAV "
+        top = "╭" + title + ("─" * max(1, len(middle_plain) - len(title))) + "╮"
+        middle = "[#3a3a3a]│[/] " + "".join(parts) + " [#3a3a3a]│[/]"
+        bottom = "╰" + ("─" * len(middle_plain)) + "╯"
+
+        return (
+            f"[#3a3a3a]{top}[/]\n"
+            f"{middle}\n"
+            f"[#3a3a3a]{bottom}[/]"
+        )
 
 
 class KeyBar(Static):

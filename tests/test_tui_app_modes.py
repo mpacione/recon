@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path  # noqa: TCH003 -- used at runtime in fixtures
 
 from recon.tui.app import ReconApp
+from textual.widgets import Button
+
 from recon.tui.screens.dashboard import DashboardScreen
+from recon.tui.screens.results import ResultsScreen
 from recon.tui.screens.run import RunScreen
 
 
@@ -48,6 +51,64 @@ class TestReconAppModes:
             app.switch_mode("dashboard")
             await pilot.pause()
             assert app.current_mode == "dashboard"
+
+    async def test_number_hotkeys_switch_between_tabs(self, tmp_workspace: Path) -> None:
+        app = ReconApp(workspace_path=tmp_workspace)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, DashboardScreen)
+
+            await pilot.press("5")
+            await pilot.pause()
+            assert app.current_mode == "run"
+            assert isinstance(app.screen, RunScreen)
+
+            await pilot.press("6")
+            await pilot.pause()
+            assert isinstance(app.screen, ResultsScreen)
+
+            await pilot.press("1")
+            await pilot.pause()
+            assert app.current_mode == "dashboard"
+            assert isinstance(app.screen, DashboardScreen)
+
+    async def test_number_hotkeys_work_even_with_action_buttons_present(
+        self, tmp_workspace: Path,
+    ) -> None:
+        app = ReconApp(workspace_path=tmp_workspace)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+
+            await pilot.press("5")
+            await pilot.pause()
+            assert isinstance(app.screen, RunScreen)
+
+            pause_button = app.screen.query_one("#run-pause", Button)
+            pause_button.focus()
+            await pilot.pause()
+
+            await pilot.press("6")
+            await pilot.pause()
+            assert isinstance(app.screen, ResultsScreen)
+
+            await pilot.press("1")
+            await pilot.pause()
+            assert isinstance(app.screen, DashboardScreen)
+
+    async def test_home_hotkey_pops_back_from_comps_screen(self, tmp_workspace: Path) -> None:
+        app = ReconApp(workspace_path=tmp_workspace)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, DashboardScreen)
+
+            await pilot.press("4")
+            await pilot.pause()
+            assert getattr(app.screen, "tab_key", None) == "comps"
+
+            await pilot.press("1")
+            await pilot.pause()
+            assert app.current_mode == "dashboard"
+            assert isinstance(app.screen, DashboardScreen)
 
     async def test_workspace_path_accessible(self, tmp_workspace: Path) -> None:
         app = ReconApp(workspace_path=tmp_workspace)

@@ -270,14 +270,14 @@ class TestActivityFeedSubscriptionLifecycle:
 
 
 class TestReconScreenChromeComposesActivityFeed:
-    """ActivityFeed should appear in the persistent chrome alongside
-    the LogPane on every full screen.
-    """
+    """ActivityFeed stays available as an opt-in supplemental pane."""
 
-    async def test_recon_screen_includes_activity_feed_widget(self) -> None:
+    async def test_recon_screen_includes_activity_feed_when_enabled(self) -> None:
         from recon.tui.shell import ActivityFeed, LogPane, ReconScreen
 
         class _DummyScreen(ReconScreen):
+            show_activity_feed = True
+
             def compose_body(self):
                 yield Static("dummy body")
 
@@ -294,7 +294,6 @@ class TestReconScreenChromeComposesActivityFeed:
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             await pilot.pause()
-            # Both panes coexist in the chrome of the active screen
             screen = app.screen
             assert screen.query_one(LogPane) is not None
             assert screen.query_one(ActivityFeed) is not None

@@ -6,7 +6,7 @@ from pathlib import Path  # noqa: TCH003 -- used at runtime in fixtures
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Static
+from textual.widgets import Button, Static
 
 from recon.tui.models.dashboard import DashboardData
 from recon.tui.screens.dashboard import DashboardScreen
@@ -86,21 +86,14 @@ class TestDashboardScreen:
             stats = app.query_one("#competitor-stats", Static)
             assert "47" in str(stats.content)
 
-    async def test_does_not_render_action_bar_buttons(self, tmp_path: Path) -> None:
-        """The action-bar Buttons (Run / Discover / Browse / Quit) are gone.
-
-        Their behavior is now exposed via key bindings in the chrome
-        keybind hint strip; pressing the corresponding letter key fires
-        the matching action method.
-        """
+    async def test_renders_workspace_action_buttons(self, tmp_path: Path) -> None:
         data = _make_dashboard_data(total_competitors=5)
         app = _DashboardTestApp(data, tmp_path)
         async with app.run_test(size=(120, 40)):
-            assert not app.query("#btn-run")
-            assert not app.query("#btn-discover")
-            assert not app.query("#btn-browse")
-            assert not app.query("#btn-quit")
-            assert not app.query(".action-bar")
+            assert app.query_one("#dashboard-run", Button)
+            assert app.query_one("#dashboard-discover", Button)
+            assert app.query_one("#dashboard-browse", Button)
+            assert app.query_one("#dashboard-schema", Button)
 
     async def test_empty_workspace_shows_prompt(self, tmp_path: Path) -> None:
         data = _make_dashboard_data(total_competitors=0)
@@ -143,8 +136,8 @@ class TestDashboardScreen:
 class TestDashboardKeybindings:
     """Dashboard exposes its actions via key bindings on the screen.
 
-    The action-bar buttons are gone; pressing r/d/b/m fires the
-    matching ``action_*`` method on :class:`DashboardScreen`.
+    The visible controls mirror the key bindings: pressing r/d/b/m
+    fires the same ``action_*`` methods as clicking the buttons.
     """
 
     async def test_screen_declares_run_discover_browse_keybindings(

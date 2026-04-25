@@ -5,8 +5,8 @@ The shell wraps every full-screen view with:
 - a top header bar showing workspace context (path, domain, run state,
   cost, API key status)
 - a body region where the screen renders its actual content
+- a single rolling log tail pane fed by ``recon.logging.MemoryLogHandler``
 - a keybind hint line that summarizes the current screen's bindings
-- a rolling log tail pane fed by ``recon.logging.MemoryLogHandler``
 
 Modal screens (Discovery, Curation, Selector, Planner, Wizard) opt out
 of the chrome -- they pop up over whichever full screen is currently
@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import Button, Static
 
 from recon.events import (
     CostRecorded,
@@ -598,7 +598,7 @@ class ReconScreen(Screen):
     """
 
     show_log_pane: bool = True
-    show_activity_feed: bool = True
+    show_activity_feed: bool = False
     show_run_status_bar: bool = True
     show_keybind_hint: bool = True
     show_tab_strip: bool = True
@@ -695,6 +695,9 @@ class ReconScreen(Screen):
                 else:
                     yield KeybindHint(self.keybind_hints)
 
+    def on_mount(self) -> None:
+        self._disable_button_focus()
+
     def compose_body(self) -> ComposeResult:
         """Override in subclasses to render the screen's actual content."""
         yield Static("")
@@ -731,3 +734,15 @@ class ReconScreen(Screen):
         except Exception:
             return
         header.set_workspace_context(self._current_workspace_context())
+
+    def _disable_button_focus(self) -> None:
+        """Keep keyboard control on the screen-level hotkeys.
+
+        Full-screen recon views are hotkey-first. Action buttons are
+        present for mouse support and discoverability, but if they take
+        focus they swallow numeric tab navigation and single-key screen
+        shortcuts. Make them click-only.
+        """
+        with contextlib.suppress(Exception):
+            for button in self.query(Button):
+                button.can_focus = False
