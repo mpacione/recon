@@ -80,7 +80,7 @@ class WorkspaceContext:
 
         schema = workspace.schema
         domain = schema.domain if schema else ""
-        company = schema.identity.company_name if schema else ""
+        company = workspace.root.name or (schema.identity.company_name if schema else "")
 
         cost_summary = _read_cost_summary(workspace)
         api_key_present = _detect_api_key(workspace.root)

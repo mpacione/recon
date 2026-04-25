@@ -32,17 +32,12 @@ class DashboardScreen(ReconScreen):
     tab_key = "recon"
 
     BINDINGS = [
-        Binding("r", "run", "run pipeline"),
-        Binding("d", "discover", "discover competitors"),
-        Binding("b", "browse", "browse competitors"),
-        Binding("m", "add_manually", "add manually"),
-        Binding("e", "edit_schema", "edit schema"),
         Binding("y", "start_discovery", "Yes, discover", show=False),
     ]
 
     keybind_hints = (
-        "[#DDEDC4]r[/] run · [#DDEDC4]d[/] discover · [#DDEDC4]b[/] browse · "
-        "[#DDEDC4]e[/] edit schema · [#DDEDC4]q[/] quit · [#DDEDC4]?[/] help"
+        "[#DDEDC4]2[/] next planning · [#DDEDC4]3[/] schema · "
+        "[#DDEDC4]4[/] comp's · [#DDEDC4]6[/] output · [#DDEDC4]q[/] quit"
     )
 
     DEFAULT_CSS = """
@@ -70,14 +65,9 @@ class DashboardScreen(ReconScreen):
         padding: 0 1;
         border: solid #3a3a3a;
     }
-    #dashboard-actions {
-        height: 3;
-        margin: 1 0;
-        layout: horizontal;
-    }
-    #dashboard-actions Button {
-        margin: 0 1 0 0;
-        min-width: 15;
+    #dashboard-next-actions {
+        height: auto;
+        margin: 1 0 0 0;
     }
     """
 
@@ -87,34 +77,20 @@ class DashboardScreen(ReconScreen):
         self._workspace_path = workspace_path
 
     def compose_body(self) -> ComposeResult:
-        yield Static(
-            f"[#DDEDC4]{self._data.company_name}[/] [#787266]·[/] "
-            f"[#a59a86]{self._data.domain}[/]",
-            id="dashboard-summary",
-        )
-        yield from self._compose_actions()
         if self._data.total_competitors == 0:
             yield from self._compose_empty_prompt()
         else:
             yield from self._compose_workspace_status()
-
-    def _compose_actions(self):
-        with Horizontal(id="dashboard-actions"):
-            yield Button(button_label("RUN", "R"), id="dashboard-run")
-            yield Button(button_label("DISCOVER", "D"), id="dashboard-discover")
-            yield Button(button_label("COMPS", "B"), id="dashboard-browse")
-            yield Button(button_label("SCHEMA", "E"), id="dashboard-schema")
+        with Horizontal(id="dashboard-next-actions"):
+            yield Button(
+                button_label("NEXT -> PLANNING", "2"),
+                id="dashboard-next",
+            )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        if button_id == "dashboard-run":
+        if button_id == "dashboard-next":
             self.action_run()
-        elif button_id == "dashboard-discover":
-            self.action_discover()
-        elif button_id == "dashboard-browse":
-            self.action_browse()
-        elif button_id == "dashboard-schema":
-            self.action_edit_schema()
         else:
             return
         event.stop()
@@ -124,8 +100,8 @@ class DashboardScreen(ReconScreen):
             yield Static("[#DDEDC4]No competitors yet.[/]")
             yield Static("")
             yield Static(
-                "Press [#DDEDC4]d[/] to discover competitors via web search,\n"
-                "or press [#DDEDC4]m[/] to add them manually by name.",
+                "Use the top nav to configure this workspace, then continue with "
+                "[#DDEDC4][2] PLAN[/] when you're ready to run.",
                 classes="dim",
             )
 
