@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Static
+from textual.widgets import Button, Static
 
 from recon.tui.screens.run import RunScreen
 
@@ -232,8 +232,8 @@ class TestRunScreen:
 class TestRunScreenKeybindings:
     """RunScreen exposes pause/stop/back via keybindings.
 
-    The action-bar buttons are gone; pressing p/s/b fires the
-    matching ``action_*`` method.
+    The visible controls mirror the key bindings: pressing p/s/b/o
+    fires the same ``action_*`` methods as clicking the buttons.
     """
 
     async def test_screen_declares_pause_stop_back_keybindings(self) -> None:
@@ -245,13 +245,13 @@ class TestRunScreenKeybindings:
             assert "s" in keys
             assert "b" in keys
 
-    async def test_does_not_render_action_bar_buttons(self) -> None:
+    async def test_renders_run_control_buttons(self) -> None:
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)):
-            assert not app.query("#btn-pause")
-            assert not app.query("#btn-stop")
-            assert not app.query("#btn-back-to-dashboard")
-            assert not app.query(".action-bar")
+            assert app.query_one("#run-pause", Button)
+            assert app.query_one("#run-stop", Button)
+            assert app.query_one("#run-output", Button)
+            assert app.query_one("#run-back", Button)
 
     async def test_action_back_switches_to_dashboard_mode(self) -> None:
         switch_calls: list[str] = []

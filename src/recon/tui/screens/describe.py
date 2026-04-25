@@ -18,6 +18,7 @@ from textual.widgets import Button, Input, Static, TextArea
 from recon.api_keys import load_api_keys, mask_api_key, save_api_key
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
+from recon.tui.widgets import button_label
 
 _log = get_logger(__name__)
 
@@ -30,11 +31,13 @@ class DescribeResult:
 
 
 class DescribeScreen(ReconScreen):
-    """Full-screen project setup. Replaces the 4-step wizard.
+    """Full-screen project setup — v4 SCHEMA tab (shares key with Template).
 
-    Uses buttons + tab navigation. No single-letter keybinds since
-    the screen has text input fields.
+    Replaces the 4-step wizard. Uses buttons + tab navigation. No
+    single-letter keybinds since the screen has text input fields.
     """
+
+    tab_key = "schema"
 
     BINDINGS = [
         Binding("escape", "cancel", "Back", show=False),
@@ -45,7 +48,7 @@ class DescribeScreen(ReconScreen):
     show_run_status_bar = False
     flow_step = 0
 
-    keybind_hints = "[#e0a044]esc[/] back"
+    keybind_hints = "[#DDEDC4]esc[/] back"
 
     DEFAULT_CSS = """
     DescribeScreen {
@@ -63,7 +66,7 @@ class DescribeScreen(ReconScreen):
         background: #000000;
     }
     #describe-area:focus {
-        border: solid #e0a044;
+        border: solid #DDEDC4;
     }
     .api-key-row {
         height: 1;
@@ -93,16 +96,16 @@ class DescribeScreen(ReconScreen):
 
         with Vertical(id="describe-container"):
             yield Static(
-                "[bold #e0a044]── DESCRIBE YOUR SPACE ──[/]\n\n"
-                "[#a89984]Describe your company, product, or the competitive space you want\n"
+                "[bold #DDEDC4]── DESCRIBE YOUR SPACE ──[/]\n\n"
+                "[#a59a86]Describe your company, product, or the competitive space you want\n"
                 "to research. A sentence or two is enough — we'll figure out the rest.[/]",
             )
             yield Static("")
             yield TextArea(id="describe-area")
             yield Static("")
             yield Static(
-                "[bold #e0a044]── API KEYS ──[/] "
-                "[#a89984]stored in .env (persists across sessions)[/]",
+                "[bold #DDEDC4]── API KEYS ──[/] "
+                "[#a59a86]stored in .env (persists across sessions)[/]",
                 id="api-keys-header",
             )
             yield Static("")
@@ -131,7 +134,7 @@ class DescribeScreen(ReconScreen):
             with Horizontal(classes="button-row"):
                 yield Button("Continue", id="btn-continue", variant="primary")
                 yield Button("Edit API Keys", id="btn-edit-keys")
-                yield Button("Back", id="btn-back")
+                yield Button(button_label("BACK", "Esc"), id="btn-back")
 
     def on_mount(self) -> None:
         # Hide key inputs initially, show status
@@ -149,8 +152,8 @@ class DescribeScreen(ReconScreen):
     def _key_line(self, label: str, value: str | None) -> str:
         if value:
             masked = mask_api_key(value)
-            return f"  [#a89984]{label:12s}[/] [#efe5c0]{masked}[/]  [#98971a]saved[/]"
-        return f"  [#a89984]{label:12s}[/] [#3a3a3a]{'·' * 25}[/]  [#a89984]not set[/]"
+            return f"  [#a59a86]{label:12s}[/] [#DDEDC4]{masked}[/]  [#DDEDC4]saved[/]"
+        return f"  [#a59a86]{label:12s}[/] [#3a3a3a]{'·' * 25}[/]  [#a59a86]not set[/]"
 
     def _set_key_edit_mode(self, editing: bool) -> None:
         self._editing_keys = editing

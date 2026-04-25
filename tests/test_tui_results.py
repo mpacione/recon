@@ -106,4 +106,36 @@ class TestResultsScreen:
             statics = app.screen.query(Static)
             all_text = " ".join(str(s.render()) for s in statics)
             assert "Executive Summary" in all_text or "executive_summary" in all_text
-            assert "Price" in all_text or "price_compression" in all_text
+            assert "Price" in all_text or "price_compress" in all_text
+
+    async def test_truncates_long_tree_labels(self, tmp_path: Path) -> None:
+        from recon.tui.screens.results import ResultsScreen
+
+        themes_dir = tmp_path / "themes"
+        themes_dir.mkdir()
+        long_name = "premium_activewear_differentiation_strategy_shift.md"
+        (themes_dir / long_name).write_text("# Long Theme\n")
+
+        class _App(App):
+            CSS = "Screen { background: #000000; }"
+
+            def compose(self) -> ComposeResult:
+                yield Static("")
+
+            def on_mount(self_app) -> None:
+                self_app.push_screen(ResultsScreen(
+                    workspace_root=tmp_path,
+                    competitor_count=1,
+                    section_count=1,
+                    theme_count=1,
+                    total_cost=1.0,
+                    elapsed="1:00",
+                ))
+
+        app = _App()
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            row = app.screen.query_one("#tree-row-0", Static)
+            content = str(row.render())
+            assert "..." in content
+            assert long_name not in content

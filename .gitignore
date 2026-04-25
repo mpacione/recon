@@ -13,10 +13,15 @@ uv.lock
 .code-graph-rag/
 
 # recon workspace artifacts
+.recon/
 .vectordb/
 .retrieved/
 .logs/
 .env
+competitors/
+output/
+themes/
+executive_summary.md
 
 # OS
 .DS_Store
@@ -35,6 +40,8 @@ snapshot_report.html
 
 # scratch workspaces for manual/e2e testing
 scratch/
+/ai/
+/bambu/
 
 # local test/runtime artifacts
 .coverage

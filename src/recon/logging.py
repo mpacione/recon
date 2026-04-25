@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import tempfile
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path  # noqa: TCH003 -- used at runtime
@@ -133,11 +134,36 @@ def configure_logging(
 
     formatter = logging.Formatter(_LOG_FORMAT)
 
+    deferred_warning: str | None = None
+
     if log_file is not None:
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = _FlushingFileHandler(log_file, mode="a", encoding="utf-8")
-        file_handler.setFormatter(formatter)
-        root.addHandler(file_handler)
+        try:
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = _FlushingFileHandler(log_file, mode="a", encoding="utf-8")
+        except OSError as exc:
+            # Logging should never prevent the CLI/TUI from starting.
+            # Fall back to a temp-file log if the configured path is
+            # unavailable (common in sandboxed or test environments).
+            fallback_path = Path(tempfile.gettempdir()) / "recon.log"
+            try:
+                fallback_path.parent.mkdir(parents=True, exist_ok=True)
+                file_handler = _FlushingFileHandler(
+                    fallback_path, mode="a", encoding="utf-8",
+                )
+                deferred_warning = (
+                    f"primary log file unavailable ({log_file}): {exc}. "
+                    f"Falling back to {fallback_path}."
+                )
+            except OSError as fallback_exc:
+                file_handler = None
+                deferred_warning = (
+                    f"file logging disabled; could not open {log_file} "
+                    f"or fallback {fallback_path}: {fallback_exc}"
+                )
+
+        if file_handler is not None:
+            file_handler.setFormatter(formatter)
+            root.addHandler(file_handler)
 
     if console:
         console_handler = logging.StreamHandler()
@@ -153,6 +179,9 @@ def configure_logging(
 
     root.propagate = False
     _CONFIGURED = True
+
+    if deferred_warning:
+        root.warning(deferred_warning)
 
 
 def get_logger(name: str) -> logging.Logger:

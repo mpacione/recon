@@ -6,7 +6,14 @@ provides running totals, and supports verification tier multipliers.
 
 import pytest
 
-from recon.cost import CostTracker, ModelPricing, estimate_section_tokens
+from recon.cost import (
+    CostTracker,
+    ModelPricing,
+    estimate_full_run,
+    estimate_section_tokens,
+    get_model_pricing,
+    list_available_models,
+)
 
 
 class TestModelPricing:
@@ -29,6 +36,33 @@ class TestModelPricing:
         )
 
         assert pricing.calculate_cost(input_tokens=0, output_tokens=0) == 0.0
+
+    def test_get_model_pricing_accepts_short_name(self) -> None:
+        pricing = get_model_pricing("sonnet")
+
+        assert pricing.model_id == "claude-sonnet-4-20250514"
+
+    def test_get_model_pricing_accepts_alias(self) -> None:
+        pricing = get_model_pricing("claude-haiku-4-5")
+
+        assert pricing.model_id == "claude-haiku-4-20250514"
+
+    def test_list_available_models_includes_three_tiers(self) -> None:
+        models = list_available_models()
+        names = [str(model["name"]) for model in models]
+
+        assert names == ["sonnet", "opus", "haiku"]
+
+    def test_estimate_full_run_is_positive(self) -> None:
+        pricing = get_model_pricing("sonnet")
+
+        estimate = estimate_full_run(
+            pricing=pricing,
+            section_count=5,
+            competitor_count=12,
+        )
+
+        assert estimate > 0
 
 
 class TestSectionTokenEstimation:

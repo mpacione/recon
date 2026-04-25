@@ -1,8 +1,8 @@
-"""Tests for the StageMonitor widget (v2 run screen layout).
+"""Tests for the StageMonitor widget.
 
-Two-column layout: left column shows scrollable competitor progress,
-right column shows per-worker activity cards. Adapts to different
-pipeline stages (research, enrich, synthesize, deliver).
+Stacked layout: worker cards render above the competitor roster.
+Adapts to different pipeline stages (research, enrich, synthesize,
+deliver).
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ class TestStageMonitor:
             monitor = app.query_one(StageMonitor)
             assert monitor is not None
 
-    async def test_shows_competitor_names_in_left_column(self) -> None:
+    async def test_shows_competitor_names_in_roster(self) -> None:
         app = _MonitorTestApp(
             competitor_names=["Prusa", "Creality", "Formlabs"],
             section_keys=["overview"],
@@ -134,7 +134,7 @@ class TestStageMonitor:
             # Just verify it doesn't crash on enrichment events
             assert monitor is not None
 
-    async def test_column_separator_visible(self) -> None:
+    async def test_shows_agents_and_competitors_sections(self) -> None:
         app = _MonitorTestApp(
             competitor_names=["Alpha", "Beta"],
             section_keys=["overview"],
@@ -145,7 +145,8 @@ class TestStageMonitor:
 
             monitor = app.query_one(StageMonitor)
             content = str(monitor.render())
-            assert "│" in content
+            assert "AGENTS" in content
+            assert "COMPETITORS" in content
 
     async def test_no_w_numbering_in_worker_cards(self) -> None:
         from recon.events import SectionStarted, publish

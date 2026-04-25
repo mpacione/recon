@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult  # noqa: TCH002 -- used at runtime
 from textual.binding import Binding
+from textual.containers import Vertical
 from textual.widgets import DataTable, Static
 
 from recon.logging import get_logger
@@ -19,26 +20,31 @@ _log = get_logger(__name__)
 
 
 class CompetitorBrowserScreen(ReconScreen):
-    """Scrollable competitor list with detail panel."""
+    """Scrollable competitor list — v4 COMP'S tab (shares key with Discovery)."""
+
+    tab_key = "comps"
 
     keybind_hints = (
-        "[#e0a044]b[/] back · [#e0a044]esc[/] back · "
-        "[#e0a044]↑↓[/] navigate · [#e0a044]q[/] quit"
+        "[#DDEDC4]b[/] back · [#DDEDC4]esc[/] back · "
+        "[#DDEDC4]↑↓[/] navigate · [#DDEDC4]q[/] quit"
     )
 
     DEFAULT_CSS = """
     CompetitorBrowserScreen {
         background: #000000;
     }
+    #browser-container {
+        width: 100%;
+        height: 1fr;
+        padding: 1 2;
+        overflow-y: auto;
+    }
     #browser-table {
         height: 1fr;
-        margin: 1 0;
     }
     #browser-detail {
         height: auto;
-        margin: 1 0;
-        padding: 1 2;
-        border: solid #3a3a3a;
+        padding: 0 1;
     }
     """
 
@@ -56,23 +62,28 @@ class CompetitorBrowserScreen(ReconScreen):
         self._data = data
 
     def compose_body(self) -> ComposeResult:
-        yield Static(
-            f"[bold #e0a044]── COMPETITORS ── ({self._data.total_competitors})[/]",
-            id="browser-title",
-        )
+        from recon.tui.primitives import Card
 
-        if not self._data.competitor_rows:
-            yield Static(
-                "[#a89984]No competitors in workspace.[/]",
-                id="browser-empty",
-            )
-        else:
-            table = DataTable(id="browser-table")
-            yield table
-            yield Static(
-                "[#a89984]Select a competitor to view details[/]",
-                id="browser-detail",
-            )
+        count = self._data.total_competitors
+        meta = f"{count} competitor{'s' if count != 1 else ''}"
+        if self._data.domain:
+            meta = f"{self._data.domain}   ·   {meta}"
+
+        with Vertical(id="browser-container"):
+            with Card(title="COMPETITORS", meta=meta, id="browser-card"):
+                if not self._data.competitor_rows:
+                    yield Static(
+                        "[#a59a86]No competitors in workspace.[/]\n\n"
+                        "[#787266]Press[/] [#DDEDC4]d[/] [#787266]on the dashboard to run "
+                        "discovery, or [/][#DDEDC4]m[/][#787266] to add one manually.[/]",
+                        id="browser-empty",
+                    )
+                else:
+                    yield DataTable(id="browser-table")
+                    yield Static(
+                        "[#a59a86]Select a competitor to view details[/]",
+                        id="browser-detail",
+                    )
 
     def action_back(self) -> None:
         _log.info("CompetitorBrowserScreen action_back")
@@ -97,7 +108,7 @@ class CompetitorBrowserScreen(ReconScreen):
             row = self._data.competitor_rows[row_index]
             detail = self.query_one("#browser-detail", Static)
             detail.update(
-                f"[bold #e0a044]{row['name']}[/]\n"
-                f"[#a89984]Type:[/] {row['type']}  "
-                f"[#a89984]Status:[/] {row['status']}"
+                f"[bold #DDEDC4]{row['name']}[/]\n"
+                f"[#a59a86]Type:[/] {row['type']}  "
+                f"[#a59a86]Status:[/] {row['status']}"
             )

@@ -13,11 +13,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from rich.text import Text
 from textual.message import Message
 from textual.widgets import Static
 
 from recon.tui.models.curation import ThemeCurationModel  # noqa: TCH001
 from recon.tui.models.monitor import RunMonitorModel, WorkerStatus  # noqa: TCH001
+
+
+def button_label(label: str, hotkey: str | None = None) -> Text:
+    """Return a literal button label with an optional bracketed hotkey."""
+    if hotkey:
+        return Text(f"{label} [{hotkey}]")
+    return Text(label)
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +53,7 @@ class ChecklistItem(Static):
         padding: 0 1;
     }
     ChecklistItem:hover {
-        background: #1d1d1d;
+        background: #2e2b27;
     }
     """
 
@@ -63,9 +71,12 @@ class ChecklistItem(Static):
         super().__init__()
 
     def render(self) -> str:
-        marker = "[#e0a044]\\[x][/]" if self._selected else "[#3a3a3a]\\[ ][/]"
+        # v4 glyphs: filled square (▣) for selected, dashed square (▢)
+        # for empty — mirrors the web UI's Lucide square-check /
+        # square-dashed pair so both surfaces read identically.
+        marker = "[#DDEDC4]\u25a3[/]" if self._selected else "[#3a3a3a]\u25a2[/]"
         desc = f"  [#3a3a3a]{self._description}[/]" if self._description else ""
-        color = "#efe5c0" if self._selected else "#a89984"
+        color = "#DDEDC4" if self._selected else "#a59a86"
         return f"{marker} [{color}]{self._label}[/]{desc}"
 
     @property
@@ -100,7 +111,7 @@ class RadioItem(Static):
         padding: 0 1;
     }
     RadioItem:hover {
-        background: #1d1d1d;
+        background: #2e2b27;
     }
     """
 
@@ -116,8 +127,12 @@ class RadioItem(Static):
         super().__init__()
 
     def render(self) -> str:
-        marker = "[#e0a044]\u25cf[/]" if self._selected else "[#3a3a3a]\u25cb[/]"
-        color = "#efe5c0" if self._selected else "#a89984"
+        # v4 glyphs: filled square for selected, dashed square for not.
+        # Mirrors the web UI's radio rendering (which uses the same
+        # square-check / square-dashed pair as the checkbox primitive
+        # so the whole interface reads as one consistent vocabulary).
+        marker = "[#DDEDC4]\u25a3[/]" if self._selected else "[#3a3a3a]\u25a2[/]"
+        color = "#DDEDC4" if self._selected else "#a59a86"
         return f"{marker} [{color}]{self._label}[/]"
 
     @property
@@ -230,39 +245,45 @@ def format_progress_bar(
     width: int = 40,
     state: str = "running",
 ) -> str:
-    """Format an ASCII progress bar string.
+    """Format a v4 ``▓▒░`` shaded-block progress bar.
 
-    ``state`` controls the visual treatment so a stopped/errored bar
-    looks distinct from a happy in-progress one. Valid states:
-    ``idle`` (empty bar, white), ``running`` (orange fill), ``done``
-    (green fill), ``paused`` (yellow fill), ``stopping`` (gray fill),
-    ``cancelled`` / ``error`` (red fill, X-marks instead of dashes).
+    ``state`` controls the visual treatment. Matches the web + CLI
+    bars: full cells are ``▓``, a single half-cell ``▒`` at the fill
+    boundary, ``░`` for empty. Errors substitute ``X`` for empties so
+    a broken run reads distinctly.
+
+    Valid states: ``idle``, ``running``, ``done``, ``paused``,
+    ``stopping``, ``cancelled``, ``error``.
 
     The outer brackets are escaped (``\\[`` / ``\\]``) so Textual
     markup parsing doesn't try to interpret them as color tags.
     """
     progress = max(0.0, min(1.0, progress))
-    filled = int(progress * width)
-    empty = width - filled
+    exact = progress * width
+    filled = int(exact)
+    half = 1 if (exact - filled) >= 0.5 else 0
+    empty = max(0, width - filled - half)
     pct = f"{progress * 100:.0f}%"
 
+    FULL, HALF, DOT = "▓", "▒", "░"
+
     if state in ("error", "cancelled"):
-        bar = f"[#cc241d]{'=' * filled}{'X' * empty}[/]"
-        pct_colored = f"[#cc241d]{pct}[/]"
+        bar = f"[#fb4b4b]{FULL * filled}{HALF * half}{'X' * empty}[/]"
+        pct_colored = f"[#fb4b4b]{pct}[/]"
     elif state == "stopping":
-        bar = f"[#a89984]{'=' * filled}[/][#3a3a3a]{'-' * empty}[/]"
-        pct_colored = f"[#a89984]{pct}[/]"
+        bar = f"[#a59a86]{FULL * filled}{HALF * half}[/][#3a3a3a]{DOT * empty}[/]"
+        pct_colored = f"[#a59a86]{pct}[/]"
     elif state == "paused":
-        bar = f"[#d79921]{'=' * filled}[/][#3a3a3a]{'-' * empty}[/]"
-        pct_colored = f"[#d79921]{pct}[/]"
+        bar = f"[#a59a86]{FULL * filled}{HALF * half}[/][#3a3a3a]{DOT * empty}[/]"
+        pct_colored = f"[#a59a86]{pct}[/]"
     elif state == "done":
-        bar = f"[#98971a]{'=' * width}[/]"
-        pct_colored = f"[#98971a]{pct}[/]"
+        bar = f"[#DDEDC4]{FULL * width}[/]"
+        pct_colored = f"[#DDEDC4]{pct}[/]"
     elif state == "idle":
-        bar = f"[#3a3a3a]{'-' * width}[/]"
-        pct_colored = f"[#a89984]{pct}[/]"
+        bar = f"[#3a3a3a]{DOT * width}[/]"
+        pct_colored = f"[#787266]{pct}[/]"
     else:  # running
-        bar = f"[#e0a044]{'=' * filled}[/][#3a3a3a]{'-' * empty}[/]"
-        pct_colored = f"[#e0a044]{pct}[/]"
+        bar = f"[#DDEDC4]{FULL * filled}{HALF * half}[/][#3a3a3a]{DOT * empty}[/]"
+        pct_colored = f"[#DDEDC4]{pct}[/]"
 
     return f"\\[{bar}\\] {pct_colored}"

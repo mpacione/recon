@@ -138,3 +138,35 @@ class TestDiscoverFakeMode:
         )
         assert "sk-ant" not in response.text
         assert "AIza" not in response.text
+
+
+class TestDiscoverApiKeyResolution:
+    def test_workspace_placeholder_key_falls_back_to_global(
+        self,
+        client: TestClient,
+        tmp_workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        global_dir = tmp_workspace / "global"
+        global_dir.mkdir()
+        (global_dir / ".env").write_text("ANTHROPIC_API_KEY=sk-ant-global-real\n")
+        (tmp_workspace / ".env").write_text("ANTHROPIC_API_KEY=sk-ant-new\n")
+        monkeypatch.setattr("recon.api_keys._DEFAULT_GLOBAL_DIR", global_dir)
+
+        captured = {}
+
+        def fake_create_llm_client(*, api_key=None, model=None):
+            captured["key"] = api_key
+            captured["model"] = model
+            return object()
+
+        monkeypatch.setattr("recon.client_factory.create_llm_client", fake_create_llm_client)
+        monkeypatch.setattr("recon.discovery.DiscoveryAgent.search", AsyncMock(return_value=[]))
+
+        response = client.post(
+            "/api/discover",
+            json={"path": str(tmp_workspace), "seeds": []},
+        )
+
+        assert response.status_code == 200, response.text
+        assert captured["key"] == "sk-ant-global-real"

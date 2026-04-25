@@ -14,7 +14,6 @@ from pathlib import Path  # noqa: TCH003 -- used at runtime
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Footer, Header
 
 from recon.logging import get_logger
 from recon.tui.screens.dashboard import DashboardScreen
@@ -40,6 +39,14 @@ class ReconApp(App):
         Binding("q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
         Binding("?", "help", "Help"),
+        # v4 numbered-tab hotkeys — match the web UI + CLI.
+        # 1 = HOME, 2-6 = PLAN / SCHEMA / COMP'S / AGENTS / OUTPUT.
+        Binding("1", "goto_tab('recon')",  "Home",   show=False, priority=True),
+        Binding("2", "goto_tab('plan')",   "Plan",   show=False, priority=True),
+        Binding("3", "goto_tab('schema')", "Schema", show=False, priority=True),
+        Binding("4", "goto_tab('comps')",  "Comps",  show=False, priority=True),
+        Binding("5", "goto_tab('agents')", "Agents", show=False, priority=True),
+        Binding("6", "goto_tab('output')", "Output", show=False, priority=True),
     ]
 
     def __init__(
@@ -186,9 +193,26 @@ class ReconApp(App):
     def _make_dashboard_screen(self) -> DashboardScreen | WelcomeScreen:
         if self._workspace_path is None:
             return WelcomeScreen()
-        return self._build_workspace_dashboard()
+        dashboard = self._build_workspace_dashboard()
+        if dashboard is None:
+            # Workspace path is set but unopenable (missing folder,
+            # corrupt recon.yaml). Drop back to the welcome screen so
+            # the user isn't stuck on a dashboard that can never
+            # refresh. ``_workspace_path`` is cleared so future
+            # refreshes don't retry the broken path.
+            bad_path = self._workspace_path
+            self._workspace_path = None
+            self.workspace_context = WorkspaceContext.empty()
+            self.call_after_refresh(
+                self.notify,
+                f"Could not open {bad_path}. Returning to welcome.",
+                title="Workspace unavailable",
+                severity="error",
+            )
+            return WelcomeScreen()
+        return dashboard
 
-    def _build_workspace_dashboard(self) -> DashboardScreen:
+    def _build_workspace_dashboard(self) -> DashboardScreen | None:
         from recon.tui.models.dashboard import build_dashboard_data
         from recon.workspace import Workspace
 
@@ -196,20 +220,15 @@ class ReconApp(App):
             ws = Workspace.open(self._workspace_path)
             data = build_dashboard_data(ws)
         except Exception:
-            from recon.tui.models.dashboard import DashboardData
-
-            data = DashboardData(
-                domain="Unknown",
-                company_name="Unknown",
-                total_competitors=0,
-                status_counts={},
-                competitor_rows=[],
+            _log.exception(
+                "_build_workspace_dashboard failed for %s",
+                self._workspace_path,
             )
+            return None
         return DashboardScreen(data=data, workspace_path=self._workspace_path)
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=False)
-        yield Footer()
+        return ()
 
     def on_mount(self) -> None:
         _log.info("ReconApp.on_mount -- registering modes")
@@ -247,7 +266,7 @@ class ReconApp(App):
     def on_welcome_screen_workspace_selected(self, event: WelcomeScreen.WorkspaceSelected) -> None:
         """Handle the user picking a workspace from the welcome screen."""
         _log.info("WorkspaceSelected path=%s", event.path)
-        self._workspace_path = Path(event.path)
+        self._workspace_path = Path(event.path).expanduser()
         self._record_recent_project(self._workspace_path)
         self.refresh_workspace_context()
         self._rebuild_dashboard_mode()
@@ -331,7 +350,7 @@ class ReconApp(App):
         _log.info("NewProjectRequested path=%s", event.path)
         from recon.tui.screens.describe import DescribeScreen
 
-        output_dir = Path(event.path)
+        output_dir = Path(event.path).expanduser()
         self.push_screen(
             DescribeScreen(output_dir=output_dir),
             self._handle_describe_result,
@@ -457,8 +476,7 @@ class ReconApp(App):
             from recon.client_factory import create_llm_client
             from recon.discovery import DiscoveryAgent
 
-            os.environ["ANTHROPIC_API_KEY"] = api_key
-            client = create_llm_client()
+            client = create_llm_client(api_key=api_key)
             anthropic_agent = DiscoveryAgent(llm_client=client, domain=domain)
 
         if gemini_agent is None and anthropic_agent is None:
@@ -704,7 +722,207 @@ class ReconApp(App):
         _log.info("switched to dashboard mode after wizard")
 
     def action_help(self) -> None:
-        self.notify("Q=Quit  ?=Help", title="Keybinds")
+        self.notify("Q=Quit  ?=Help  1-6=Tabs", title="Keybinds")
+
+    def _list_competitors(self, ws_path: Path) -> list[dict]:
+        """Best-effort competitor fetch for the OUTPUT tab's meta."""
+        try:
+            from recon.workspace import Workspace
+
+            return Workspace.open(ws_path).list_profiles()
+        except Exception:
+            return []
+
+    def _count_schema_sections(self, ws_path: Path) -> int:
+        """Best-effort section count for the OUTPUT tab's meta."""
+        try:
+            from recon.workspace import Workspace
+
+            ws = Workspace.open(ws_path)
+            if ws.schema and ws.schema.sections:
+                return len(ws.schema.sections)
+        except Exception:
+            pass
+        return 0
+
+    def _section_names(self, ws_path: Path) -> list[str]:
+        """Human-readable section titles from the loaded schema.
+
+        Feeds ConfirmScreen's "Sections: A, B, C" preview so the user
+        can see what the run will cover before paying for it.
+        """
+        try:
+            from recon.workspace import Workspace
+
+            ws = Workspace.open(ws_path)
+            if ws.schema and ws.schema.sections:
+                return [s.title for s in ws.schema.sections]
+        except Exception:
+            pass
+        return []
+
+    def _schema_sections(self, ws_path: Path) -> tuple[list[dict], str]:
+        """Full section-dict list + domain string for TemplateScreen.
+
+        TemplateScreen renders each section as a ChecklistItem so the
+        user can toggle inclusions. Returned dicts include ``key``,
+        ``title``, ``description``, ``selected`` — mirroring the
+        web UI's /api/template payload shape.
+        """
+        try:
+            from recon.workspace import Workspace
+
+            ws = Workspace.open(ws_path)
+            if not ws.schema:
+                return ([], "")
+            sections = [
+                {
+                    "key": s.key,
+                    "title": s.title,
+                    "description": s.description or "",
+                    "selected": True,  # default: all on
+                }
+                for s in ws.schema.sections
+            ]
+            return (sections, ws.schema.domain or "")
+        except Exception:
+            return ([], "")
+
+    def action_goto_tab(self, tab_key: str) -> None:
+        """Jump to the v4 tab identified by ``tab_key``.
+
+        Mirrors the web UI's `1-6` hotkey flow and the CLI's numbered
+        subcommands. Only fires when a workspace is active — the
+        Welcome screen intentionally ignores these so ``1`` on welcome
+        isn't a silent no-op that confuses the user.
+        """
+        # Welcome screen (pre-workspace) has no notion of tabs.
+        if getattr(self, "_workspace_path", None) is None and self.workspace_context.workspace_path is None:
+            return
+
+        def reset_to_dashboard_root() -> None:
+            with contextlib.suppress(Exception):
+                self.switch_mode("dashboard")
+            # Top-nav tabs should replace the current view rather than
+            # stacking additional pushed screens on top of the
+            # dashboard's root screen.
+            with contextlib.suppress(Exception):
+                while len(self.screen_stack) > 1:
+                    self.pop_screen()
+
+        # Dashboard is the home / RECON tab. Same mode.
+        if tab_key == "recon":
+            reset_to_dashboard_root()
+            return
+
+        # All other tabs push a screen from the dashboard state. If the
+        # current screen is already the target, do nothing.
+        current_key = getattr(self.screen, "tab_key", None)
+        if current_key == tab_key:
+            return
+
+        ws_path = getattr(self, "_workspace_path", None)
+
+        # Import lazily — these screens pull in the whole engine.
+        if tab_key == "plan":
+            # PLAN = cost / model / workers confirmation. Pushable any
+            # time a workspace is loaded — we pull competitor count
+            # and section count from the live workspace rather than
+            # mid-wizard constructor args.
+            if ws_path is None:
+                return
+            reset_to_dashboard_root()
+            from recon.tui.screens.confirm import ConfirmScreen
+
+            comps = self._list_competitors(ws_path)
+            section_names = self._section_names(ws_path)
+            with contextlib.suppress(Exception):
+                self.push_screen(
+                    ConfirmScreen(
+                        competitor_count=len(comps),
+                        section_count=len(section_names),
+                        section_names=section_names,
+                    ),
+                )
+            return
+        if tab_key == "schema":
+            # SCHEMA = dossier section editor. TemplateScreen expects
+            # a list of section dicts and a domain; pull both from the
+            # workspace's ``recon.yaml``.
+            if ws_path is None:
+                return
+            reset_to_dashboard_root()
+            from recon.tui.screens.template import TemplateScreen
+
+            sections, domain = self._schema_sections(ws_path)
+            with contextlib.suppress(Exception):
+                self.push_screen(
+                    TemplateScreen(sections=sections, domain=domain),
+                )
+            return
+        if tab_key == "comps":
+            # Route to the competitor browser directly.
+            from recon.tui.models.dashboard import build_dashboard_data
+            from recon.tui.screens.browser import CompetitorBrowserScreen
+            from recon.workspace import Workspace
+
+            if ws_path is None:
+                return
+            reset_to_dashboard_root()
+            # CompetitorBrowserScreen expects a ``DashboardData`` bag
+            # — build it fresh each time so stale data from prior
+            # pushes doesn't leak. Empty workspace falls back to a
+            # zero-profile snapshot; the screen's own empty state
+            # ("No competitors in workspace") renders cleanly from
+            # that.
+            try:
+                data = build_dashboard_data(Workspace.open(ws_path))
+            except Exception:
+                from recon.tui.models.dashboard import DashboardData
+
+                data = DashboardData(
+                    domain="",
+                    company_name="",
+                    total_competitors=0,
+                    status_counts={},
+                    competitor_rows=[],
+                )
+            with contextlib.suppress(Exception):
+                self.push_screen(CompetitorBrowserScreen(data=data))
+            return
+        if tab_key == "agents":
+            # AGENTS is the run monitor. Use the cached run mode.
+            with contextlib.suppress(Exception):
+                self.switch_mode("run")
+            return
+        if tab_key == "output":
+            # OUTPUT = the file tree + markdown preview. Push a fresh
+            # ResultsScreen every time so it picks up any new files
+            # the engine just wrote. If the workspace has nothing yet,
+            # the screen renders an empty state — better UX than a
+            # notify that flashes and disappears.
+            from recon.tui.screens.results import ResultsScreen
+
+            ws_path = getattr(self, "_workspace_path", None)
+            if ws_path is None:
+                return
+            reset_to_dashboard_root()
+            # Pull live cost / elapsed from the current workspace
+            # context so the meta strip isn't empty. Defaults keep the
+            # screen renderable even if we haven't finished a run yet.
+            ctx = self.workspace_context
+            with contextlib.suppress(Exception):
+                self.push_screen(
+                    ResultsScreen(
+                        workspace_root=ws_path,
+                        competitor_count=len(self._list_competitors(ws_path)),
+                        section_count=self._count_schema_sections(ws_path),
+                        theme_count=0,
+                        total_cost=ctx.total_cost,
+                        elapsed="—",
+                    ),
+                )
+            return
 
 
 def _description_to_schema(description: str) -> dict:

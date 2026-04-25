@@ -10,8 +10,12 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from google import genai
-from google.genai import types
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:  # pragma: no cover -- exercised only when dependency missing
+    genai = None
+    types = None
 
 from recon.discovery import (
     DiscoveryCandidate,
@@ -56,6 +60,9 @@ class GeminiDiscoveryAgent:
         domain: str,
         seed_competitors: list[str] | None = None,
     ) -> None:
+        if genai is None or types is None:
+            msg = "google-genai is not installed. Install it to use Gemini discovery."
+            raise RuntimeError(msg)
         self._api_key = api_key
         self._domain = domain
         self._seeds = seed_competitors or []

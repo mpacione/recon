@@ -20,6 +20,7 @@ from textual.widgets import Button, DataTable, Input, Static
 from recon.discovery import DiscoveryCandidate, DiscoveryState  # noqa: TCH001
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
+from recon.tui.widgets import button_label
 
 _log = get_logger(__name__)
 
@@ -29,18 +30,33 @@ _SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇"
 
 
 class DiscoveryScreen(ReconScreen):
-    """Full-screen competitor discovery with button-driven actions."""
+    """Full-screen competitor discovery — v4 COMP'S tab."""
 
+    tab_key = "comps"
     flow_step = 1
 
     BINDINGS = [
+        # Row nav — ↑↓ are handled natively by DataTable but j/k
+        # need to forward there explicitly.
+        Binding("j", "cursor_down", "down", show=False),
+        Binding("k", "cursor_up", "up", show=False),
+        # Space / Enter toggle the candidate under the DataTable cursor.
+        Binding("space", "toggle_current", "toggle", show=False),
+        # Main actions — match the web COMP'S tab hotkeys:
+        #   s = search  ·  a = accept all  ·  d = reject all
+        #   m = add manual  ·  r = run  ·  esc = back
+        Binding("s", "search_more", "search", show=False),
+        Binding("a", "accept_all", "accept all", show=False),
+        Binding("d", "reject_all", "reject all", show=False),
+        Binding("m", "add_manually", "add manual", show=False),
+        Binding("r", "done", "run", show=False),
         Binding("escape", "cancel", "Back", show=False),
     ]
 
     keybind_hints = (
-        "[#e0a044]↑↓[/] navigate · "
-        "[#e0a044]enter[/] toggle · "
-        "[#e0a044]esc[/] back"
+        "[#DDEDC4]↑↓[/] nav · [#DDEDC4]space[/] toggle · "
+        "[#DDEDC4]s[/] search · [#DDEDC4]a[/] all · [#DDEDC4]d[/] none · "
+        "[#DDEDC4]m[/] add · [#DDEDC4]r[/] run · [#DDEDC4]esc[/] back"
     )
 
     DEFAULT_CSS = """
@@ -63,7 +79,7 @@ class DiscoveryScreen(ReconScreen):
         height: 3;
         padding: 0 2;
         layout: horizontal;
-        background: #1a1a1a;
+        background: #000000;
     }
     #discovery-actions Button {
         height: 3;
@@ -80,6 +96,9 @@ class DiscoveryScreen(ReconScreen):
     .api-key-input {
         height: 3;
         margin: 0 0;
+    }
+    .hidden-legacy {
+        display: none;
     }
     """
 
@@ -139,18 +158,18 @@ class DiscoveryScreen(ReconScreen):
             if self._is_searching:
                 frame = _SPINNER_FRAMES[self._spinner_frame]
                 progress.update(
-                    f"[bold #e0a044]── SEARCH ──[/] "
-                    f"[#a89984]round {self._state.round_count + 1}[/]\n"
-                    f"[#a89984]searching for competitors...[/]  [#e0a044]{frame}[/]"
+                    f"[bold #DDEDC4]── SEARCH ──[/] "
+                    f"[#a59a86]round {self._state.round_count + 1}[/]\n"
+                    f"[#a59a86]searching for competitors...[/]  [#DDEDC4]{frame}[/]"
                 )
             elif self._state.round_count > 0:
                 progress.update(
-                    f"[bold #e0a044]── SEARCH ──[/] "
-                    f"[#98971a]{self._state.round_count} round{'s' if self._state.round_count != 1 else ''} complete[/]"
+                    f"[bold #DDEDC4]── SEARCH ──[/] "
+                    f"[#DDEDC4]{self._state.round_count} round{'s' if self._state.round_count != 1 else ''} complete[/]"
                 )
             else:
                 progress.update(
-                    "[bold #e0a044]── SEARCH ──[/]"
+                    "[bold #DDEDC4]── SEARCH ──[/]"
                 )
         except Exception:
             pass
@@ -190,50 +209,107 @@ class DiscoveryScreen(ReconScreen):
     def action_add_manually(self) -> None:
         self._show_manual_inputs()
 
+    # -- keyboard nav (forward to DataTable) ------------------------------
+
+    def action_cursor_down(self) -> None:
+        try:
+            table = self.query_one("#discovery-table", DataTable)
+        except Exception:
+            return
+        table.action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        try:
+            table = self.query_one("#discovery-table", DataTable)
+        except Exception:
+            return
+        table.action_cursor_up()
+
+    def action_toggle_current(self) -> None:
+        """Toggle the candidate under the DataTable cursor.
+
+        ``on_data_table_row_selected`` already handles Enter via the
+        DataTable's built-in contract; this action is wired to Space
+        so the user can toggle without losing cursor position.
+        """
+        try:
+            table = self.query_one("#discovery-table", DataTable)
+        except Exception:
+            return
+        index = table.cursor_row
+        candidates = self._state.all_candidates
+        if 0 <= index < len(candidates):
+            self._state.toggle(index)
+            self._populate_table()
+            # Restore the cursor position — ``_populate_table`` clears
+            # + re-adds rows so the cursor resets to 0 otherwise.
+            try:
+                table.move_cursor(row=index)
+            except Exception:
+                pass
+            self._update_summary()
+
     def compose_body(self) -> ComposeResult:
+        from recon.tui.primitives import Card
+
         with Vertical(id="discovery-container"):
             count = len(self._state.all_candidates)
-            count_label = f"  [#a89984]{count} found[/]" if count > 0 else ""
-            yield Static(
-                f"[bold #e0a044]── COMPETITOR DISCOVERY ──[/] "
-                f"[#a89984]·[/] [#efe5c0]{self._domain}[/]"
-                f"{count_label}",
-                id="discovery-title",
-            )
-            yield self._build_search_progress()
-            yield self._build_summary()
+            accepted = len(self._state.accepted_candidates)
 
-            with Vertical(id="discovery-candidates"):
-                yield from self._build_candidate_list()
-            yield from self._build_roster_summary()
+            # Competitors card — matches the web COMP'S tab. Title +
+            # meta (domain / accepted count / round state) + body
+            # (candidate rows).
+            meta_bits = [self._domain]
+            if count:
+                meta_bits.append(f"{accepted}/{count} selected")
+            if self._state.round_count:
+                meta_bits.append(
+                    f"{self._state.round_count} round{'s' if self._state.round_count != 1 else ''}"
+                )
+            comps_meta = "  ·  ".join(meta_bits)
+
+            with Card(title="DISCOVERY · COMPETITORS", meta=comps_meta, id="discovery-card"):
+                # Hidden static preserving #discovery-title for tests
+                # that query the legacy id. Card border labels are
+                # where the human sees the title/meta visually.
+                count_label = f"  [#a59a86]{count} found[/]" if count > 0 else ""
+                yield Static(
+                    f"[bold #DDEDC4]── COMPETITOR DISCOVERY ──[/] "
+                    f"[#a59a86]·[/] [#DDEDC4]{self._domain}[/]"
+                    f"{count_label}",
+                    id="discovery-title",
+                    classes="hidden-legacy",
+                )
+                yield self._build_search_progress()
+                yield self._build_summary()
+                with Vertical(id="discovery-candidates"):
+                    yield from self._build_candidate_list()
+                yield from self._build_roster_summary()
 
         with Horizontal(id="discovery-actions"):
-            yield Button(
-                "Done — proceed to next step",
-                id="btn-done", variant="primary",
-            )
-            yield Button("Search More", id="btn-search-more")
-            yield Button("Add Manually", id="btn-add-manual")
-            yield Button("Accept All", id="btn-accept-all")
-            yield Button("Reject All", id="btn-reject-all")
+            yield Button(button_label("RUN", "R"), id="btn-done", variant="primary")
+            yield Button(button_label("SEARCH", "S"), id="btn-search-more")
+            yield Button(button_label("ADD", "M"), id="btn-add-manual")
+            yield Button(button_label("ACCEPT ALL", "A"), id="btn-accept-all")
+            yield Button(button_label("REJECT ALL", "D"), id="btn-reject-all")
 
     def _build_search_progress(self) -> Static:
         if self._is_searching:
             frame = _SPINNER_FRAMES[self._spinner_frame]
             return Static(
-                f"[bold #e0a044]── SEARCH ──[/] "
-                f"[#a89984]round {self._state.round_count + 1}[/]\n"
-                f"[#a89984]searching for competitors...[/]  [#e0a044]{frame}[/]",
+                f"[bold #DDEDC4]── SEARCH ──[/] "
+                f"[#a59a86]round {self._state.round_count + 1}[/]\n"
+                f"[#a59a86]searching for competitors...[/]  [#DDEDC4]{frame}[/]",
                 id="search-progress",
             )
         if self._state.round_count > 0:
             return Static(
-                f"[bold #e0a044]── SEARCH ──[/] "
-                f"[#98971a]{self._state.round_count} round{'s' if self._state.round_count != 1 else ''} complete[/]",
+                f"[bold #DDEDC4]── SEARCH ──[/] "
+                f"[#DDEDC4]{self._state.round_count} round{'s' if self._state.round_count != 1 else ''} complete[/]",
                 id="search-progress",
             )
         return Static(
-            "[bold #e0a044]── SEARCH ──[/]",
+            "[bold #DDEDC4]── SEARCH ──[/]",
             id="search-progress",
         )
 
@@ -241,9 +317,9 @@ class DiscoveryScreen(ReconScreen):
         accepted = len(self._state.accepted_candidates)
         rejected = len(self._state.rejected_candidates)
         return Static(
-            f"[#a89984]rounds:[/] [#e0a044]{self._state.round_count}[/]  "
-            f"[#3a3a3a]·[/]  [#a89984]accepted:[/] [#e0a044]{accepted}[/]  "
-            f"[#3a3a3a]·[/]  [#a89984]rejected:[/] [#e0a044]{rejected}[/]",
+            f"[#a59a86]rounds:[/] [#DDEDC4]{self._state.round_count}[/]  "
+            f"[#3a3a3a]·[/]  [#a59a86]accepted:[/] [#DDEDC4]{accepted}[/]  "
+            f"[#3a3a3a]·[/]  [#a59a86]rejected:[/] [#DDEDC4]{rejected}[/]",
             id="discovery-summary",
         )
 
@@ -252,15 +328,15 @@ class DiscoveryScreen(ReconScreen):
         if not candidates:
             if self._is_searching:
                 yield Static(
-                    "[#e0a044]Searching the web for competitors...[/]\n"
-                    "[#a89984]This usually takes 10-30 seconds.[/]",
+                    "[#DDEDC4]Searching the web for competitors...[/]\n"
+                    "[#a59a86]This usually takes 10-30 seconds.[/]",
                     id="discovery-empty",
                 )
             else:
                 yield Static(
-                    "[#a89984]No candidates yet. Click "
-                    "[#e0a044]Search More[/] or "
-                    "[#e0a044]Add Manually[/].[/]",
+                    "[#a59a86]No candidates yet. Click "
+                    "[#DDEDC4]Search More[/] or "
+                    "[#DDEDC4]Add Manually[/].[/]",
                     id="discovery-empty",
                 )
             return
@@ -279,7 +355,10 @@ class DiscoveryScreen(ReconScreen):
         table.cursor_type = "row"
 
         for candidate in self._state.all_candidates:
-            marker = "✓" if candidate.accepted else "·"
+            # v4 glyphs: filled square selected, dashed square empty.
+            # Same pair as the web UI's Lucide square-check /
+            # square-dashed so both surfaces read identically.
+            marker = "\u25a3" if candidate.accepted else "\u25a2"
             tier = candidate.suggested_tier.value.capitalize()
             url_short = candidate.url[:40] if candidate.url else ""
             table.add_row(marker, candidate.name, tier, url_short)
@@ -291,8 +370,8 @@ class DiscoveryScreen(ReconScreen):
         names = ", ".join(c.name for c in accepted[:10])
         suffix = f" ... ({len(accepted)} total)" if len(accepted) > 10 else ""
         yield Static(
-            f"[bold #e0a044]ACCEPTED ROSTER[/] ({len(accepted)})\n"
-            f"[#a89984]{names}{suffix}[/]",
+            f"[bold #DDEDC4]ACCEPTED ROSTER[/] ({len(accepted)})\n"
+            f"[#a59a86]{names}{suffix}[/]",
             id="roster-summary",
         )
 
@@ -332,8 +411,11 @@ class DiscoveryScreen(ReconScreen):
             _log.exception("DiscoveryScreen: search raised exception")
             self._is_searching = False
             self._update_search_status()
+            message = str(exc)
+            if "401" in message and "invalid x-api-key" in message:
+                message = "Invalid Anthropic API key. Check ~/.recon/.env or your active environment."
             self.app.notify(
-                f"Search failed: {exc}",
+                f"Search failed: {message}",
                 title="Discovery error",
                 severity="error",
                 timeout=10,
@@ -375,9 +457,9 @@ class DiscoveryScreen(ReconScreen):
             accepted = len(self._state.accepted_candidates)
             rejected = len(self._state.rejected_candidates)
             summary.update(
-                f"[#a89984]rounds:[/] [#e0a044]{self._state.round_count}[/]  "
-                f"[#3a3a3a]·[/]  [#a89984]accepted:[/] [#e0a044]{accepted}[/]  "
-                f"[#3a3a3a]·[/]  [#a89984]rejected:[/] [#e0a044]{rejected}[/]",
+                f"[#a59a86]rounds:[/] [#DDEDC4]{self._state.round_count}[/]  "
+                f"[#3a3a3a]·[/]  [#a59a86]accepted:[/] [#DDEDC4]{accepted}[/]  "
+                f"[#3a3a3a]·[/]  [#a59a86]rejected:[/] [#DDEDC4]{rejected}[/]",
             )
         except Exception:
             pass
@@ -385,10 +467,10 @@ class DiscoveryScreen(ReconScreen):
         try:
             title = self.query_one("#discovery-title", Static)
             count = len(self._state.all_candidates)
-            count_label = f"  [#a89984]{count} found[/]" if count > 0 else ""
+            count_label = f"  [#a59a86]{count} found[/]" if count > 0 else ""
             title.update(
-                f"[bold #e0a044]── COMPETITOR DISCOVERY ──[/] "
-                f"[#a89984]·[/] [#efe5c0]{self._domain}[/]"
+                f"[bold #DDEDC4]── COMPETITOR DISCOVERY ──[/] "
+                f"[#a59a86]·[/] [#DDEDC4]{self._domain}[/]"
                 f"{count_label}"
             )
         except Exception:

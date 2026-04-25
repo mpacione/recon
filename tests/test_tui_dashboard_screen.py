@@ -5,8 +5,7 @@ from __future__ import annotations
 from pathlib import Path  # noqa: TCH003 -- used at runtime in fixtures
 
 from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.widgets import Static
+from textual.widgets import Button, Static
 
 from recon.tui.models.dashboard import DashboardData
 from recon.tui.screens.dashboard import DashboardScreen
@@ -38,6 +37,29 @@ class _DashboardTestApp(App):
 
 
 class TestDashboardScreen:
+    def test_workspace_context_prefers_workspace_folder_name(self, tmp_path: Path) -> None:
+        from recon.tui.shell import WorkspaceContext
+        from recon.workspace import Workspace
+
+        workspace_root = tmp_path / "lululemon"
+        workspace_root.mkdir()
+        (workspace_root / "recon.yaml").write_text(
+            """
+domain: athletic leisure and apparel brand
+identity:
+  company_name: athletic
+  products: []
+  decision_context: []
+rating_scales: {}
+sections: []
+""".strip()
+        )
+
+        ws = Workspace.open(workspace_root)
+        ctx = WorkspaceContext.from_workspace(ws)
+        assert ctx.company_name == "lululemon"
+        assert ctx.domain == "athletic leisure and apparel brand"
+
     async def test_shows_workspace_path(self, tmp_path: Path) -> None:
         """The workspace path lives in the persistent ReconHeaderBar
         chrome strip, not on the dashboard screen itself.
@@ -86,21 +108,23 @@ class TestDashboardScreen:
             stats = app.query_one("#competitor-stats", Static)
             assert "47" in str(stats.content)
 
-    async def test_does_not_render_action_bar_buttons(self, tmp_path: Path) -> None:
-        """The action-bar Buttons (Run / Discover / Browse / Quit) are gone.
-
-        Their behavior is now exposed via key bindings in the chrome
-        keybind hint strip; pressing the corresponding letter key fires
-        the matching action method.
-        """
+    async def test_renders_only_next_planning_button(self, tmp_path: Path) -> None:
         data = _make_dashboard_data(total_competitors=5)
         app = _DashboardTestApp(data, tmp_path)
         async with app.run_test(size=(120, 40)):
-            assert not app.query("#btn-run")
-            assert not app.query("#btn-discover")
-            assert not app.query("#btn-browse")
-            assert not app.query("#btn-quit")
-            assert not app.query(".action-bar")
+            assert app.query_one("#dashboard-next", Button)
+            assert not app.query("#dashboard-run")
+            assert not app.query("#dashboard-discover")
+            assert not app.query("#dashboard-browse")
+            assert not app.query("#dashboard-schema")
+
+    async def test_does_not_render_duplicate_company_domain_summary(
+        self, tmp_path: Path
+    ) -> None:
+        data = _make_dashboard_data(total_competitors=5)
+        app = _DashboardTestApp(data, tmp_path)
+        async with app.run_test(size=(120, 40)):
+            assert not app.query("#dashboard-summary")
 
     async def test_empty_workspace_shows_prompt(self, tmp_path: Path) -> None:
         data = _make_dashboard_data(total_competitors=0)
@@ -141,25 +165,6 @@ class TestDashboardScreen:
 
 
 class TestDashboardKeybindings:
-    """Dashboard exposes its actions via key bindings on the screen.
-
-    The action-bar buttons are gone; pressing r/d/b/m fires the
-    matching ``action_*`` method on :class:`DashboardScreen`.
-    """
-
-    async def test_screen_declares_run_discover_browse_keybindings(
-        self, tmp_path: Path
-    ) -> None:
-        data = _make_dashboard_data(total_competitors=5, status_counts={"scaffold": 5})
-        app = _DashboardTestApp(data, tmp_path)
-        async with app.run_test(size=(120, 40)):
-            screen = app.query_one(DashboardScreen)
-            keys = {b.key for b in screen.BINDINGS if isinstance(b, Binding)}
-            assert "r" in keys
-            assert "d" in keys
-            assert "b" in keys
-            assert "m" in keys
-
     async def test_action_browse_pushes_browser_screen(self, tmp_path: Path) -> None:
         from recon.tui.screens.browser import CompetitorBrowserScreen
 
@@ -226,7 +231,7 @@ class TestDashboardKeybindings:
             await pilot.pause()
             assert app.query_one("#manual-add-input", Input) is not None
 
-    async def test_keybind_hints_mention_run_discover_browse(
+    async def test_keybind_hints_mention_top_nav_routes(
         self, tmp_path: Path
     ) -> None:
         data = _make_dashboard_data(total_competitors=5)
@@ -234,12 +239,11 @@ class TestDashboardKeybindings:
         async with app.run_test(size=(120, 40)):
             screen = app.query_one(DashboardScreen)
             hints = screen.keybind_hints
-            assert "r" in hints
-            assert "d" in hints
-            assert "b" in hints
-            assert "run" in hints
-            assert "discover" in hints
-            assert "browse" in hints
+            assert "2" in hints
+            assert "3" in hints
+            assert "4" in hints
+            assert "6" in hints
+            assert "next planning" in hints
 
 
 class TestDashboardWiring:

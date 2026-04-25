@@ -149,8 +149,6 @@ def build_pipeline_fn(
                 _log.warning("pipeline_fn: no API key for workspace %s", workspace_path)
                 return
 
-            os.environ["ANTHROPIC_API_KEY"] = api_key
-
             # Defer heavy imports until we're actually going to run the pipeline
             from recon.client_factory import ClientCreationError, create_llm_client
             from recon.pipeline import Pipeline
@@ -169,7 +167,7 @@ def build_pipeline_fn(
                     pass
 
             try:
-                client = create_llm_client(model=_model_id)
+                client = create_llm_client(model=_model_id, api_key=api_key)
             except ClientCreationError as exc:
                 screen.current_phase = "error"
                 screen.app.notify(

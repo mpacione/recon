@@ -699,9 +699,8 @@ def create_app() -> FastAPI:
             if agent is None and anthropic_key:
                 from recon.client_factory import create_llm_client
 
-                os.environ["ANTHROPIC_API_KEY"] = anthropic_key
                 try:
-                    client = create_llm_client()
+                    client = create_llm_client(api_key=anthropic_key)
                 except Exception as exc:  # noqa: BLE001
                     raise HTTPException(
                         status_code=500,

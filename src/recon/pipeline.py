@@ -347,7 +347,7 @@ class Pipeline:
         """Execute the research stage.
 
         Cost is recorded per-section via a callback, not aggregated
-        after the batch. This enables streaming cost in the TUI.
+        after the batch. This enables streaming cost in the TUI/web UI.
         """
 
         async def _on_cost(input_tokens: int, output_tokens: int) -> None:
@@ -478,7 +478,7 @@ class Pipeline:
         """Execute all enrichment passes.
 
         Cost is recorded per-profile via a callback, not aggregated
-        after each pass. This enables streaming cost in the TUI.
+        after each pass. This enables streaming cost in the TUI/web UI.
         """
 
         async def _on_cost(input_tokens: int, output_tokens: int) -> None:
@@ -499,23 +499,23 @@ class Pipeline:
             )
 
     async def _stage_index(self, run_id: str) -> None:
-        """Execute the indexing stage."""
+        """Execute the indexing stage.
+
+        Use the incremental indexer so repeated pipeline runs do not
+        append duplicate chunks for unchanged files.
+        """
+        from recon.incremental import IncrementalIndexer
+
         manager = self._open_index_manager()
-
-        profiles = self.workspace.list_profiles()
-        for profile_meta in profiles:
-            full = self.workspace.read_profile(profile_meta["_slug"])
-            if not full or not full.get("_content", "").strip():
-                continue
-
-            chunks = chunk_markdown(
-                content=full["_content"],
-                source_path=str(profile_meta["_path"]),
-                frontmatter_meta={
-                    k: v for k, v in profile_meta.items() if not k.startswith("_")
-                },
+        try:
+            indexer = IncrementalIndexer(
+                workspace=self.workspace,
+                index_manager=manager,
+                state_store=self.state_store,
             )
-            manager.add_chunks(chunks)
+            await indexer.index(force=False)
+        finally:
+            manager.close()
 
     async def _stage_themes(self, run_id: str, cost_tracker: CostTracker) -> None:
         """Discover themes, optionally curate them, and tag profiles."""

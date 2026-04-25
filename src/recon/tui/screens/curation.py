@@ -18,6 +18,7 @@ from textual.widgets import Button, Static
 from recon.logging import get_logger
 from recon.themes import DiscoveredTheme  # noqa: TCH001
 from recon.tui.models.curation import ThemeCurationModel  # noqa: TCH001
+from recon.tui.widgets import button_label
 
 _log = get_logger(__name__)
 
@@ -39,7 +40,7 @@ class ThemeCurationScreen(ModalScreen[list[DiscoveredTheme]]):
         max-height: 90%;
         padding: 1 2;
         border: solid #3a3a3a;
-        background: #0d0d0d;
+        background: #000000;
         overflow-y: auto;
     }
     .theme-entry {
@@ -71,14 +72,14 @@ class ThemeCurationScreen(ModalScreen[list[DiscoveredTheme]]):
     def compose(self) -> ComposeResult:
         with Vertical(id="curation-container"):
             yield Static(
-                f"[bold #e0a044]── THEME CURATION ──[/]  "
-                f"[#e0a044]{len(self._model.entries)}[/] discovered  "
+                f"[bold #DDEDC4]── THEME CURATION ──[/]  "
+                f"[#DDEDC4]{len(self._model.entries)}[/] discovered  "
                 f"[#3a3a3a]·[/]  "
-                f"[#e0a044]{self._model.selected_count}[/] selected",
+                f"[#DDEDC4]{self._model.selected_count}[/] selected",
                 id="curation-title",
             )
             yield Static(
-                "[#a89984]toggle themes to choose what gets synthesized[/]",
+                "[#a59a86]toggle themes to choose what gets synthesized[/]",
                 id="curation-hint",
             )
             yield Static("")
@@ -93,13 +94,13 @@ class ThemeCurationScreen(ModalScreen[list[DiscoveredTheme]]):
             yield Static("")
             with Horizontal(classes="action-bar"):
                 yield Button(
-                    "Done — synthesize selected",
+                    button_label("DONE — SYNTHESIZE SELECTED"),
                     id="btn-done",
                     variant="primary",
                 )
-                yield Button("Select All", id="btn-select-all-themes")
-                yield Button("Clear All", id="btn-clear-all-themes")
-                yield Button("Cancel", id="btn-cancel-curation")
+                yield Button(button_label("SELECT ALL"), id="btn-select-all-themes")
+                yield Button(button_label("CLEAR ALL"), id="btn-clear-all-themes")
+                yield Button(button_label("CANCEL", "Esc"), id="btn-cancel-curation")
 
     def _theme_label(self, index: int) -> str:
         entry = self._model.entries[index]
@@ -107,7 +108,7 @@ class ThemeCurationScreen(ModalScreen[list[DiscoveredTheme]]):
         # parser eats `[x]` as an unknown tag and the marker silently
         # disappears.
         checkbox = (
-            "[#e0a044]\\[x][/]" if entry.enabled else "[#3a3a3a]\\[ ][/]"
+            "[#DDEDC4]\\[x][/]" if entry.enabled else "[#3a3a3a]\\[ ][/]"
         )
         return (
             f"{checkbox}  {index + 1}. {entry.label}  "

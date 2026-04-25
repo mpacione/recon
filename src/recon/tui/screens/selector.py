@@ -15,6 +15,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from recon.logging import get_logger
+from recon.tui.widgets import button_label
 
 _log = get_logger(__name__)
 
@@ -36,7 +37,7 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
         max-height: 80%;
         padding: 1 2;
         border: solid #3a3a3a;
-        background: #0d0d0d;
+        background: #000000;
         overflow-y: auto;
     }
     .selector-item {
@@ -77,12 +78,12 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
     def compose(self) -> ComposeResult:
         with Vertical(id="selector-container"):
             yield Static(
-                f"[bold #e0a044]── SELECT COMPETITORS ──[/]  "
-                f"[#e0a044]{len(self._competitors)}[/] available",
+                f"[bold #DDEDC4]── SELECT COMPETITORS ──[/]  "
+                f"[#DDEDC4]{len(self._competitors)}[/] available",
                 id="selector-title",
             )
             yield Static(
-                "[#a89984]toggle to choose which profiles the run targets[/]",
+                "[#a59a86]toggle to choose which profiles the run targets[/]",
                 id="selector-hint",
             )
             yield Static("")
@@ -94,10 +95,10 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
                 )
             yield Static("")
             with Horizontal(classes="action-bar"):
-                yield Button("Done", id="btn-done", variant="primary")
-                yield Button("Select All", id="btn-select-all")
-                yield Button("Clear All", id="btn-clear-all")
-                yield Button("Cancel", id="btn-cancel")
+                yield Button(button_label("DONE"), id="btn-done", variant="primary")
+                yield Button(button_label("SELECT ALL"), id="btn-select-all")
+                yield Button(button_label("CLEAR ALL"), id="btn-clear-all")
+                yield Button(button_label("CANCEL", "Esc"), id="btn-cancel")
 
     def _item_label(self, index: int) -> str:
         # Open bracket in Rich markup must be escaped with a backslash
@@ -105,8 +106,8 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
         # parser eats `[x]` as an unknown tag and the marker silently
         # disappears.
         if self._selected_flags[index]:
-            return f"[#e0a044]\\[x][/]  {self._competitors[index]}"
-        return f"[#3a3a3a]\\[ ][/]  [#a89984]{self._competitors[index]}[/]"
+            return f"[#DDEDC4]\\[x][/]  {self._competitors[index]}"
+        return f"[#3a3a3a]\\[ ][/]  [#a59a86]{self._competitors[index]}[/]"
 
     def action_cancel(self) -> None:
         """Dismiss the selector with an empty selection (Esc keybind)."""
