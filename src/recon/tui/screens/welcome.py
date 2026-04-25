@@ -579,7 +579,7 @@ class WelcomeScreen(ReconScreen):
 
     @staticmethod
     def _is_valid_workspace_path(path: str) -> bool:
-        p = Path(path)
+        p = Path(path).expanduser()
         return p.exists() and p.is_dir()
 
     def _handle_new_project_name(self, name: str | None) -> None:

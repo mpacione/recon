@@ -8,6 +8,7 @@ from recon.tui.app import ReconApp
 from textual.widgets import Button
 
 from recon.tui.screens.dashboard import DashboardScreen
+from recon.tui.screens.describe import DescribeScreen
 from recon.tui.screens.results import ResultsScreen
 from recon.tui.screens.run import RunScreen
 
@@ -130,7 +131,6 @@ class TestReconAppModes:
 
     async def test_new_project_pushes_describe_screen(self, tmp_path: Path) -> None:
         from recon.tui.screens.welcome import WelcomeScreen
-        from recon.tui.screens.describe import DescribeScreen
 
         app = ReconApp()
         async with app.run_test(size=(120, 40)) as pilot:
@@ -144,3 +144,24 @@ class TestReconAppModes:
             await pilot.pause()
             assert app.is_running
             assert isinstance(app.screen, DescribeScreen)
+
+    async def test_new_project_expands_tilde_path(self, tmp_path: Path, monkeypatch) -> None:
+        from recon.tui.screens.welcome import WelcomeScreen
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        app = ReconApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, WelcomeScreen)
+
+            app.screen.post_message(
+                WelcomeScreen.NewProjectRequested("~/recon-workspaces/test-project")
+            )
+            await pilot.pause()
+            await pilot.pause()
+
+            assert isinstance(app.screen, DescribeScreen)
+            assert app.screen._output_dir == fake_home / "recon-workspaces" / "test-project"

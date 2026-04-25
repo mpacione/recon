@@ -266,7 +266,7 @@ class ReconApp(App):
     def on_welcome_screen_workspace_selected(self, event: WelcomeScreen.WorkspaceSelected) -> None:
         """Handle the user picking a workspace from the welcome screen."""
         _log.info("WorkspaceSelected path=%s", event.path)
-        self._workspace_path = Path(event.path)
+        self._workspace_path = Path(event.path).expanduser()
         self._record_recent_project(self._workspace_path)
         self.refresh_workspace_context()
         self._rebuild_dashboard_mode()
@@ -350,7 +350,7 @@ class ReconApp(App):
         _log.info("NewProjectRequested path=%s", event.path)
         from recon.tui.screens.describe import DescribeScreen
 
-        output_dir = Path(event.path)
+        output_dir = Path(event.path).expanduser()
         self.push_screen(
             DescribeScreen(output_dir=output_dir),
             self._handle_describe_result,
