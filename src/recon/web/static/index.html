@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RECON</title>
-  <link rel="stylesheet" href="/static/primitives.css?v=20260427b">
-  <link rel="stylesheet" href="/static/recon.css?v=20260427b">
+  <link rel="stylesheet" href="/static/primitives.css?v=20260427c">
+  <link rel="stylesheet" href="/static/recon.css?v=20260427c">
   <!--RECON_CONFIG-->
   <script src="https://code.iconify.design/iconify-icon/2.0.0/iconify-icon.min.js"></script>
   <!-- marked for markdown rendering in the OUTPUT tab. Loaded non-defer
@@ -13,21 +13,21 @@
        sanitizes the rendered HTML before we inject it. -->
   <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
-  <script defer src="/static/app.js?v=20260427b"></script>
+  <script defer src="/static/app.js?v=20260427c"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body x-data="reconShell()" x-cloak
       @keydown.window="$store.hotkeys.handle($event)">
 
   <!-- ============== Top nav ==============
-       MAIN (home) on the left; 5 numbered project tabs on the right. -->
+       RECON (home) on the left; 5 numbered project tabs on the right. -->
   <header class="topnav">
     <a class="topnav-brand"
        :class="{ 'is-active': screen === 'home' }"
        href="#/"
-       aria-label="Recon main">
+       aria-label="Recon home">
       <iconify-icon icon="lucide:globe" width="12"></iconify-icon>
-      <span>MAIN</span>
+      <span>RECON</span>
       <span class="topnav-tab-num">[0]</span>
     </a>
 
@@ -233,7 +233,7 @@
         <span class="fill"></span>
         <button type="button" class="btn btn--sm" @click="revealInFinder()">
           <iconify-icon icon="lucide:folder-open" width="12"></iconify-icon>
-          <span>LOCAL DIR</span>
+          <span>OPEN FOLDER</span>
           <span class="btn-key">[L]</span>
         </button>
       </header>
@@ -248,11 +248,11 @@
         <div class="skeleton">Loading plan…</div>
       </template>
 
-      <!-- Research Brief card -->
+      <!-- Project Brief card -->
       <template x-if="!loading && !error">
         <section class="card">
           <header class="card-head">
-            <span class="card-title">Research Brief<span class="dim" x-show="companyName"> — <span x-text="companyName"></span></span></span>
+            <span class="card-title">Project Brief<span class="dim" x-show="companyName"> · <span x-text="companyName"></span></span></span>
             <span class="card-meta">
               <span class="dim" x-show="briefSaving">saving…</span>
               <span class="fg" x-show="briefSaved && !briefSaving">saved</span>
@@ -263,7 +263,7 @@
                       x-model="brief"
                       @input="onBriefInput()"
                       rows="3"
-                      placeholder="Type a short description of what you are looking to learn about this company and it's competitive space."></textarea>
+                      placeholder="Type a short description of what you are looking to learn about this company and its competitive space."></textarea>
           </div>
         </section>
       </template>
@@ -299,7 +299,7 @@
                 <span class="fg" x-text="verificationMode"></span>
                 <span class="dim">(<kbd>V</kbd> cycle)</span>
               </p>
-              <p class="dim">These settings update the estimate and the PIPELINE run path directly.</p>
+              <p class="dim">These settings update the estimate and the AGENTS run path directly.</p>
             </div>
           </div>
         </section>
@@ -412,7 +412,7 @@
           <header class="card-head">
             <span class="card-title">Dossier Schema</span>
             <span class="card-meta">
-              <span x-text="selectedCount"></span> / <span x-text="sections.length"></span> SELECTED
+              <span x-text="selectedCount"></span> / <span x-text="sections.length"></span> selected
               <template x-if="saving">
                 <span class="dim"> · saving…</span>
               </template>
@@ -423,7 +423,7 @@
           </header>
 
           <div class="card-body stack stack-tight" role="listbox" aria-label="Schema sections">
-            <p class="dim">Toggle sections on or off to shape what each company dossier covers.</p>
+            <p class="dim">Sections researched for each competitor dossier.</p>
             <template x-for="(s, i) in sections" :key="s.key">
               <button type="button"
                       class="schema-row"
@@ -443,8 +443,12 @@
       <template x-if="!loading && !error && selectedSection">
         <section class="card">
           <header class="card-head">
-            <span class="card-title">Selected Section</span>
-            <span class="card-meta" x-text="selectedMeta"></span>
+            <span class="card-title">Section Detail</span>
+            <span class="card-meta">
+              <span x-text="selectedSection.title"></span>
+              <span class="dim">·</span>
+              <span x-text="selectedMeta"></span>
+            </span>
           </header>
           <div class="card-body stack stack-tight">
             <p class="body fg" x-text="selectedSection.title"></p>
@@ -468,8 +472,7 @@
       <template x-if="!loading && !error">
         <section class="card">
           <header class="card-head">
-            <span class="card-title">Section Library</span>
-            <span class="card-meta">CUSTOMIZE</span>
+            <span class="card-title">Add New Section</span>
           </header>
           <div class="card-body stack stack-tight">
             <p class="dim">Add a custom section or dimension to the dossier.</p>
@@ -557,11 +560,11 @@
       <template x-if="!error">
         <section class="card">
           <header class="card-head">
-            <span class="card-title">Companies</span>
+            <span class="card-title">Discovery · Companies</span>
             <span class="card-meta">
-              <span x-text="selectedCount"></span> / <span x-text="competitors.length"></span> SELECTED
+              <span x-text="selectedCount"></span> / <span x-text="competitors.length"></span> selected
               <span class="dim">·</span>
-              <span>EST COST</span>
+              <span>est cost</span>
               <span class="fg" x-text="formatCost(estimatedCost)"></span>
               <span class="dim">·</span>
               <span x-text="verificationMode"></span>
@@ -607,15 +610,21 @@
             </button>
             <button type="button" class="btn" @click="openTerms()" title="Edit search terms">
               <iconify-icon icon="lucide:settings-2" width="11"></iconify-icon>
-              TERMS <span class="btn-key">[T]</span>
+              SEARCH TERMS <span class="btn-key">[T]</span>
             </button>
             <button type="button" class="btn" @click="search()" :disabled="discovering || !!blockingMessage">
               <iconify-icon icon="lucide:search" width="11"></iconify-icon>
               <span x-text="discovering ? 'SEARCHING…' : 'SEARCH'"></span>
               <span class="btn-key" x-show="!discovering">[S]</span>
             </button>
+            <button type="button" class="btn" @click="selectAll()" :disabled="!competitors.length">
+              ACCEPT ALL <span class="btn-key">[A]</span>
+            </button>
+            <button type="button" class="btn" @click="deselectAll()" :disabled="!competitors.length">
+              REJECT ALL <span class="btn-key">[D]</span>
+            </button>
             <button type="button" class="btn btn--primary" @click="next()" :disabled="selectedCount === 0 || !!blockingMessage">
-              PIPELINE <span class="btn-key">[N]</span>
+              AGENTS <span class="btn-key">[N]</span>
             </button>
           </footer>
         </section>
@@ -625,7 +634,7 @@
         <section class="card">
           <header class="card-head">
             <span class="card-title">Discovery Audit</span>
-            <span class="card-meta" x-text="discoveryAudit.search_count + ' SEARCHES'"></span>
+            <span class="card-meta" x-text="discoveryAudit.search_count + ' searches'"></span>
           </header>
           <div class="card-body stack stack-tight">
             <template x-if="discoveryAudit.search_count > 0">
@@ -702,7 +711,7 @@
       <!-- No-run state -->
       <template x-if="!runId && !error">
         <div class="card card--pad-loose stack stack-tight">
-          <span class="card-title" x-text="blockingMessage ? 'Pipeline blocked' : 'Pipeline ready'"></span>
+          <span class="card-title" x-text="blockingMessage ? 'Agents blocked' : 'Agents ready'"></span>
           <p class="body">
             <span class="fg" x-text="readyState.selectedCount"></span> companies ·
             <span class="fg" x-text="readyState.sectionCount"></span> sections ·
@@ -711,7 +720,7 @@
           </p>
           <p class="body" x-show="blockingMessage" x-text="blockingMessage"></p>
           <p class="body" x-show="!blockingMessage">
-            Launch from this screen when the roster and schema look right.
+            Launch agents from this screen when the roster and schema look right.
           </p>
           <p class="dim">RESEARCH → VERIFY → ENRICH → THEMES → SYNTHESIZE → DELIVER</p>
           <footer class="card-foot">
@@ -731,23 +740,21 @@
       <template x-if="runId && !error">
         <div class="stack">
 
-          <section class="card">
-            <footer class="card-foot">
-              <button type="button" class="btn" @click="back()">
-                BACK <span class="btn-key">[ESC]</span>
-              </button>
-              <button type="button" class="btn" @click="togglePauseResume()" :disabled="terminal">
-                <span x-text="runPaused ? 'RESUME' : 'PAUSE/RESUME'"></span>
-                <span class="btn-key">[P]</span>
-              </button>
-              <button type="button" class="btn" @click="cancelRun()" :disabled="terminal">
-                STOP <span class="btn-key">[S]</span>
-              </button>
-              <span class="fill"></span>
-              <button type="button" class="btn" @click="goOutput()">
-                OUTPUT <span class="btn-key">[O]</span>
-              </button>
-            </footer>
+          <section class="screen-actions">
+            <button type="button" class="btn" @click="back()">
+              BACK <span class="btn-key">[ESC]</span>
+            </button>
+            <button type="button" class="btn" @click="togglePauseResume()" :disabled="terminal">
+              <span x-text="runPaused ? 'RESUME' : 'PAUSE/RESUME'"></span>
+              <span class="btn-key">[P]</span>
+            </button>
+            <button type="button" class="btn" @click="cancelRun()" :disabled="terminal">
+              STOP <span class="btn-key">[S]</span>
+            </button>
+            <span class="fill"></span>
+            <button type="button" class="btn" @click="goOutput()">
+              OUTPUT <span class="btn-key">[O]</span>
+            </button>
           </section>
 
           <!-- Headline row: stage + cost + overall progress -->
@@ -778,8 +785,8 @@
           <!-- Agents grid: one card per worker -->
           <section class="card">
             <header class="card-head">
-              <span class="card-title">Pipeline</span>
-              <span class="card-meta" x-text="agents.length + ' WORKERS'"></span>
+              <span class="card-title">Workers</span>
+              <span class="card-meta" x-text="agents.length + ' workers'"></span>
             </header>
             <div class="card-body agents-grid">
               <template x-for="(a, i) in agents" :key="a.id">
@@ -787,7 +794,7 @@
                   <div class="agent-card-head">
                     <iconify-icon class="agent-card-icon" :icon="'lucide:' + a.icon" width="14"></iconify-icon>
                     <span class="agent-card-name" x-text="a.name"></span>
-                    <button type="button" class="agent-card-menu"
+                    <button type="button" class="btn btn--ghost btn-icon btn--sm agent-card-menu"
                             @click.stop="openAgentMenu(i)"
                             aria-label="Worker options">
                       <iconify-icon icon="lucide:more-horizontal" width="11"></iconify-icon>
@@ -808,7 +815,7 @@
           <section class="card">
             <header class="card-head">
               <span class="card-title">Competitors</span>
-              <span class="card-meta" x-text="competitorList.length + ' TARGETS'"></span>
+              <span class="card-meta" x-text="competitorList.length + ' targets'"></span>
             </header>
             <div class="card-body stack stack-tight">
               <template x-if="!competitorList.length">
@@ -868,7 +875,7 @@
               <div class="modal-sheet modal-sheet--narrow card" @click.stop>
                 <header class="card-head">
                   <span class="card-title" x-text="agents[menuOpen]?.name"></span>
-                  <button type="button" class="btn btn--ghost btn--sm card-meta" @click="menuOpen = null">
+                  <button type="button" class="btn btn--ghost btn-icon btn--sm card-meta" @click="menuOpen = null">
                     <iconify-icon icon="lucide:x" width="11"></iconify-icon>
                   </button>
                 </header>
@@ -911,8 +918,8 @@
         <div class="card card--pad-loose stack stack-tight">
           <span class="card-title">No outputs yet</span>
           <p class="body">
-            Run the pipeline first.
-            <a :href="'#/p/' + encodedPath + '/agents'" class="fg">PIPELINE [4]</a>
+            Run the agents first.
+            <a :href="'#/p/' + encodedPath + '/agents'" class="fg">AGENTS [4]</a>
           </p>
         </div>
       </template>
@@ -923,12 +930,9 @@
           <header class="card-head">
             <span class="card-title">Outputs</span>
             <span class="card-meta">
-              <span x-text="fileCount"></span> FILES
+              <span x-text="fileCount"></span> files
               <span class="dim">·</span>
-              <button type="button" class="btn btn--sm" @click="revealWorkspace()">
-                <iconify-icon icon="lucide:folder-open" width="11"></iconify-icon>
-                OPEN LOCAL DIR <span class="btn-key">[L]</span>
-              </button>
+              <span class="trunc" x-text="selected ? selected.name : '—'"></span>
             </span>
           </header>
 
@@ -966,23 +970,17 @@
                   </div>
 
                   <template x-if="provenance">
-                    <div class="card output-audit-card">
-                      <header class="card-head">
-                        <span class="card-title">Run Provenance</span>
-                        <span class="card-meta" x-text="provenanceStatus() || 'RECORDED'"></span>
-                      </header>
-                      <div class="card-body stack stack-tight">
-                        <p class="body">
-                          <span class="dim">Run ID</span>
-                          <span class="fg" x-text="provenance.run_id"></span>
-                        </p>
-                        <p class="body">
-                          <span class="dim">LLM calls</span>
-                          <span class="fg" x-text="provenance.llm_call_count"></span>
-                          <span class="dim">· source records</span>
-                          <span class="fg" x-text="provenance.source_entry_count"></span>
-                        </p>
-                      </div>
+                    <div class="output-audit">
+                      <span class="output-audit-title">Run Provenance</span>
+                      <span class="trunc">
+                        <span class="dim">RUN ID</span>
+                        <span class="fg" x-text="provenance.run_id"></span>
+                        <span class="dim">· LLM</span>
+                        <span class="fg" x-text="provenance.llm_call_count"></span>
+                        <span class="dim">· SOURCES</span>
+                        <span class="fg" x-text="provenance.source_entry_count"></span>
+                      </span>
+                      <span class="output-audit-meta" x-text="provenanceStatus() || 'RECORDED'"></span>
                     </div>
                   </template>
 
@@ -1001,6 +999,16 @@
               </template>
             </section>
           </div>
+          <footer class="card-foot">
+            <button type="button" class="btn" @click="back()">
+              BACK <span class="btn-key">[ESC]</span>
+            </button>
+            <span class="fill"></span>
+            <button type="button" class="btn" @click="revealWorkspace()">
+              <iconify-icon icon="lucide:folder-open" width="11"></iconify-icon>
+              OPEN FOLDER <span class="btn-key">[L]</span>
+            </button>
+          </footer>
         </section>
       </template>
     </div>

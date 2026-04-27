@@ -2,7 +2,7 @@
 //
 // Architecture:
 //   - Hash-based router: #/  = home (RECON), #/p/<path>/<tab> = project
-//   - Five project tabs: project, schema, companies, pipeline, output
+//   - Five project tabs: plan, schema, comp's, agents, output
 //   - Screen registry: each route maps to a <template id="screen-<key>">
 //   - Hotkey registry: scoped stack. Screens push a scope on mount,
 //     pop on unmount. Global keys live at the bottom of the stack.
@@ -20,14 +20,14 @@
 //   - the 1-5 numeric hotkeys (bound at the project scope)
 //   - the Lucide icon shown in the nav
 //
-// "home" is not a tab — the MAIN brand button is a separate affordance
+// "home" is not a tab — the RECON brand button is a separate affordance
 // that lives to the left of the tab list and owns its own route.
 
 const TABS = [
-  { key: 'plan',   label: 'PROJECT', number: 1, icon: 'map' },
+  { key: 'plan',   label: 'PLAN', number: 1, icon: 'map' },
   { key: 'schema', label: 'SCHEMA',  number: 2, icon: 'square-stack' },
-  { key: 'comps',  label: 'COMPANIES', number: 3, icon: 'shapes' },
-  { key: 'agents', label: 'PIPELINE',  number: 4, icon: 'rabbit' },
+  { key: 'comps',  label: "COMP'S", number: 3, icon: 'shapes' },
+  { key: 'agents', label: 'AGENTS',  number: 4, icon: 'bot' },
   { key: 'output', label: 'OUTPUT',  number: 5, icon: 'folder-open' },
 ];
 
@@ -294,7 +294,7 @@ function reconShell() {
       }));
       projectBindings.push({
         key: '0',
-        label: 'MAIN',
+        label: 'RECON',
         run: () => this.$store.router.goHome(),
       });
       this.$store.hotkeys.register('project-tabs', projectBindings);
@@ -407,7 +407,7 @@ function homeScreen() {
     },
     formatCompCount(p) {
       // comp count isn't in /api/recents; placeholder for phase 6+.
-      return (p.competitor_count != null ? p.competitor_count : '—') + " Comp's";
+      return (p.competitor_count != null ? p.competitor_count : '—') + ' companies';
     },
     formatPath(path) {
       if (!path) return '';
@@ -552,7 +552,7 @@ function homeScreen() {
 }
 
 // ---------------------------------------------------------------------------
-// PROJECT tab  —  brief + settings + cost estimate
+// PLAN tab  —  brief + settings + cost estimate
 // ---------------------------------------------------------------------------
 
 function planScreen() {
@@ -735,11 +735,18 @@ function planScreen() {
     next() { this.$store.router.goTab('schema'); },
 
     async revealInFinder() {
-      // Phase 8 will add a /api/reveal backend route; for now, copy
-      // the path to clipboard so the user can paste into Finder.
       try {
-        await navigator.clipboard.writeText(this.path);
-      } catch (_err) { /* noop */ }
+        const r = await fetch('/api/reveal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: this.path, target: this.path }),
+        });
+        if (!r.ok) {
+          try { await navigator.clipboard.writeText(this.path); } catch (_err) { /* noop */ }
+        }
+      } catch (_err) {
+        try { await navigator.clipboard.writeText(this.path); } catch (_copyErr) { /* noop */ }
+      }
     },
 
     // -----------------------------------------------------------------
@@ -754,7 +761,7 @@ function planScreen() {
         { key: '-',         label: 'LESS', run: () => this.decWorkers() },
         { key: 'n',         label: 'NEXT', run: () => this.next() },
         { key: 'escape',    label: 'BACK',   run: () => this.back() },
-        { key: 'l',         run: () => this.revealInFinder() },
+        { key: 'l',         label: 'OPEN FOLDER', run: () => this.revealInFinder() },
       ];
       this.$store.hotkeys.register('screen:plan', bindings);
     },
@@ -788,7 +795,7 @@ function schemaScreen() {
     get selectedMeta() {
       const section = this.selectedSection;
       if (!section) return '';
-      return section.selected ? 'ENABLED' : 'DISABLED';
+      return section.selected ? 'enabled' : 'disabled';
     },
 
     async init() {
@@ -1009,7 +1016,7 @@ function compsScreen() {
     get encodedPath() { return encodeURIComponent(this.path); },
     get selectedCount() { return this.competitors.filter((c) => this.isSelected(c)).length; },
     get blockingMessage() {
-      if (!this.workspaceBrief.trim()) return 'Go to PROJECT [1] and define the research brief first.';
+      if (!this.workspaceBrief.trim()) return 'Go to PLAN [1] and define the research brief first.';
       if (this.sectionCount <= 0) return 'Go to SCHEMA [2] and enable at least one dossier section first.';
       return '';
     },
@@ -1144,6 +1151,16 @@ function compsScreen() {
       this._saveSelectionState();
     },
 
+    selectAll() {
+      this.deselected = new Set();
+      this._saveSelectionState();
+    },
+
+    deselectAll() {
+      this.deselected = new Set(this.competitors.map((c) => c.slug));
+      this._saveSelectionState();
+    },
+
     moveFocus(delta) {
       if (!this.competitors.length) return;
       const n = this.competitors.length;
@@ -1230,7 +1247,9 @@ function compsScreen() {
             else { const c = this.competitors[this.focusIdx]; if (c) this.toggleSelection(c); }
           } },
         { key: 's',         label: 'SEARCH', run: () => this.search() },
-        { key: 't',         label: 'TERMS',  run: () => this.openTerms() },
+        { key: 't',         label: 'SEARCH TERMS', run: () => this.openTerms() },
+        { key: 'a',         label: 'ACCEPT ALL', run: () => this.selectAll() },
+        { key: 'd',         label: 'REJECT ALL', run: () => this.deselectAll() },
         { key: 'n',         label: 'NEXT',   run: () => this.next() },
         { key: 'escape',    allowInEditable: true,
           run: () => { if (this.termsModalOpen) this.closeTerms(); else this.back(); } },
@@ -1241,7 +1260,7 @@ function compsScreen() {
 }
 
 // ---------------------------------------------------------------------------
-// PIPELINE tab  —  live run monitor via SSE
+// AGENTS tab  —  live run monitor via SSE
 // ---------------------------------------------------------------------------
 //
 // Two panels:
@@ -1334,7 +1353,7 @@ function agentsScreen() {
     get primaryActionLabel() {
       if (this.readyState.sectionCount <= 0) return 'GO TO SCHEMA';
       if (this.readyState.selectedCount <= 0) return 'GO TO COMPANIES';
-      return 'RUN PIPELINE';
+      return 'RUN';
     },
     get progressPct() {
       if (!this.totalTasks) return 0;
@@ -2068,7 +2087,7 @@ function outputScreen() {
     registerKeys() {
       const bindings = [
         { key: 'escape', label: 'BACK', run: () => this.back() },
-        { key: 'l',      label: 'LOCAL DIR', run: () => this.revealWorkspace() },
+        { key: 'l',      label: 'OPEN FOLDER', run: () => this.revealWorkspace() },
         { key: 'arrowup',   run: () => this._moveSelection(-1) },
         { key: 'arrowdown', run: () => this._moveSelection(+1) },
         { key: 'k',         run: () => this._moveSelection(-1) },
