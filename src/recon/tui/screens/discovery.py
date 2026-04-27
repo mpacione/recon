@@ -66,7 +66,7 @@ class DiscoveryScreen(ReconScreen):
     #discovery-container {
         width: 100%;
         height: auto;
-        padding: 1 2;
+        padding: 0;
         background: #000000;
         overflow-y: auto;
     }
@@ -89,9 +89,9 @@ class DiscoveryScreen(ReconScreen):
     }
     #roster-summary {
         height: auto;
-        margin: 1 0 0 0;
+        margin: 1 1 0 1;
         padding: 1 2;
-        border: round #3a3a3a;
+        border: solid #3a3a3a;
     }
     .api-key-input {
         height: 3;
@@ -164,22 +164,12 @@ class DiscoveryScreen(ReconScreen):
     def _update_search_status(self) -> None:
         try:
             progress = self.query_one("#search-progress", Static)
-            if self._is_searching:
-                frame = _SPINNER_FRAMES[self._spinner_frame]
-                progress.update(
-                    f"[bold #DDEDC4]▒ SEARCH ▒[/] "
-                    f"[#a59a86]round {self._state.round_count + 1}[/]\n"
-                    f"[#a59a86]searching for competitors...[/]  [#DDEDC4]{frame}[/]"
-                )
-            elif self._state.round_count > 0:
-                progress.update(
-                    f"[bold #DDEDC4]▒ SEARCH ▒[/] "
-                    f"[#DDEDC4]{self._state.round_count} round{'s' if self._state.round_count != 1 else ''} complete[/]"
-                )
-            else:
-                progress.update(
-                    "[bold #DDEDC4]▒ SEARCH ▒[/]"
-                )
+            progress.update(self._search_status_markup())
+        except Exception:
+            pass
+        try:
+            summary = self.query_one("#discovery-summary", Static)
+            summary.update(self._search_status_markup())
         except Exception:
             pass
 
@@ -197,8 +187,12 @@ class DiscoveryScreen(ReconScreen):
 
     def action_done(self) -> None:
         self._emit_state_change()
+        routed = False
         with contextlib.suppress(Exception):
             self.app.action_goto_tab("agents")
+            routed = True
+        if not routed:
+            self.dismiss(self._state.accepted_candidates)
 
     def action_next(self) -> None:
         self.action_done()
@@ -306,41 +300,34 @@ class DiscoveryScreen(ReconScreen):
         with Horizontal(id="discovery-actions"):
             yield action_button("BACK", "Esc", button_id="btn-back")
             yield action_button("SEARCH", "S", button_id="btn-search-more")
-            yield action_button("ADD", "M", button_id="btn-add-manual")
+            yield action_button("MANUAL ADD", "M", button_id="btn-add-manual")
             yield action_button("ACCEPT ALL", "A", button_id="btn-accept-all")
             yield action_button("REJECT ALL", "D", button_id="btn-reject-all")
             yield Static("", classes="action-spacer")
             yield action_button("NEXT", "Space", button_id="btn-done", variant="primary")
 
     def _build_search_progress(self) -> Static:
-        if self._is_searching:
-            frame = _SPINNER_FRAMES[self._spinner_frame]
-            return Static(
-                f"[bold #DDEDC4]▒ SEARCH ▒[/] "
-                f"[#a59a86]round {self._state.round_count + 1}[/]\n"
-                f"[#a59a86]searching for competitors...[/]  [#DDEDC4]{frame}[/]",
-                id="search-progress",
-            )
-        if self._state.round_count > 0:
-            return Static(
-                f"[bold #DDEDC4]▒ SEARCH ▒[/] "
-                f"[#DDEDC4]{self._state.round_count} round{'s' if self._state.round_count != 1 else ''} complete[/]",
-                id="search-progress",
-            )
-        return Static(
-            "[bold #DDEDC4]▒ SEARCH ▒[/]",
-            id="search-progress",
-        )
+        return Static(self._search_status_markup(), id="search-progress")
 
     def _build_summary(self) -> Static:
+        return Static(
+            self._search_status_markup(),
+            id="discovery-summary",
+            classes="hidden-legacy",
+        )
+
+    def _search_status_markup(self) -> str:
         accepted = len(self._state.accepted_candidates)
         rejected = len(self._state.rejected_candidates)
-        return Static(
+        status = (
             f"[#a59a86]rounds:[/] [#DDEDC4]{self._state.round_count}[/]  "
             f"[#3a3a3a]·[/]  [#a59a86]accepted:[/] [#DDEDC4]{accepted}[/]  "
-            f"[#3a3a3a]·[/]  [#a59a86]rejected:[/] [#DDEDC4]{rejected}[/]",
-            id="discovery-summary",
+            f"[#3a3a3a]·[/]  [#a59a86]rejected:[/] [#DDEDC4]{rejected}[/]"
         )
+        if self._is_searching:
+            frame = _SPINNER_FRAMES[self._spinner_frame]
+            return f"[bold #DDEDC4]▒ SEARCH[/]   {status}  [#DDEDC4]{frame}[/]"
+        return f"[bold #DDEDC4]▒ SEARCH[/]   {status}"
 
     def _build_candidate_list(self):
         candidates = self._state.all_candidates
@@ -361,7 +348,6 @@ class DiscoveryScreen(ReconScreen):
             return
 
         table = DataTable(id="discovery-table")
-        table.can_focus = False
         yield table
 
     def _populate_table(self) -> None:
@@ -380,7 +366,7 @@ class DiscoveryScreen(ReconScreen):
             # square-dashed so both surfaces read identically.
             marker = "\u25a3" if candidate.accepted else "\u25a2"
             tier = candidate.suggested_tier.value.capitalize()
-            url_short = candidate.url[:40] if candidate.url else ""
+            url_short = candidate.url if candidate.url else ""
             table.add_row(marker, candidate.name, tier, url_short)
 
     def _build_roster_summary(self):
@@ -479,13 +465,8 @@ class DiscoveryScreen(ReconScreen):
     def _update_summary(self) -> None:
         try:
             summary = self.query_one("#discovery-summary", Static)
-            accepted = len(self._state.accepted_candidates)
-            rejected = len(self._state.rejected_candidates)
-            summary.update(
-                f"[#a59a86]rounds:[/] [#DDEDC4]{self._state.round_count}[/]  "
-                f"[#3a3a3a]·[/]  [#a59a86]accepted:[/] [#DDEDC4]{accepted}[/]  "
-                f"[#3a3a3a]·[/]  [#a59a86]rejected:[/] [#DDEDC4]{rejected}[/]",
-            )
+            summary.update(self._search_status_markup())
+            self.query_one("#search-progress", Static).update(self._search_status_markup())
         except Exception:
             pass
         # Update title with candidate count

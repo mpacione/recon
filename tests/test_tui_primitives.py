@@ -177,5 +177,5 @@ class TestCardStack:
         assert "[1] PROJECT" in rendered
         assert "[2] SCHEMA" in rendered
         assert "[5] OUTPUT" in rendered
-        assert "╮" in rendered
-        assert "╯" in rendered
+        assert "┐" in rendered
+        assert "┘" in rendered

@@ -148,7 +148,7 @@ class TestStageMonitor:
 
             monitor = app.query_one(StageMonitor)
             content = str(monitor.render())
-            assert "AGENTS" in content
+            assert "SCOUT-01" in content
             assert "COMPETITORS" in content
 
     async def test_no_w_numbering_in_worker_cards(self) -> None:
@@ -181,5 +181,6 @@ class TestStageMonitor:
 
             monitor = app.query_one(StageMonitor)
             content = str(monitor.render())
-            assert "READY" in content
-            assert "Active:" in content
+            assert "STATUS:" in content
+            assert "Ready" in content
+            assert "WORKERS" in content

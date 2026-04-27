@@ -290,8 +290,9 @@ class LogPane(Static):
             return
         self._last_seen_count = count_signature
 
+        heading = "[#a59a86]TERMINAL[/] [#3a3a3a]" + ("─" * 96) + "[/]"
         if not entries:
-            self.update("[#3a3a3a]│ waiting for engine activity...[/]")
+            self.update(f"{heading}\n[#3a3a3a]│ waiting for engine activity...[/]")
             return
         lines = []
         for entry in entries:
@@ -306,7 +307,7 @@ class LogPane(Static):
                 f"{message}"
             )
             lines.append(line)
-        self.update("\n".join(lines))
+        self.update("\n".join([heading, *lines]))
 
 
 # ----------------------------------------------------------------------
@@ -648,9 +649,9 @@ class ReconScreen(Screen):
          * two dock:top siblings collide at y=0 and the later-mounted
          * one overpaints the earlier. TabStrip is the first yielded
          * child so it ends up above the header naturally. */
-        height: 1;
+        height: 3;
         padding: 0 2;
-        background: #2e2b27;
+        background: #000000;
         color: #a59a86;
     }
     #flow-breadcrumb {
@@ -661,7 +662,7 @@ class ReconScreen(Screen):
     }
     #recon-body {
         height: 1fr;
-        padding: 2 3 1 3;
+        padding: 1 2 1 2;
         overflow-y: auto;
     }
     #recon-footer {

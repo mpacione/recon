@@ -141,8 +141,11 @@ class TemplateScreen(ReconScreen):
     }
     #template-container {
         width: 100%;
-        padding: 1 2;
+        padding: 0;
         overflow-y: auto;
+    }
+    #custom-section-card {
+        margin-top: 1;
     }
     ChecklistItem.is-cursor {
         background: #2e2b27;
@@ -185,7 +188,7 @@ class TemplateScreen(ReconScreen):
         from recon.tui.primitives import Card
 
         selected_section = self._current_section()
-        selected_meta = "enabled" if selected_section.get("selected") else "disabled"
+        selected_meta = self._section_detail_meta(selected_section)
         with Vertical(id="template-container"):
             selected_count = sum(1 for s in self._sections if s.get("selected"))
             sections_meta = f"{selected_count} / {len(self._sections)} selected"
@@ -204,7 +207,7 @@ class TemplateScreen(ReconScreen):
                     )
 
             with Card(
-                title="SELECTED SECTION",
+                title="SECTION DETAIL",
                 meta=selected_meta,
                 id="section-detail-card",
             ):
@@ -220,7 +223,7 @@ class TemplateScreen(ReconScreen):
                 yield Static("")
                 yield action_button("EDIT SECTION", "E", button_id="btn-edit-section")
 
-            with Card(title="SECTION EDITOR", id="custom-section-card"):
+            with Card(title="ADD NEW SECTION", id="custom-section-card"):
                 yield Static(
                     "[#a59a86]Add a custom section or dimension to the dossier.[/]"
                 )
@@ -356,7 +359,8 @@ class TemplateScreen(ReconScreen):
         with contextlib.suppress(Exception):
             head = self.query_one("#section-detail-card .card-head", Static)
             head.update(
-                f"[#a59a86]SELECTED SECTION[/] [#686359]·[/] [#787266]{status}[/]"
+                f"[#a59a86]SECTION DETAIL[/] [#686359]·[/] "
+                f"[#787266]{section.get('title', 'No section selected')} - {status}[/]"
             )
         with contextlib.suppress(Exception):
             self.query_one("#section-detail-title", Static).update(
@@ -437,3 +441,9 @@ class TemplateScreen(ReconScreen):
         if not self._sections:
             return {}
         return self._sections[self._cursor]
+
+    @staticmethod
+    def _section_detail_meta(section: dict[str, Any]) -> str:
+        title = section.get("title", "No section selected")
+        status = "enabled" if section.get("selected") else "disabled"
+        return f"{title} - {status}"

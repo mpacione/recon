@@ -61,8 +61,11 @@ class PlanScreen(ReconScreen):
     #plan-container {
         width: 100%;
         height: auto;
-        padding: 1 2;
+        padding: 0;
         overflow-y: auto;
+    }
+    #plan-run-card {
+        margin-top: 1;
     }
     #plan-actions {
         dock: bottom;
@@ -131,7 +134,8 @@ class PlanScreen(ReconScreen):
             yield action_button("BACK", "Esc", button_id="btn-back")
             yield action_button("EDIT BRIEF", "Enter", button_id="btn-edit-brief", variant="primary")
             yield action_button("MODEL", "M", button_id="btn-model")
-            yield action_button("VERIFY", "V", button_id="btn-verify")
+            yield action_button("VERIF.", "V", button_id="btn-verify")
+            yield action_button("WORKERS", "+/-", button_id="btn-workers")
             yield Static("", classes="action-spacer")
             yield action_button("NEXT", "Space", button_id="btn-next")
 
@@ -213,7 +217,7 @@ class PlanScreen(ReconScreen):
             f"[#787266](includes {verification} verification)[/]\n"
             f"[#a59a86]Includes research:[/] [#DDEDC4]~${per_company_breakdown.research_per_company:.2f}[/]  "
             f"[#a59a86]enrichment:[/] [#DDEDC4]~${per_company_breakdown.enrichment_per_company:.2f}[/]\n"
-            f"[#a59a86]Verification uplift:[/] [#DDEDC4]+~${verification_uplift:.2f}/company[/]\n"
+            f"[#a59a86]Verification cost uplift:[/] [#DDEDC4]+~${verification_uplift:.2f}/company[/]\n"
             f"[#a59a86]Fixed overhead (shared once per run):[/] [#DDEDC4]~${projected_breakdown.fixed_total:.2f}[/]\n"
             f"[#787266]themes ~${projected_breakdown.fixed_themes:.2f} + executive summary ~${projected_breakdown.fixed_summary:.2f}[/]\n"
             f"[#a59a86]Projected full run ({projection_label}):[/] "
@@ -367,6 +371,8 @@ class PlanScreen(ReconScreen):
                 self.action_cycle_model()
             case "btn-verify":
                 self.action_cycle_verification()
+            case "btn-workers":
+                self.action_more_workers()
             case "btn-back":
                 self.action_back()
             case "btn-next":

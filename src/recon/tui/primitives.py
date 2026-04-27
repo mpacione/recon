@@ -191,9 +191,9 @@ class TabStrip(Static):
 
         middle_plain = " " + "".join(plain_parts) + " "
         title = " RECON NAV "
-        top = "╭" + title + ("─" * max(1, len(middle_plain) - len(title))) + "╮"
+        top = "┌" + title + ("─" * max(1, len(middle_plain) - len(title))) + "┐"
         middle = "[#3a3a3a]│[/] " + "".join(parts) + " [#3a3a3a]│[/]"
-        bottom = "╰" + ("─" * len(middle_plain)) + "╯"
+        bottom = "└" + ("─" * len(middle_plain)) + "┘"
 
         return (
             f"[#3a3a3a]{top}[/]\n"
@@ -288,7 +288,7 @@ class Card(Vertical):
         padding: 0 1;
         height: auto;
         width: 100%;
-        margin: 0 0 1 0;
+        margin: 0;
         background: #000000;
     }
     Card > .card-head {

@@ -292,7 +292,7 @@ class TestReconAppModes:
             assert "8" in settings
             assert "deep" in settings.lower()
             assert "Total cost per company" in after
-            assert "Verification uplift" in after
+            assert "Verification cost uplift" in after
             assert "Projected full run" in after
             assert after != before
 

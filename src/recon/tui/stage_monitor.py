@@ -316,11 +316,10 @@ class StageMonitor(Static):
 
         elapsed = s.elapsed_str
         cost = f"${s.total_cost:.2f}"
-        stage = s.current_stage.upper() if s.current_stage else "READY"
+        stage = self._status_label()
         total = s.total_sections
         done = s.completed_sections
         pct = f"{s.progress_fraction * 100:.0f}%" if total > 0 else "0%"
-        active_count = sum(1 for w in self._workers if not w.idle)
 
         lines: list[str] = []
 
@@ -336,17 +335,24 @@ class StageMonitor(Static):
 
         # Header
         lines.append(
-            f"[bold #DDEDC4]▒ {stage} ▒[/]  "
-            f"[#a59a86]{elapsed}[/]  "
-            f"[#DDEDC4]{cost}[/]  "
-            f"[#a59a86]Active:[/] [#DDEDC4]{active_count}[/][#a59a86]/{len(self._workers)}[/]"
+            f"[bold #DDEDC4]▒ STATUS:[/] [#DDEDC4]{stage}[/] "
+            f"[#787266]·[/] [#a59a86]{len(s.competitors)} companies[/] "
+            f"[#787266]·[/] [#a59a86]{len(s.section_keys)} sections[/] "
+            f"[#787266]·[/] [#a59a86]verification {self._verification_mode}[/]"
             f"{eta_str}"
+        )
+        lines.append(
+            f"[#a59a86]WORKERS -[/] [#DDEDC4]{len(self._workers)}[/]  "
+            f"[#a59a86]ACCRUED COST -[/] [#DDEDC4]{cost}[/]  "
+            f"[#a59a86]ELAPSED TIME -[/] [#DDEDC4]{elapsed}[/]"
         )
 
         # Global progress bar
-        if total > 0:
-            bar = render_progress_bar(s.progress_fraction, 60)
-            lines.append(f"{bar}  [#DDEDC4]{done}[/][#a59a86]/{total}[/]  [#DDEDC4]{pct}[/]")
+        bar = render_progress_bar(s.progress_fraction, 52)
+        lines.append(
+            f"[#a59a86]PROGRESS[/] {bar}  "
+            f"[#DDEDC4]{done}[/][#a59a86]/{total}[/]  [#DDEDC4]{pct}[/]"
+        )
         lines.append("")
 
         lines.extend(self._render_workers_section())
@@ -386,7 +392,7 @@ class StageMonitor(Static):
                 icon = "[#3a3a3a]○ [/]"
                 status = "[#787266]READY[/]"
 
-            bar = render_progress_bar(cs.progress_fraction, 20)
+            bar = render_progress_bar(cs.progress_fraction, 24)
             lines.append(
                 f"{icon} [#DDEDC4]{name:<22s}[/] {bar} "
                 f"[#DDEDC4]{frac:>5}[/] [#a59a86]{pct:>4}[/] {status}"
@@ -399,11 +405,6 @@ class StageMonitor(Static):
 
     def _render_workers_section(self) -> list[str]:
         lines: list[str] = []
-        lines.append(
-            f"[#a59a86]AGENTS[/]  [#787266]·[/]  "
-            f"[#DDEDC4]{len(self._workers)}[/] [#787266]workers[/]"
-        )
-
         cards = [self._render_worker_card(i, worker) for i, worker in enumerate(self._workers, start=1)]
         lines.extend(self._pack_card_rows(cards))
         return lines
@@ -413,17 +414,17 @@ class StageMonitor(Static):
 
         spinner_idx = int(time.monotonic() * 4) % len(_SPINNER_FRAMES)
         frame = _SPINNER_FRAMES[spinner_idx]
-        card_w = 20
+        card_w = 19
         scout_id = f"SCOUT-{index:02d}"
 
         if worker.idle:
-            title = f"[#a59a86]{scout_id:<20}[/]"
-            line1 = f"[#787266]{'idle':<20}[/]"
-            line2 = f"[#3a3a3a]{'waiting for task':<20}[/]"
+            title = f"[#a59a86]{scout_id:<{card_w}}[/]"
+            line1 = f"[#787266]{'idle':<{card_w}}[/]"
+            line2 = f"[#3a3a3a]{'waiting for task':<{card_w}}[/]"
             line3 = f"{render_progress_bar(0.0, 8)} [#787266]IDLE[/]"
         else:
-            title = f"[#a59a86]{scout_id:<20}[/]"
-            target = truncate_name(worker.competitor, 20)
+            title = f"[#a59a86]{scout_id:<{card_w}}[/]"
+            target = truncate_name(worker.competitor, card_w)
             task = str(worker.task or "active").upper()[:10]
             elapsed = worker.elapsed_str or ""
             pulse_pos = int(time.monotonic() * 4) % 8
@@ -431,9 +432,9 @@ class StageMonitor(Static):
                 "\u2593" if abs(pulse_pos - j) < 2 else "\u2591"
                 for j in range(8)
             )
-            line1 = f"[#DDEDC4]{target:<20}[/]"
+            line1 = f"[#DDEDC4]{target:<{card_w}}[/]"
             task_line = f"{task} {elapsed}".strip()
-            line2 = f"[#a59a86]{task_line:<20}[/]"
+            line2 = f"[#a59a86]{task_line:<{card_w}}[/]"
             line3 = f"[#DDEDC4]{pulse}[/] [#a59a86]BUSY {frame}[/]"
 
         return [
@@ -473,6 +474,16 @@ class StageMonitor(Static):
             if not worker.idle and worker.competitor == competitor_name:
                 return worker.task
         return None
+
+    def _status_label(self) -> str:
+        s = self._state
+        if s.paused_at is not None:
+            return "Paused"
+        if s.ended_at is not None:
+            return "Complete"
+        if s.started_at is not None or s.current_stage:
+            return "Running"
+        return "Ready"
 
     @classmethod
     def _pad_markup(cls, text: str, width: int) -> str:

@@ -65,7 +65,7 @@ class RunScreen(ReconScreen):
     }
     #run-actions {
         height: 3;
-        margin: 0 0 1 0;
+        margin: 1 0 0 0;
         layout: horizontal;
     }
     #run-actions Button {
@@ -140,22 +140,23 @@ class RunScreen(ReconScreen):
 
 
     def compose_body(self) -> ComposeResult:
-        with Horizontal(id="run-actions"):
-            yield action_button("BACK", "Esc", button_id="run-back")
-            yield action_button("RUN", "Enter", button_id="run-start", variant="primary")
-            yield action_button("PAUSE/RESUME", "P", button_id="run-pause")
-            yield action_button("STOP", "S", button_id="run-stop")
-            yield Static("", classes="action-spacer")
-            yield action_button("NEXT", "Space", button_id="run-next")
-
-        yield Static(self._render_ready_state(), id="run-empty-state")
+        yield Static(self._render_ready_state(), id="run-empty-state", classes="hidden-legacy")
 
         self._monitor = StageMonitor(
             competitor_names=self._competitor_names(),
             section_keys=self._section_keys(),
+            max_workers=self._configured_workers(),
             verification_mode=self._verification_mode(),
         )
         yield self._monitor
+
+        with Horizontal(id="run-actions"):
+            yield action_button("BACK", "Esc", button_id="run-back")
+            yield action_button("RUN", "R", button_id="run-start", variant="primary")
+            yield action_button("PAUSE", "P", button_id="run-pause")
+            yield action_button("STOP", "S", button_id="run-stop")
+            yield Static("", classes="action-spacer")
+            yield action_button("NEXT", "Space", button_id="run-next")
 
         # Legacy IDs kept as hidden placeholders so existing tests
         # that query by ID don't crash. They're updated by watchers

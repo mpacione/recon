@@ -80,14 +80,17 @@ class ResultsScreen(ReconScreen):
     #results-container {
         width: 100%;
         height: 1fr;
-        padding: 1 2;
+        padding: 0;
+    }
+    #results-card {
+        height: 1fr;
     }
     #results-panes {
         height: 1fr;
         layout: horizontal;
     }
     #results-tree {
-        width: 34;
+        width: 38;
         height: 100%;
         padding: 0 1;
         border-right: solid #3a3a3a;
@@ -142,7 +145,7 @@ class ResultsScreen(ReconScreen):
     # The left OUTPUT pane is narrow once padding + the divider are
     # accounted for. Keep labels conservative so the ASCII tree never
     # wraps and breaks the branch rendering.
-    _TREE_LABEL_WIDTH = 18
+    _TREE_LABEL_WIDTH = 24
 
     def __init__(
         self,
