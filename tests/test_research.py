@@ -5,10 +5,12 @@ all competitors. It batches by section (all competitors for section A,
 then all competitors for section B) for consistency and verification.
 """
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 from recon.llm import LLMResponse
+from recon.provenance import ProvenanceRecorder
 from recon.research import ResearchOrchestrator, ResearchPlan
 from recon.schema import parse_schema
 
@@ -202,6 +204,36 @@ class TestResearchOrchestrator:
 
         call_kwargs = llm.complete.call_args.kwargs
         assert call_kwargs.get("tools") is None
+
+    async def test_records_workspace_local_provenance(self, tmp_workspace: Path) -> None:
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+
+        llm = _mock_llm_client()
+        recorder = ProvenanceRecorder.for_run(tmp_workspace, "run123")
+        orchestrator = ResearchOrchestrator(
+            workspace=ws,
+            llm_client=llm,
+            max_workers=1,
+            provenance=recorder,
+        )
+
+        await orchestrator.research_all()
+
+        llm_calls = tmp_workspace / ".recon" / "runs" / "run123" / "llm_calls.jsonl"
+        sources = tmp_workspace / ".recon" / "runs" / "run123" / "sources.jsonl"
+        assert llm_calls.exists()
+        assert sources.exists()
+
+        llm_payload = json.loads(llm_calls.read_text().splitlines()[0])
+        source_payload = json.loads(sources.read_text().splitlines()[0])
+
+        assert llm_payload["actor"] == "research"
+        assert llm_payload["context"]["competitor"] == "Alpha"
+        assert llm_payload["context"]["section"] == "overview"
+        assert source_payload["selected_urls"] == ["https://example.com"]
 
     async def test_research_all_filters_to_targets(self, tmp_workspace: Path) -> None:
         from recon.workspace import Workspace

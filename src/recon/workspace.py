@@ -38,7 +38,7 @@ def _make_default_schema(
     Uses the same 8-section default set as the wizard so that headless
     init and TUI-wizard init produce identical starting points.
     """
-    from recon.wizard import DefaultSections
+    from recon.section_library import default_sections
 
     return {
         "domain": domain,
@@ -48,7 +48,7 @@ def _make_default_schema(
             "decision_context": [],
         },
         "rating_scales": {},
-        "sections": [dict(section) for section in DefaultSections.ALL],
+        "sections": default_sections(),
     }
 
 

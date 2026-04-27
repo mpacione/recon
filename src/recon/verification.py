@@ -16,6 +16,7 @@ from enum import StrEnum
 
 from recon.llm import LLMClient  # noqa: TCH001
 from recon.logging import get_logger
+from recon.provenance import ProvenanceRecorder
 
 _log = get_logger(__name__)
 
@@ -87,8 +88,13 @@ Respond with JSON in this exact format:
 class VerificationEngine:
     """Multi-agent consensus verification engine."""
 
-    def __init__(self, llm_client: LLMClient) -> None:
+    def __init__(
+        self,
+        llm_client: LLMClient,
+        provenance: ProvenanceRecorder | None = None,
+    ) -> None:
         self._llm = llm_client
+        self._provenance = provenance
 
     async def verify(self, request: VerificationRequest) -> VerificationOutcome:
         """Verify research content based on the requested tier."""
@@ -137,6 +143,19 @@ class VerificationEngine:
 
         source_results = self._parse_source_results(response.text, request.sources)
         corroboration = self._extract_field(response.text, "corroboration")
+        if self._provenance is not None:
+            self._provenance.record_llm_call(
+                actor="verification_agent_b",
+                system_prompt=_AGENT_B_SYSTEM,
+                user_prompt=user_prompt,
+                tools=None,
+                response=response,
+                context={
+                    "competitor": request.competitor_name,
+                    "section": request.section_key,
+                    "tier": request.tier,
+                },
+            )
 
         return VerificationOutcome(
             tier="verified",
@@ -169,6 +188,19 @@ class VerificationEngine:
         )
 
         source_results = self._parse_source_results(response.text, request.sources)
+        if self._provenance is not None:
+            self._provenance.record_llm_call(
+                actor="verification_agent_c",
+                system_prompt=_AGENT_C_SYSTEM,
+                user_prompt=user_prompt,
+                tools=None,
+                response=response,
+                context={
+                    "competitor": request.competitor_name,
+                    "section": request.section_key,
+                    "tier": request.tier,
+                },
+            )
 
         return VerificationOutcome(
             tier="deep",

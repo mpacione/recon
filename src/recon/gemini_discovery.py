@@ -22,7 +22,9 @@ from recon.discovery import (
     DiscoveryState,
     parse_candidates_response,
 )
+from recon.llm import LLMResponse
 from recon.logging import get_logger
+from recon.provenance import ProvenanceRecorder
 
 if TYPE_CHECKING:
     pass
@@ -59,6 +61,7 @@ class GeminiDiscoveryAgent:
         api_key: str,
         domain: str,
         seed_competitors: list[str] | None = None,
+        provenance: ProvenanceRecorder | None = None,
     ) -> None:
         if genai is None or types is None:
             msg = "google-genai is not installed. Install it to use Gemini discovery."
@@ -67,6 +70,7 @@ class GeminiDiscoveryAgent:
         self._domain = domain
         self._seeds = seed_competitors or []
         self._client = genai.Client(api_key=api_key)
+        self._provenance = provenance
 
     async def search(
         self,
@@ -128,4 +132,37 @@ class GeminiDiscoveryAgent:
             "GeminiDiscoveryAgent.search parsed %d candidates",
             len(candidates),
         )
+        if self._provenance is not None:
+            llm_response = LLMResponse(
+                text=response.text or "",
+                input_tokens=0,
+                output_tokens=0,
+                model=_GEMINI_MODEL,
+                stop_reason="stop",
+                metadata={
+                    "sdk": "google-genai",
+                    "response": {
+                        "text": response.text or "",
+                    },
+                },
+            )
+            self._provenance.record_discovery_search(
+                provider="gemini_google_search",
+                domain=self._domain,
+                round_count=state.round_count if state else 0,
+                system_prompt=_SYSTEM_INSTRUCTION,
+                user_prompt=user_prompt,
+                tools=[{"type": "google_search"}],
+                response=llm_response,
+                candidates=[
+                    {
+                        "name": candidate.name,
+                        "url": candidate.url,
+                        "blurb": candidate.blurb,
+                        "provenance": candidate.provenance,
+                        "suggested_tier": candidate.suggested_tier.value,
+                    }
+                    for candidate in candidates
+                ],
+            )
         return candidates

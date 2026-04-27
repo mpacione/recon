@@ -162,6 +162,29 @@ class TokenEstimate:
     output_tokens: int
 
 
+@dataclass(frozen=True)
+class SectionCostSpec:
+    format_type: str = "prose"
+    verification_tier: str = "standard"
+
+
+@dataclass(frozen=True)
+class RunCostBreakdown:
+    competitor_count: int
+    section_count: int
+    verification_mode: str
+    research_per_company: float
+    enrichment_per_company: float
+    variable_per_company: float
+    research_total: float
+    enrichment_total: float
+    fixed_themes: float
+    fixed_summary: float
+    fixed_total: float
+    blended_per_company: float
+    total_run_cost: float
+
+
 def list_available_models() -> list[dict[str, object]]:
     """Return the canonical model options for confirm/run flows."""
     return [
@@ -210,21 +233,149 @@ def estimate_section_tokens(
     return TokenEstimate(input_tokens=base_input, output_tokens=output_tokens)
 
 
+_VERIFICATION_RANK: dict[str, int] = {
+    "standard": 0,
+    "verified": 1,
+    "deep": 2,
+}
+
+_VERIFICATION_TIME_MULTIPLIERS: dict[str, float] = {
+    "standard": 1.0,
+    "verified": 2.0,
+    "deep": 3.0,
+}
+
+
+def _effective_verification_tier(section_tier: str, verification_mode: str) -> str:
+    normalized_section = (section_tier or "standard").strip().lower()
+    normalized_mode = (verification_mode or "standard").strip().lower()
+    if normalized_mode == "standard":
+        return normalized_section
+    section_rank = _VERIFICATION_RANK.get(normalized_section, 0)
+    mode_rank = _VERIFICATION_RANK.get(normalized_mode, 0)
+    return normalized_mode if mode_rank > section_rank else normalized_section
+
+
+def estimate_run_breakdown(
+    pricing: ModelPricing,
+    *,
+    competitor_count: int,
+    sections: list[SectionCostSpec] | None = None,
+    section_count: int | None = None,
+    verification_mode: str = "standard",
+    enrichment_passes: int = 3,
+    theme_count: int = 5,
+) -> RunCostBreakdown:
+    """Estimate a run with variable per-company cost plus fixed overhead."""
+    normalized_mode = (verification_mode or "standard").strip().lower()
+    specs = list(sections or [])
+    if not specs and section_count:
+        specs = [SectionCostSpec()] * max(0, int(section_count))
+
+    effective_section_count = len(specs)
+    if competitor_count <= 0 or effective_section_count <= 0:
+        return RunCostBreakdown(
+            competitor_count=max(0, competitor_count),
+            section_count=effective_section_count,
+            verification_mode=normalized_mode,
+            research_per_company=0.0,
+            enrichment_per_company=0.0,
+            variable_per_company=0.0,
+            research_total=0.0,
+            enrichment_total=0.0,
+            fixed_themes=0.0,
+            fixed_summary=0.0,
+            fixed_total=0.0,
+            blended_per_company=0.0,
+            total_run_cost=0.0,
+        )
+
+    tracker = CostTracker(model_pricing=pricing)
+    research_per_company = 0.0
+    for spec in specs:
+        effective_tier = _effective_verification_tier(
+            spec.verification_tier,
+            normalized_mode,
+        )
+        research_per_company += tracker.estimate_section_cost(
+            format_type=spec.format_type,
+            competitor_count=1,
+            verification_tier=effective_tier,
+        )
+
+    enrichment_per_company = pricing.calculate_cost(2000, 800) * enrichment_passes
+    variable_per_company = research_per_company + enrichment_per_company
+    research_total = research_per_company * competitor_count
+    enrichment_total = enrichment_per_company * competitor_count
+    fixed_themes = pricing.calculate_cost(3000, 1500) * theme_count
+    fixed_summary = pricing.calculate_cost(3000, 1500) * (theme_count + 1)
+    fixed_total = fixed_themes + fixed_summary
+    total_run_cost = research_total + enrichment_total + fixed_total
+    blended_per_company = total_run_cost / competitor_count if competitor_count > 0 else 0.0
+
+    return RunCostBreakdown(
+        competitor_count=competitor_count,
+        section_count=effective_section_count,
+        verification_mode=normalized_mode,
+        research_per_company=research_per_company,
+        enrichment_per_company=enrichment_per_company,
+        variable_per_company=variable_per_company,
+        research_total=research_total,
+        enrichment_total=enrichment_total,
+        fixed_themes=fixed_themes,
+        fixed_summary=fixed_summary,
+        fixed_total=fixed_total,
+        blended_per_company=blended_per_company,
+        total_run_cost=total_run_cost,
+    )
+
+
+def estimate_run_duration_minutes(
+    *,
+    section_count: int,
+    competitor_count: int,
+    worker_count: int,
+    verification_mode: str = "standard",
+    enrichment_passes: int = 3,
+) -> float:
+    """Estimate wall-clock minutes for a full run.
+
+    The TUI needs a simple user-facing planning number, not a precise
+    scheduler simulation. This estimate assumes:
+    - research is parallelized across the configured worker count
+    - stricter verification tiers increase research time
+    - enrichment also benefits from parallelism, though with smaller
+      gains than research
+    - synthesis / delivery add a small fixed tail
+    """
+    if section_count <= 0 or competitor_count <= 0:
+        return 0.0
+
+    workers = max(1, worker_count)
+    verification = (verification_mode or "standard").strip().lower()
+    verification_multiplier = _VERIFICATION_TIME_MULTIPLIERS.get(verification, 1.0)
+
+    research_secs = (section_count * competitor_count * 60.0 * verification_multiplier) / workers
+    enrich_secs = (competitor_count * enrichment_passes * 25.0) / max(1, min(workers, 10))
+    fixed_secs = 240.0
+    total_secs = research_secs + enrich_secs + fixed_secs
+    return total_secs / 60.0
+
+
 def estimate_full_run(
     pricing: ModelPricing,
     section_count: int,
     competitor_count: int,
+    verification_mode: str = "standard",
 ) -> float:
     """Estimate the total LLM cost for the default full pipeline."""
-    if section_count <= 0 or competitor_count <= 0:
-        return 0.0
-
-    section_calls = section_count * competitor_count
-    research_cost = pricing.calculate_cost(2000, 800) * section_calls
-    enrich_cost = pricing.calculate_cost(2000, 800) * competitor_count * 3
-    themes_cost = pricing.calculate_cost(3000, 1500) * 5
-    summary_cost = pricing.calculate_cost(3000, 1500) * 6
-    return research_cost + enrich_cost + themes_cost + summary_cost
+    breakdown = estimate_run_breakdown(
+        pricing,
+        competitor_count=competitor_count,
+        section_count=section_count,
+        verification_mode=verification_mode,
+    )
+    return breakdown.total_run_cost
 
 
 @dataclass

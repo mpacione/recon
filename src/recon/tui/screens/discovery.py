@@ -20,7 +20,7 @@ from textual.widgets import Button, DataTable, Input, Static
 from recon.discovery import DiscoveryCandidate, DiscoveryState  # noqa: TCH001
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
-from recon.tui.widgets import button_label
+from recon.tui.widgets import action_button
 
 _log = get_logger(__name__)
 
@@ -30,33 +30,33 @@ _SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇"
 
 
 class DiscoveryScreen(ReconScreen):
-    """Full-screen competitor discovery — v4 COMP'S tab."""
+    """Full-screen company discovery — COMPANIES tab."""
 
     tab_key = "comps"
-    flow_step = 1
 
     BINDINGS = [
         # Row nav — ↑↓ are handled natively by DataTable but j/k
         # need to forward there explicitly.
         Binding("j", "cursor_down", "down", show=False),
         Binding("k", "cursor_up", "up", show=False),
-        # Space / Enter toggle the candidate under the DataTable cursor.
-        Binding("space", "toggle_current", "toggle", show=False),
-        # Main actions — match the web COMP'S tab hotkeys:
+        # Enter toggles the candidate under the DataTable cursor.
+        # Space advances to the next top-level screen.
+        Binding("enter", "toggle_current", "toggle", show=False),
+        Binding("space", "next", "next", show=False),
+        # Main actions:
         #   s = search  ·  a = accept all  ·  d = reject all
-        #   m = add manual  ·  r = run  ·  esc = back
+        #   m = add manual  ·  esc = back
         Binding("s", "search_more", "search", show=False),
         Binding("a", "accept_all", "accept all", show=False),
         Binding("d", "reject_all", "reject all", show=False),
         Binding("m", "add_manually", "add manual", show=False),
-        Binding("r", "done", "run", show=False),
         Binding("escape", "cancel", "Back", show=False),
     ]
 
     keybind_hints = (
-        "[#DDEDC4]↑↓[/] nav · [#DDEDC4]space[/] toggle · "
+        "[#DDEDC4]↑↓[/] nav · [#DDEDC4]↲[/] toggle · "
         "[#DDEDC4]s[/] search · [#DDEDC4]a[/] all · [#DDEDC4]d[/] none · "
-        "[#DDEDC4]m[/] add · [#DDEDC4]r[/] run · [#DDEDC4]esc[/] back"
+        "[#DDEDC4]m[/] add · [#DDEDC4]space[/] next · [#DDEDC4]esc[/] back"
     )
 
     DEFAULT_CSS = """
@@ -111,6 +111,7 @@ class DiscoveryScreen(ReconScreen):
         self._state = state
         self._domain = domain
         self._search_fn: SearchFn | None = None
+        self._state_change_fn: Callable[[DiscoveryState], None] | None = None
         self._cursor_index: int = 0
         self._is_searching: bool = False
         self._auto_started: bool = False
@@ -126,6 +127,14 @@ class DiscoveryScreen(ReconScreen):
 
     def set_search_fn(self, fn: SearchFn) -> None:
         self._search_fn = fn
+
+    def set_state_change_fn(self, fn: Callable[[DiscoveryState], None]) -> None:
+        self._state_change_fn = fn
+
+    def load_state(self, state: DiscoveryState) -> None:
+        """Replace the in-memory discovery state and repaint the screen."""
+        self._state = state
+        self._refresh_from_loaded_state()
 
     def on_mount(self) -> None:
         _log.info(
@@ -158,18 +167,18 @@ class DiscoveryScreen(ReconScreen):
             if self._is_searching:
                 frame = _SPINNER_FRAMES[self._spinner_frame]
                 progress.update(
-                    f"[bold #DDEDC4]── SEARCH ──[/] "
+                    f"[bold #DDEDC4]▒ SEARCH ▒[/] "
                     f"[#a59a86]round {self._state.round_count + 1}[/]\n"
                     f"[#a59a86]searching for competitors...[/]  [#DDEDC4]{frame}[/]"
                 )
             elif self._state.round_count > 0:
                 progress.update(
-                    f"[bold #DDEDC4]── SEARCH ──[/] "
+                    f"[bold #DDEDC4]▒ SEARCH ▒[/] "
                     f"[#DDEDC4]{self._state.round_count} round{'s' if self._state.round_count != 1 else ''} complete[/]"
                 )
             else:
                 progress.update(
-                    "[bold #DDEDC4]── SEARCH ──[/]"
+                    "[bold #DDEDC4]▒ SEARCH ▒[/]"
                 )
         except Exception:
             pass
@@ -179,6 +188,7 @@ class DiscoveryScreen(ReconScreen):
         candidates = self._state.all_candidates
         if 0 <= index < len(candidates):
             self._state.toggle(index)
+            self._emit_state_change()
             self._populate_table()
             self._update_summary()
 
@@ -186,14 +196,21 @@ class DiscoveryScreen(ReconScreen):
         self.dismiss(self._state.accepted_candidates)
 
     def action_done(self) -> None:
-        self.dismiss(self._state.accepted_candidates)
+        self._emit_state_change()
+        with contextlib.suppress(Exception):
+            self.app.action_goto_tab("agents")
+
+    def action_next(self) -> None:
+        self.action_done()
 
     def action_accept_all(self) -> None:
         self._state.accept_all()
+        self._emit_state_change()
         self._refresh_display()
 
     def action_reject_all(self) -> None:
         self._state.reject_all()
+        self._emit_state_change()
         self._refresh_display()
 
     def action_search_more(self) -> None:
@@ -228,9 +245,8 @@ class DiscoveryScreen(ReconScreen):
     def action_toggle_current(self) -> None:
         """Toggle the candidate under the DataTable cursor.
 
-        ``on_data_table_row_selected`` already handles Enter via the
-        DataTable's built-in contract; this action is wired to Space
-        so the user can toggle without losing cursor position.
+        Both the explicit Enter binding and the DataTable's native row
+        selection route here so the toggle contract stays consistent.
         """
         try:
             table = self.query_one("#discovery-table", DataTable)
@@ -240,6 +256,7 @@ class DiscoveryScreen(ReconScreen):
         candidates = self._state.all_candidates
         if 0 <= index < len(candidates):
             self._state.toggle(index)
+            self._emit_state_change()
             self._populate_table()
             # Restore the cursor position — ``_populate_table`` clears
             # + re-adds rows so the cursor resets to 0 otherwise.
@@ -256,7 +273,7 @@ class DiscoveryScreen(ReconScreen):
             count = len(self._state.all_candidates)
             accepted = len(self._state.accepted_candidates)
 
-            # Competitors card — matches the web COMP'S tab. Title +
+            # Companies card — discovery + accepted roster state.
             # meta (domain / accepted count / round state) + body
             # (candidate rows).
             meta_bits = [self._domain]
@@ -268,13 +285,13 @@ class DiscoveryScreen(ReconScreen):
                 )
             comps_meta = "  ·  ".join(meta_bits)
 
-            with Card(title="DISCOVERY · COMPETITORS", meta=comps_meta, id="discovery-card"):
+            with Card(title="DISCOVERY · COMPANIES", meta=comps_meta, id="discovery-card"):
                 # Hidden static preserving #discovery-title for tests
                 # that query the legacy id. Card border labels are
                 # where the human sees the title/meta visually.
                 count_label = f"  [#a59a86]{count} found[/]" if count > 0 else ""
                 yield Static(
-                    f"[bold #DDEDC4]── COMPETITOR DISCOVERY ──[/] "
+                    f"[bold #DDEDC4]▒ COMPANY DISCOVERY ▒[/] "
                     f"[#a59a86]·[/] [#DDEDC4]{self._domain}[/]"
                     f"{count_label}",
                     id="discovery-title",
@@ -287,29 +304,31 @@ class DiscoveryScreen(ReconScreen):
                 yield from self._build_roster_summary()
 
         with Horizontal(id="discovery-actions"):
-            yield Button(button_label("RUN", "R"), id="btn-done", variant="primary")
-            yield Button(button_label("SEARCH", "S"), id="btn-search-more")
-            yield Button(button_label("ADD", "M"), id="btn-add-manual")
-            yield Button(button_label("ACCEPT ALL", "A"), id="btn-accept-all")
-            yield Button(button_label("REJECT ALL", "D"), id="btn-reject-all")
+            yield action_button("BACK", "Esc", button_id="btn-back")
+            yield action_button("SEARCH", "S", button_id="btn-search-more")
+            yield action_button("ADD", "M", button_id="btn-add-manual")
+            yield action_button("ACCEPT ALL", "A", button_id="btn-accept-all")
+            yield action_button("REJECT ALL", "D", button_id="btn-reject-all")
+            yield Static("", classes="action-spacer")
+            yield action_button("NEXT", "Space", button_id="btn-done", variant="primary")
 
     def _build_search_progress(self) -> Static:
         if self._is_searching:
             frame = _SPINNER_FRAMES[self._spinner_frame]
             return Static(
-                f"[bold #DDEDC4]── SEARCH ──[/] "
+                f"[bold #DDEDC4]▒ SEARCH ▒[/] "
                 f"[#a59a86]round {self._state.round_count + 1}[/]\n"
                 f"[#a59a86]searching for competitors...[/]  [#DDEDC4]{frame}[/]",
                 id="search-progress",
             )
         if self._state.round_count > 0:
             return Static(
-                f"[bold #DDEDC4]── SEARCH ──[/] "
+                f"[bold #DDEDC4]▒ SEARCH ▒[/] "
                 f"[#DDEDC4]{self._state.round_count} round{'s' if self._state.round_count != 1 else ''} complete[/]",
                 id="search-progress",
             )
         return Static(
-            "[bold #DDEDC4]── SEARCH ──[/]",
+            "[bold #DDEDC4]▒ SEARCH ▒[/]",
             id="search-progress",
         )
 
@@ -342,6 +361,7 @@ class DiscoveryScreen(ReconScreen):
             return
 
         table = DataTable(id="discovery-table")
+        table.can_focus = False
         yield table
 
     def _populate_table(self) -> None:
@@ -382,16 +402,20 @@ class DiscoveryScreen(ReconScreen):
         button_id = event.button.id or ""
         _log.info("DiscoveryScreen button pressed id=%s", button_id)
         if button_id == "btn-done":
-            self.dismiss(self._state.accepted_candidates)
+            self.action_done()
+        elif button_id == "btn-back":
+            self.action_cancel()
         elif button_id == "btn-search-more":
             self.action_search_more()
         elif button_id == "btn-add-manual":
             self._show_manual_inputs()
         elif button_id == "btn-accept-all":
             self._state.accept_all()
+            self._emit_state_change()
             self._refresh_display()
         elif button_id == "btn-reject-all":
             self._state.reject_all()
+            self._emit_state_change()
             self._refresh_display()
 
     @work(exclusive=True)
@@ -427,6 +451,7 @@ class DiscoveryScreen(ReconScreen):
 
         if candidates:
             self._state.add_round(candidates)
+            self._emit_state_change()
             self.app.notify(
                 f"Found {len(candidates)} candidates",
                 title="Discovery",
@@ -469,7 +494,7 @@ class DiscoveryScreen(ReconScreen):
             count = len(self._state.all_candidates)
             count_label = f"  [#a59a86]{count} found[/]" if count > 0 else ""
             title.update(
-                f"[bold #DDEDC4]── COMPETITOR DISCOVERY ──[/] "
+                f"[bold #DDEDC4]▒ COMPANY DISCOVERY ▒[/] "
                 f"[#a59a86]·[/] [#DDEDC4]{self._domain}[/]"
                 f"{count_label}"
             )
@@ -479,6 +504,13 @@ class DiscoveryScreen(ReconScreen):
     @work
     async def _schedule_recompose(self) -> None:
         await self.recompose()
+
+    @work
+    async def _refresh_from_loaded_state(self) -> None:
+        await self.recompose()
+        self._populate_table()
+        self._update_summary()
+        self._update_search_status()
 
     def _show_manual_inputs(self) -> None:
         try:
@@ -518,6 +550,7 @@ class DiscoveryScreen(ReconScreen):
             url=url or f"https://{name.lower().replace(' ', '-')}.example",
             blurb="Manually added competitor",
         )
+        self._emit_state_change()
         self.app.notify(f"Added: {name}", title="Discovery")
         self._tear_down_manual_inputs()
         self._refresh_display()
@@ -526,3 +559,8 @@ class DiscoveryScreen(ReconScreen):
         for widget_id in ("#manual-name", "#manual-url"):
             for widget in self.query(widget_id):
                 widget.remove()
+
+    def _emit_state_change(self) -> None:
+        if self._state_change_fn is not None:
+            with contextlib.suppress(Exception):
+                self._state_change_fn(self._state)

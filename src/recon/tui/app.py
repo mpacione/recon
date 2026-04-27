@@ -1,10 +1,12 @@
 """Main Textual application for recon.
 
-Uses Textual Modes for top-level navigation:
-- dashboard: workspace status, discovery, planning, browsing
-- run: live pipeline execution monitor
-
-WelcomeScreen is pushed on mount when no workspace is specified.
+Top-level navigation is section-based:
+- MAIN: global project browser
+- PROJECT: project brief + run settings
+- SCHEMA: section/template editor
+- COMPANIES: discovery and roster management
+- PIPELINE: live pipeline execution monitor
+- OUTPUT: generated artifacts
 """
 
 from __future__ import annotations
@@ -12,11 +14,11 @@ from __future__ import annotations
 import contextlib
 from pathlib import Path  # noqa: TCH003 -- used at runtime
 
+import yaml
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 
 from recon.logging import get_logger
-from recon.tui.screens.dashboard import DashboardScreen
 from recon.tui.screens.run import RunScreen
 from recon.tui.screens.welcome import WelcomeScreen
 from recon.tui.shell import WorkspaceContext
@@ -39,14 +41,14 @@ class ReconApp(App):
         Binding("q", "quit", "Quit"),
         Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
         Binding("?", "help", "Help"),
-        # v4 numbered-tab hotkeys — match the web UI + CLI.
-        # 1 = HOME, 2-6 = PLAN / SCHEMA / COMP'S / AGENTS / OUTPUT.
-        Binding("1", "goto_tab('recon')",  "Home",   show=False, priority=True),
-        Binding("2", "goto_tab('plan')",   "Plan",   show=False, priority=True),
-        Binding("3", "goto_tab('schema')", "Schema", show=False, priority=True),
-        Binding("4", "goto_tab('comps')",  "Comps",  show=False, priority=True),
-        Binding("5", "goto_tab('agents')", "Agents", show=False, priority=True),
-        Binding("6", "goto_tab('output')", "Output", show=False, priority=True),
+        # v4 numbered-tab hotkeys.
+        # 0 = MAIN, 1-5 = PROJECT / SCHEMA / COMPANIES / PIPELINE / OUTPUT.
+        Binding("0", "goto_tab('recon')",  "Main",   show=False, priority=True),
+        Binding("1", "goto_tab('plan')",   "Project",   show=False, priority=True),
+        Binding("2", "goto_tab('schema')", "Schema", show=False, priority=True),
+        Binding("3", "goto_tab('comps')",  "Companies",  show=False, priority=True),
+        Binding("4", "goto_tab('agents')", "Pipeline", show=False, priority=True),
+        Binding("5", "goto_tab('output')", "Output", show=False, priority=True),
     ]
 
     def __init__(
@@ -190,42 +192,9 @@ class ReconApp(App):
     def title(self, value: str) -> None:
         self.TITLE = value
 
-    def _make_dashboard_screen(self) -> DashboardScreen | WelcomeScreen:
-        if self._workspace_path is None:
-            return WelcomeScreen()
-        dashboard = self._build_workspace_dashboard()
-        if dashboard is None:
-            # Workspace path is set but unopenable (missing folder,
-            # corrupt recon.yaml). Drop back to the welcome screen so
-            # the user isn't stuck on a dashboard that can never
-            # refresh. ``_workspace_path`` is cleared so future
-            # refreshes don't retry the broken path.
-            bad_path = self._workspace_path
-            self._workspace_path = None
-            self.workspace_context = WorkspaceContext.empty()
-            self.call_after_refresh(
-                self.notify,
-                f"Could not open {bad_path}. Returning to welcome.",
-                title="Workspace unavailable",
-                severity="error",
-            )
-            return WelcomeScreen()
-        return dashboard
-
-    def _build_workspace_dashboard(self) -> DashboardScreen | None:
-        from recon.tui.models.dashboard import build_dashboard_data
-        from recon.workspace import Workspace
-
-        try:
-            ws = Workspace.open(self._workspace_path)
-            data = build_dashboard_data(ws)
-        except Exception:
-            _log.exception(
-                "_build_workspace_dashboard failed for %s",
-                self._workspace_path,
-            )
-            return None
-        return DashboardScreen(data=data, workspace_path=self._workspace_path)
+    def _make_dashboard_screen(self) -> WelcomeScreen:
+        """MAIN is always the global project browser root."""
+        return WelcomeScreen()
 
     def compose(self) -> ComposeResult:
         return ()
@@ -270,7 +239,8 @@ class ReconApp(App):
         self._record_recent_project(self._workspace_path)
         self.refresh_workspace_context()
         self._rebuild_dashboard_mode()
-        _log.info("workspace loaded, dashboard mode active")
+        self.action_goto_tab("plan")
+        _log.info("workspace loaded, plan tab active")
 
     def _rebuild_dashboard_mode(self) -> None:
         """Re-register the dashboard mode with a factory that captures
@@ -327,6 +297,15 @@ class ReconApp(App):
         the "before first activation" and "after" states cleanly.
         """
         _log.info("ReconApp.launch_pipeline queuing pipeline_fn")
+        try:
+            from recon.tui.screens.run import RunScreen
+
+            if self.current_mode == "run" and isinstance(self.screen, RunScreen):
+                _log.info("ReconApp.launch_pipeline starting immediately on active run screen")
+                self.screen.start_pipeline(pipeline_fn)
+                return
+        except Exception:
+            _log.exception("failed immediate run-screen pipeline start; falling back to queue")
         self._pending_pipeline_fn = pipeline_fn
         self.switch_mode("run")
 
@@ -411,8 +390,10 @@ class ReconApp(App):
         self.refresh_workspace_context()
         self._rebuild_dashboard_mode()
 
-        # v2 flow: auto-start discovery after workspace creation
-        self._start_v2_discovery()
+        # New projects land in PLAN so the brief, settings, and schema
+        # can be reviewed before discovery starts.
+        self.action_goto_tab("plan")
+        self._kickoff_discovery_prewarm()
 
     def _start_v2_discovery(self) -> None:
         """Push discovery screen to start finding competitors."""
@@ -429,13 +410,13 @@ class ReconApp(App):
         except Exception:
             domain = "unknown"
 
-        state = DiscoveryState()
+        state = self._load_discovery_state() or DiscoveryState()
         screen = DiscoveryScreen(state=state, domain=domain)
+        screen.set_state_change_fn(self._save_discovery_state_and_sync)
 
         # Wire up the search function if API key is available
         self._wire_discovery_search(screen, domain)
-
-        self.push_screen(screen, self._handle_v2_discovery_result)
+        self.push_screen(screen)
 
     def _wire_discovery_search(self, screen, domain: str) -> None:  # noqa: ANN001
         """Wire the best available search backend into the discovery screen.
@@ -448,12 +429,20 @@ class ReconApp(App):
         Gemini is preferred because Google Search grounding produces
         better competitor discovery results than Anthropic's web_search.
         """
+        search_fn = self._build_discovery_search_fn(domain)
+        if search_fn is None:
+            _log.warning("no API keys available for discovery search")
+            return
+        screen.set_search_fn(search_fn)
+
+    def _build_discovery_search_fn(self, domain: str):  # noqa: ANN001
+        """Build the best available discovery search coroutine."""
         import os
 
         from recon.api_keys import load_api_keys
 
         if self._workspace_path is None:
-            return
+            return None
 
         keys = load_api_keys(workspace_root=self._workspace_path)
 
@@ -467,21 +456,36 @@ class ReconApp(App):
         if google_key:
             try:
                 from recon.gemini_discovery import GeminiDiscoveryAgent
+                from recon.provenance import ProvenanceRecorder
 
-                gemini_agent = GeminiDiscoveryAgent(api_key=google_key, domain=domain)
+                gemini_agent = GeminiDiscoveryAgent(
+                    api_key=google_key,
+                    domain=domain,
+                    provenance=(
+                        ProvenanceRecorder.for_discovery(self._workspace_path)
+                        if self._workspace_path is not None else None
+                    ),
+                )
             except Exception:
                 _log.exception("failed to create Gemini agent")
 
         if api_key:
             from recon.client_factory import create_llm_client
             from recon.discovery import DiscoveryAgent
+            from recon.provenance import ProvenanceRecorder
 
             client = create_llm_client(api_key=api_key)
-            anthropic_agent = DiscoveryAgent(llm_client=client, domain=domain)
+            anthropic_agent = DiscoveryAgent(
+                llm_client=client,
+                domain=domain,
+                provenance=(
+                    ProvenanceRecorder.for_discovery(self._workspace_path)
+                    if self._workspace_path is not None else None
+                ),
+            )
 
         if gemini_agent is None and anthropic_agent is None:
-            _log.warning("no API keys available for discovery search")
-            return
+            return None
 
         async def search_with_fallback(state):  # noqa: ANN001
             """Try Gemini first, fall back to Anthropic on any error."""
@@ -511,10 +515,53 @@ class ReconApp(App):
 
             return []
 
-        screen.set_search_fn(search_with_fallback)
         primary = "Gemini" if gemini_agent else "Anthropic"
         fallback = " (Anthropic fallback)" if gemini_agent and anthropic_agent else ""
         _log.info("discovery wired to %s%s", primary, fallback)
+        return search_with_fallback
+
+    def _kickoff_discovery_prewarm(self) -> None:
+        """Start one background discovery round for a newly-created project."""
+        if self._workspace_path is None:
+            return
+        with contextlib.suppress(Exception):
+            self.run_worker(
+                self._prewarm_discovery_once(),
+                exclusive=False,
+                group="discovery-prewarm",
+                description="Prewarm company discovery",
+            )
+
+    async def _prewarm_discovery_once(self) -> None:
+        """Seed COMPANIES with one discovery round while the user is in setup."""
+        from recon.discovery import DiscoveryState
+        from recon.workspace import Workspace
+
+        ws_path = self._workspace_path
+        if ws_path is None:
+            return
+        state = self._load_discovery_state() or DiscoveryState()
+        if state.all_candidates:
+            return
+        try:
+            ws = Workspace.open(ws_path)
+            domain = ws.schema.domain if ws.schema else "unknown"
+        except Exception:
+            domain = "unknown"
+        search_fn = self._build_discovery_search_fn(domain)
+        if search_fn is None:
+            return
+        try:
+            candidates = await search_fn(state)
+        except Exception:
+            _log.exception("background discovery prewarm failed")
+            return
+        if not candidates:
+            _log.info("background discovery prewarm returned no candidates")
+            return
+        state.add_round(candidates)
+        self._save_discovery_state_and_sync(state)
+        _log.info("background discovery prewarm saved %d candidates", len(candidates))
 
     def _handle_v2_discovery_result(self, result: object | None) -> None:
         """After discovery, create profiles and push template screen."""
@@ -565,9 +612,9 @@ class ReconApp(App):
         # would be smarter, but this gives a reasonable starting point.
         always_on = {
             "overview",
-            "pricing_business",
-            "developer_experience",
-            "community_ecosystem",
+            "pricing",
+            "distribution_gtm",
+            "brand_market",
             "customer_segments",
         }
         sections = [
@@ -593,8 +640,8 @@ class ReconApp(App):
             self.notify("No sections selected", severity="warning")
             return
 
-        # Update schema with selected sections
-        self._update_schema_sections(selected)
+        # Persist the full editable pool and write the selected subset
+        self._update_schema_sections(result.sections)
 
         # Push confirm screen
         from recon.tui.screens.confirm import ConfirmScreen
@@ -609,8 +656,7 @@ class ReconApp(App):
         )
 
     def _update_schema_sections(self, sections: list[dict]) -> None:
-        """Update the workspace's recon.yaml with the selected sections."""
-        import yaml
+        """Persist the editable schema pool and selected active sections."""
 
         if self._workspace_path is None:
             return
@@ -621,15 +667,21 @@ class ReconApp(App):
 
         try:
             schema_dict = yaml.safe_load(schema_path.read_text()) or {}
+            pool_path = self._workspace_state_path("schema_sections.yaml")
+            if pool_path is not None:
+                pool_path.parent.mkdir(parents=True, exist_ok=True)
+                pool_path.write_text(yaml.safe_dump(sections, sort_keys=False))
             schema_dict["sections"] = [
                 {
                     "key": s["key"],
                     "title": s["title"],
                     "description": s.get("description", ""),
-                    "allowed_formats": ["prose"],
-                    "preferred_format": "prose",
+                    "allowed_formats": list(s.get("allowed_formats", ["prose"])),
+                    "preferred_format": s.get("preferred_format", "prose"),
+                    **({"when_relevant": s["when_relevant"]} if s.get("when_relevant") else {}),
                 }
                 for s in sections
+                if s.get("selected")
             ]
             schema_path.write_text(
                 yaml.dump(schema_dict, default_flow_style=False, sort_keys=False)
@@ -653,6 +705,7 @@ class ReconApp(App):
             operation=Operation.FULL_PIPELINE,
             model_name=result.model_name,
             worker_count=result.workers,
+            verification_mode=result.verification_mode,
         )
         self.launch_pipeline(pipeline_fn)
 
@@ -719,10 +772,235 @@ class ReconApp(App):
         self._record_recent_project(result.output_dir)
         self.refresh_workspace_context()
         self._rebuild_dashboard_mode()
-        _log.info("switched to dashboard mode after wizard")
+        self.action_goto_tab("plan")
+        self._kickoff_discovery_prewarm()
+        _log.info("switched to plan tab after wizard")
 
     def action_help(self) -> None:
         self.notify("Q=Quit  ?=Help  1-6=Tabs", title="Keybinds")
+
+    def _workspace_state_path(self, *parts: str) -> Path | None:
+        if self._workspace_path is None:
+            return None
+        path = self._workspace_path / ".recon"
+        for part in parts:
+            path = path / part
+        return path
+
+    def _load_plan_settings(self) -> dict[str, object]:
+        path = self._workspace_state_path("plan.yaml")
+        defaults: dict[str, object] = {
+            "model_name": "sonnet",
+            "workers": 5,
+            "verification_mode": "standard",
+        }
+        if path is None or not path.exists():
+            return dict(defaults)
+        try:
+            data = yaml.safe_load(path.read_text()) or {}
+            if isinstance(data, dict):
+                return {
+                    "model_name": str(data.get("model_name", defaults["model_name"])),
+                    "workers": int(data.get("workers", defaults["workers"])),
+                    "verification_mode": str(
+                        data.get("verification_mode", defaults["verification_mode"])
+                    ),
+                }
+        except Exception:
+            _log.exception("failed to load plan settings")
+        return dict(defaults)
+
+    def _save_plan_settings(
+        self,
+        model_name: str,
+        workers: int,
+        verification_mode: str = "standard",
+    ) -> None:
+        path = self._workspace_state_path("plan.yaml")
+        if path is None:
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                yaml.safe_dump(
+                    {
+                        "model_name": model_name,
+                        "workers": workers,
+                        "verification_mode": verification_mode,
+                    },
+                    sort_keys=False,
+                )
+            )
+        except Exception:
+            _log.exception("failed to save plan settings")
+
+    def _load_discovery_state(self):
+        from recon.discovery import DiscoveryState
+
+        path = self._workspace_state_path("discovery", "state.yaml")
+        if path is None or not path.exists():
+            return None
+        try:
+            data = yaml.safe_load(path.read_text()) or {}
+            return DiscoveryState.from_dict(data if isinstance(data, dict) else None)
+        except Exception:
+            _log.exception("failed to load discovery state")
+            return None
+
+    def _save_discovery_state_and_sync(self, state) -> None:  # noqa: ANN001
+        from recon.discovery import DiscoveryState
+        from recon.tui.screens.discovery import DiscoveryScreen
+        from recon.workspace import Workspace
+
+        if not isinstance(state, DiscoveryState):
+            return
+        path = self._workspace_state_path("discovery", "state.yaml")
+        if path is None or self._workspace_path is None:
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(yaml.safe_dump(state.to_dict(), sort_keys=False))
+        except Exception:
+            _log.exception("failed to save discovery state")
+
+        try:
+            ws = Workspace.open(self._workspace_path)
+            existing = {str(p.get("name", "")).strip() for p in ws.list_profiles()}
+            for candidate in state.accepted_candidates:
+                name = candidate.name.strip()
+                if not name or name in existing:
+                    continue
+                try:
+                    ws.create_profile(name)
+                    existing.add(name)
+                except FileExistsError:
+                    existing.add(name)
+                except Exception:
+                    _log.exception("failed to sync profile for %s", name)
+            self.refresh_workspace_context()
+        except Exception:
+            _log.exception("failed to sync discovery state into workspace")
+
+        try:
+            if isinstance(self.screen, DiscoveryScreen):
+                self.screen.load_state(state)
+        except Exception:
+            _log.exception("failed to refresh active discovery screen")
+
+    def _persist_current_screen_state(self) -> None:
+        try:
+            from recon.tui.screens.discovery import DiscoveryScreen
+
+            if isinstance(self.screen, DiscoveryScreen):
+                self._save_discovery_state_and_sync(self.screen.state)
+        except Exception:
+            _log.exception("failed to persist current screen state")
+
+    def _workspace_schema_dict(self, ws_path: Path) -> dict:
+        schema_path = ws_path / "recon.yaml"
+        if not schema_path.exists():
+            return {}
+        try:
+            data = yaml.safe_load(schema_path.read_text()) or {}
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            _log.exception("failed to load workspace schema dict")
+            return {}
+
+    def _project_brief(self, ws_path: Path) -> str:
+        schema = self._workspace_schema_dict(ws_path)
+        brief = schema.get("project_brief")
+        if isinstance(brief, str) and brief.strip():
+            return brief.strip()
+        domain = schema.get("domain")
+        return domain.strip() if isinstance(domain, str) else ""
+
+    def _update_project_brief(self, description: str) -> None:
+        if self._workspace_path is None:
+            return
+        schema_path = self._workspace_path / "recon.yaml"
+        schema = self._workspace_schema_dict(self._workspace_path)
+        parsed = _description_to_schema(description)
+        schema["domain"] = parsed.get("domain", schema.get("domain", ""))
+        schema["identity"] = parsed.get("identity", schema.get("identity", {}))
+        schema["project_brief"] = description.strip()
+        try:
+            schema_path.write_text(yaml.safe_dump(schema, sort_keys=False))
+            self.refresh_workspace_context()
+        except Exception:
+            _log.exception("failed to update project brief")
+
+    def _handle_plan_describe_result(self, result: object | None) -> None:
+        from recon.tui.screens.describe import DescribeResult
+
+        if not isinstance(result, DescribeResult):
+            return
+        self._update_project_brief(result.description)
+        self._refresh_plan_screen()
+        self.notify("Project brief updated", severity="information")
+
+    def _handle_plan_settings_result(self, result: object | None) -> None:
+        from recon.tui.screens.confirm import ConfirmResult
+
+        if not isinstance(result, ConfirmResult):
+            return
+        self._save_plan_settings(
+            model_name=result.model_name,
+            workers=result.workers,
+            verification_mode=result.verification_mode,
+        )
+        self._refresh_plan_screen()
+        self.notify("Plan settings saved", severity="information")
+
+    def _refresh_plan_screen(self) -> None:
+        """Refresh the mounted PLAN screen after a brief/settings edit."""
+        from recon.tui.screens.plan import PlanScreen
+
+        if self._workspace_path is None:
+            return
+        if not isinstance(self.screen, PlanScreen):
+            return
+
+        self.refresh_workspace_context()
+        self.screen.reload(
+            project_brief=self._project_brief(self._workspace_path),
+            competitor_count=len(self._list_competitors(self._workspace_path)),
+            section_count=len(self._section_names(self._workspace_path)),
+            plan_settings=self._load_plan_settings(),
+            total_cost=float(self.workspace_context.total_cost),
+            run_count=int(self.workspace_context.run_count),
+        )
+
+    def launch_pipeline_from_plan(self) -> None:
+        from recon.tui.pipeline_runner import Operation, build_pipeline_fn
+
+        ws_path = self._workspace_path
+        if ws_path is None:
+            self.notify("Open a project first", severity="warning")
+            return
+        competitors = self._list_competitors(ws_path)
+        sections = self._section_names(ws_path)
+        if not competitors:
+            self.notify(
+                "Go to COMPANIES and accept at least one company first.",
+                severity="warning",
+            )
+            return
+        if not sections:
+            self.notify(
+                "Go to SCHEMA and select at least one section first.",
+                severity="warning",
+            )
+            return
+        settings = self._load_plan_settings()
+        pipeline_fn = build_pipeline_fn(
+            workspace_path=ws_path,
+            operation=Operation.FULL_PIPELINE,
+            model_name=str(settings.get("model_name", "sonnet")),
+            worker_count=int(settings.get("workers", 5)),
+            verification_mode=str(settings.get("verification_mode", "standard")),
+        )
+        self.launch_pipeline(pipeline_fn)
 
     def _list_competitors(self, ws_path: Path) -> list[dict]:
         """Best-effort competitor fetch for the OUTPUT tab's meta."""
@@ -762,28 +1040,36 @@ class ReconApp(App):
         return []
 
     def _schema_sections(self, ws_path: Path) -> tuple[list[dict], str]:
-        """Full section-dict list + domain string for TemplateScreen.
-
-        TemplateScreen renders each section as a ChecklistItem so the
-        user can toggle inclusions. Returned dicts include ``key``,
-        ``title``, ``description``, ``selected`` — mirroring the
-        web UI's /api/template payload shape.
-        """
+        """Full section library + selected flags for TemplateScreen."""
         try:
+            from recon.section_library import merge_with_selected
             from recon.workspace import Workspace
 
             ws = Workspace.open(ws_path)
             if not ws.schema:
                 return ([], "")
-            sections = [
+            state_path = self._workspace_state_path("schema_sections.yaml")
+            if state_path is not None and state_path.exists():
+                try:
+                    data = yaml.safe_load(state_path.read_text()) or []
+                    if isinstance(data, list):
+                        sections = [dict(section) for section in data if isinstance(section, dict)]
+                        return (sections, ws.schema.domain or "")
+                except Exception:
+                    _log.exception("failed to load schema section pool state")
+
+            selected = [
                 {
                     "key": s.key,
                     "title": s.title,
                     "description": s.description or "",
-                    "selected": True,  # default: all on
+                    "allowed_formats": list(s.allowed_formats),
+                    "preferred_format": s.preferred_format,
+                    "selected": True,
                 }
                 for s in ws.schema.sections
             ]
+            sections = merge_with_selected(selected)
             return (sections, ws.schema.domain or "")
         except Exception:
             return ([], "")
@@ -791,64 +1077,55 @@ class ReconApp(App):
     def action_goto_tab(self, tab_key: str) -> None:
         """Jump to the v4 tab identified by ``tab_key``.
 
-        Mirrors the web UI's `1-6` hotkey flow and the CLI's numbered
-        subcommands. Only fires when a workspace is active — the
-        Welcome screen intentionally ignores these so ``1`` on welcome
-        isn't a silent no-op that confuses the user.
+        MAIN is always available. The other sections are workspace-scoped
+        and sit on top of the MAIN root screen.
         """
-        # Welcome screen (pre-workspace) has no notion of tabs.
-        if getattr(self, "_workspace_path", None) is None and self.workspace_context.workspace_path is None:
+        if (
+            tab_key != "recon"
+            and getattr(self, "_workspace_path", None) is None
+            and self.workspace_context.workspace_path is None
+        ):
             return
+
+        self._persist_current_screen_state()
 
         def reset_to_dashboard_root() -> None:
             with contextlib.suppress(Exception):
                 self.switch_mode("dashboard")
-            # Top-nav tabs should replace the current view rather than
-            # stacking additional pushed screens on top of the
-            # dashboard's root screen.
             with contextlib.suppress(Exception):
                 while len(self.screen_stack) > 1:
                     self.pop_screen()
 
-        # Dashboard is the home / RECON tab. Same mode.
         if tab_key == "recon":
             reset_to_dashboard_root()
             return
 
-        # All other tabs push a screen from the dashboard state. If the
-        # current screen is already the target, do nothing.
         current_key = getattr(self.screen, "tab_key", None)
         if current_key == tab_key:
             return
 
         ws_path = getattr(self, "_workspace_path", None)
 
-        # Import lazily — these screens pull in the whole engine.
         if tab_key == "plan":
-            # PLAN = cost / model / workers confirmation. Pushable any
-            # time a workspace is loaded — we pull competitor count
-            # and section count from the live workspace rather than
-            # mid-wizard constructor args.
             if ws_path is None:
                 return
             reset_to_dashboard_root()
-            from recon.tui.screens.confirm import ConfirmScreen
+            from recon.tui.screens.plan import PlanScreen
 
-            comps = self._list_competitors(ws_path)
-            section_names = self._section_names(ws_path)
             with contextlib.suppress(Exception):
                 self.push_screen(
-                    ConfirmScreen(
-                        competitor_count=len(comps),
-                        section_count=len(section_names),
-                        section_names=section_names,
+                    PlanScreen(
+                        workspace_root=ws_path,
+                        project_brief=self._project_brief(ws_path),
+                        competitor_count=len(self._list_competitors(ws_path)),
+                        section_count=len(self._section_names(ws_path)),
+                        plan_settings=self._load_plan_settings(),
+                        total_cost=self.workspace_context.total_cost,
+                        run_count=self.workspace_context.run_count,
                     ),
                 )
             return
         if tab_key == "schema":
-            # SCHEMA = dossier section editor. TemplateScreen expects
-            # a list of section dicts and a domain; pull both from the
-            # workspace's ``recon.yaml``.
             if ws_path is None:
                 return
             reset_to_dashboard_root()
@@ -857,59 +1134,39 @@ class ReconApp(App):
             sections, domain = self._schema_sections(ws_path)
             with contextlib.suppress(Exception):
                 self.push_screen(
-                    TemplateScreen(sections=sections, domain=domain),
+                    TemplateScreen(sections=sections, domain=domain, next_tab="comps"),
                 )
             return
         if tab_key == "comps":
-            # Route to the competitor browser directly.
-            from recon.tui.models.dashboard import build_dashboard_data
-            from recon.tui.screens.browser import CompetitorBrowserScreen
+            from recon.discovery import DiscoveryState
+            from recon.tui.screens.discovery import DiscoveryScreen
             from recon.workspace import Workspace
 
             if ws_path is None:
                 return
             reset_to_dashboard_root()
-            # CompetitorBrowserScreen expects a ``DashboardData`` bag
-            # — build it fresh each time so stale data from prior
-            # pushes doesn't leak. Empty workspace falls back to a
-            # zero-profile snapshot; the screen's own empty state
-            # ("No competitors in workspace") renders cleanly from
-            # that.
             try:
-                data = build_dashboard_data(Workspace.open(ws_path))
+                ws = Workspace.open(ws_path)
+                domain = ws.schema.domain if ws.schema else ""
             except Exception:
-                from recon.tui.models.dashboard import DashboardData
-
-                data = DashboardData(
-                    domain="",
-                    company_name="",
-                    total_competitors=0,
-                    status_counts={},
-                    competitor_rows=[],
-                )
+                domain = ""
+            state = self._load_discovery_state() or DiscoveryState()
+            screen = DiscoveryScreen(state=state, domain=domain)
+            screen.set_state_change_fn(self._save_discovery_state_and_sync)
+            self._wire_discovery_search(screen, domain)
             with contextlib.suppress(Exception):
-                self.push_screen(CompetitorBrowserScreen(data=data))
+                self.push_screen(screen)
             return
         if tab_key == "agents":
-            # AGENTS is the run monitor. Use the cached run mode.
             with contextlib.suppress(Exception):
                 self.switch_mode("run")
             return
         if tab_key == "output":
-            # OUTPUT = the file tree + markdown preview. Push a fresh
-            # ResultsScreen every time so it picks up any new files
-            # the engine just wrote. If the workspace has nothing yet,
-            # the screen renders an empty state — better UX than a
-            # notify that flashes and disappears.
             from recon.tui.screens.results import ResultsScreen
 
-            ws_path = getattr(self, "_workspace_path", None)
             if ws_path is None:
                 return
             reset_to_dashboard_root()
-            # Pull live cost / elapsed from the current workspace
-            # context so the meta strip isn't empty. Defaults keep the
-            # screen renderable even if we haven't finished a run yet.
             ctx = self.workspace_context
             with contextlib.suppress(Exception):
                 self.push_screen(
@@ -972,5 +1229,6 @@ def _description_to_schema(description: str) -> dict:
         products=products,
         domain=domain,
     )
+    schema["project_brief"] = description.strip()
 
     return schema

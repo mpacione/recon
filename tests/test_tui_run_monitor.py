@@ -304,3 +304,35 @@ class TestRunMonitorState:
         elapsed = state.elapsed_str
         assert ":" in elapsed
         assert "2:0" in elapsed  # ~2 minutes 5 seconds
+
+    def test_pause_and_resume_freeze_elapsed_clock(self, monkeypatch) -> None:
+        from recon.tui.run_monitor import RunMonitorState
+
+        fake_now = [100.0]
+        monkeypatch.setattr("recon.tui.run_monitor.time.monotonic", lambda: fake_now[0])
+
+        state = RunMonitorState(started_at=100.0)
+        fake_now[0] = 105.0
+        assert state.elapsed_str == "0:05"
+
+        state.pause_clock()
+        fake_now[0] = 120.0
+        assert state.elapsed_str == "0:05"
+
+        state.resume_clock()
+        fake_now[0] = 123.0
+        assert state.elapsed_str == "0:08"
+
+    def test_freeze_clock_stops_elapsed_progress(self, monkeypatch) -> None:
+        from recon.tui.run_monitor import RunMonitorState
+
+        fake_now = [100.0]
+        monkeypatch.setattr("recon.tui.run_monitor.time.monotonic", lambda: fake_now[0])
+
+        state = RunMonitorState(started_at=100.0)
+        fake_now[0] = 110.0
+        state.freeze_clock()
+        frozen = state.elapsed_str
+
+        fake_now[0] = 140.0
+        assert state.elapsed_str == frozen

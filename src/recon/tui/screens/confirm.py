@@ -13,8 +13,14 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, Static
 
-from recon.cost import estimate_full_run, get_model_pricing, list_available_models
+from recon.cost import (
+    SectionCostSpec,
+    estimate_run_breakdown,
+    get_model_pricing,
+    list_available_models,
+)
 from recon.logging import get_logger
+from recon.tui.primitives import TerminalBox
 from recon.tui.shell import ReconScreen
 from recon.tui.widgets import RadioItem, button_label
 
@@ -25,6 +31,7 @@ _log = get_logger(__name__)
 class ConfirmResult:
     model_name: str
     workers: int
+    verification_mode: str
 
 
 class ConfirmScreen(ReconScreen):
@@ -43,13 +50,14 @@ class ConfirmScreen(ReconScreen):
         Binding("plus", "more_workers", "more workers", show=False),
         Binding("equals_sign", "more_workers", "more workers", show=False),
         Binding("minus", "fewer_workers", "fewer workers", show=False),
+        Binding("v", "cycle_verification", "verification", show=False),
         # Flow — `n` advances, `esc` goes back.
         Binding("n", "submit", "run", show=False),
         Binding("escape", "cancel", "Back", show=False),
     ]
 
     keybind_hints = (
-        "[#DDEDC4]↑↓[/] model · [#DDEDC4]+/-[/] workers · "
+        "[#DDEDC4]↑↓[/] model · [#DDEDC4]+/-[/] workers · [#DDEDC4]v[/] verification · "
         "[#DDEDC4]n[/] run · [#DDEDC4]esc[/] back"
     )
 
@@ -87,25 +95,38 @@ class ConfirmScreen(ReconScreen):
         competitor_count: int,
         section_count: int,
         section_names: list[str] | None = None,
+        section_specs: list[SectionCostSpec] | None = None,
         initial_model: str = "sonnet",
         initial_workers: int = 5,
+        initial_verification: str = "standard",
     ) -> None:
         super().__init__()
         self._competitor_count = competitor_count
         self._section_count = section_count
         self._section_names = section_names or []
+        self._section_specs = section_specs or []
         self._models = list_available_models()
         self._model_names = [m["name"] for m in self._models]
+        self._verification_modes = ["standard", "verified", "deep"]
         self._selected_model = (
             self._model_names.index(initial_model)
             if initial_model in self._model_names
             else 0
         )
         self._workers = initial_workers
+        self._selected_verification = (
+            self._verification_modes.index(initial_verification)
+            if initial_verification in self._verification_modes
+            else 0
+        )
 
     @property
     def _current_model_name(self) -> str:
         return str(self._model_names[self._selected_model])
+
+    @property
+    def _current_verification_mode(self) -> str:
+        return str(self._verification_modes[self._selected_verification])
 
     def compose_body(self) -> ComposeResult:
         from recon.tui.primitives import Card
@@ -120,12 +141,14 @@ class ConfirmScreen(ReconScreen):
             # AI models card (middle) — matches the web PLAN tab's
             # "AI MODELS" section with the estimated-total meta.
             pricing = get_model_pricing(self._current_model_name)
-            total = estimate_full_run(
+            total = estimate_run_breakdown(
                 pricing=pricing,
-                section_count=self._section_count,
                 competitor_count=self._competitor_count,
-            )
-            models_meta = f"EST COST · base ${total:.2f}"
+                sections=self._section_specs,
+                section_count=self._section_count,
+                verification_mode=self._current_verification_mode,
+            ).total_run_cost
+            models_meta = f"EST COST · ${total:.2f}"
             with Card(title="AI MODELS", meta=models_meta, id="models-card"):
                 for i, model in enumerate(self._models):
                     yield RadioItem(
@@ -139,6 +162,7 @@ class ConfirmScreen(ReconScreen):
                 # indicator. `+` / `-` keys drive the value (see
                 # action_more_workers / action_fewer_workers).
                 yield Static(self._render_workers_row(), id="workers-row")
+                yield Static(self._render_verification_row(), id="verification-row")
 
         with Horizontal(id="confirm-actions"):
             yield Button(
@@ -150,18 +174,17 @@ class ConfirmScreen(ReconScreen):
 
     def _render_cost_breakdown(self) -> str:
         pricing = get_model_pricing(self._current_model_name)
-        total = estimate_full_run(
+        breakdown = estimate_run_breakdown(
             pricing=pricing,
-            section_count=self._section_count,
             competitor_count=self._competitor_count,
+            sections=self._section_specs,
+            section_count=self._section_count,
+            verification_mode=self._current_verification_mode,
         )
-        section_calls = self._section_count * self._competitor_count
-        research_cost = pricing.calculate_cost(2000, 800) * section_calls
-        enrich_cost = pricing.calculate_cost(2000, 800) * self._competitor_count * 3
-        themes_cost = pricing.calculate_cost(3000, 1500) * 5
-        summary_cost = pricing.calculate_cost(3000, 1500) * 6
+        total = breakdown.total_run_cost
 
         # Estimated wall-clock time: ~15s per section call + ~10s per enrich pass
+        section_calls = self._section_count * self._competitor_count
         est_seconds = section_calls * 15 + self._competitor_count * 3 * 10 + 60
         est_minutes = max(1, est_seconds // 60)
 
@@ -171,18 +194,21 @@ class ConfirmScreen(ReconScreen):
             section_list = f"\n  [#a59a86]Sections:[/]  [#DDEDC4]{names}[/]\n"
 
         return (
-            f"[bold #DDEDC4]── READY TO RESEARCH ──[/]\n\n"
+            f"[bold #DDEDC4]▒ READY TO RESEARCH ▒[/]\n\n"
             f"[#DDEDC4]This will research {self._competitor_count} competitors "
             f"across {self._section_count} sections each.[/]"
             f"{section_list}\n"
+            f"  [#a59a86]Verification:[/] [#DDEDC4]{self._current_verification_mode}[/]\n"
+            f"  [#a59a86]Per company:[/]  [#DDEDC4]~${breakdown.variable_per_company:.2f}[/]"
+            f"          [#787266](research + enrich)[/]\n"
             f"  [#a59a86]Research:[/]     [#DDEDC4]{section_calls} section calls[/]"
-            f"          [#DDEDC4]~${research_cost:.2f}[/]\n"
+            f"          [#DDEDC4]~${breakdown.research_total:.2f}[/]\n"
             f"  [#a59a86]Enrichment:[/]   [#DDEDC4]{self._competitor_count} profiles x 3 passes[/]"
-            f"    [#DDEDC4]~${enrich_cost:.2f}[/]\n"
+            f"    [#DDEDC4]~${breakdown.enrichment_total:.2f}[/]\n"
             f"  [#a59a86]Themes:[/]       [#DDEDC4]5 themes[/]"
-            f"                  [#DDEDC4]~${themes_cost:.2f}[/]\n"
+            f"                  [#DDEDC4]~${breakdown.fixed_themes:.2f}[/]\n"
             f"  [#a59a86]Summaries:[/]    [#DDEDC4]5 themes + 1 executive[/]"
-            f"    [#DDEDC4]~${summary_cost:.2f}[/]\n"
+            f"    [#DDEDC4]~${breakdown.fixed_summary:.2f}[/]\n"
             f"                                     {'─' * 14}\n"
             f"  [#DDEDC4]Estimated total:[/]"
             f"                    [bold #DDEDC4]~${total:.2f}[/]\n"
@@ -195,11 +221,13 @@ class ConfirmScreen(ReconScreen):
         name = str(model["name"]).capitalize()
         inp = model["input_price_per_million"]
         out = model["output_price_per_million"]
-        model_total = estimate_full_run(
+        model_total = estimate_run_breakdown(
             pricing=get_model_pricing(str(model["name"])),
-            section_count=self._section_count,
             competitor_count=self._competitor_count,
-        )
+            sections=self._section_specs,
+            section_count=self._section_count,
+            verification_mode=self._current_verification_mode,
+        ).total_run_cost
         desc = str(model.get("description", ""))
         return f"{name:8s}  ${inp}/{out} per M tokens  ~${model_total:.2f}  {desc}"
 
@@ -228,6 +256,13 @@ class ConfirmScreen(ReconScreen):
             f"[#DDEDC4]{self._workers}[/] "
             "[#787266]parallel   [/]"
             "[#787266](press [/][#DDEDC4]+[/][#787266] / [/][#DDEDC4]-[/][#787266] to change)[/]"
+        )
+
+    def _render_verification_row(self) -> str:
+        return (
+            "[#DDEDC4]VERIFICATION[/]   "
+            f"[#DDEDC4]{self._current_verification_mode}[/]   "
+            "[#787266](press [/][#DDEDC4]v[/][#787266] to cycle)[/]"
         )
 
     def on_radio_item_selected(self, event: RadioItem.Selected) -> None:
@@ -264,9 +299,20 @@ class ConfirmScreen(ReconScreen):
         self._workers = max(1, self._workers - 1)
         self._refresh_workers()
 
+    def action_cycle_verification(self) -> None:
+        self._selected_verification = (self._selected_verification + 1) % len(self._verification_modes)
+        self._refresh_verification()
+        self._refresh_cost()
+
     def _refresh_workers(self) -> None:
         try:
             self.query_one("#workers-row", Static).update(self._render_workers_row())
+        except Exception:
+            pass
+
+    def _refresh_verification(self) -> None:
+        try:
+            self.query_one("#verification-row", Static).update(self._render_verification_row())
         except Exception:
             pass
 
@@ -277,6 +323,30 @@ class ConfirmScreen(ReconScreen):
             )
         except Exception:
             pass
+        try:
+            pricing = get_model_pricing(self._current_model_name)
+            total = estimate_run_breakdown(
+                pricing=pricing,
+                competitor_count=self._competitor_count,
+                sections=self._section_specs,
+                section_count=self._section_count,
+                verification_mode=self._current_verification_mode,
+            ).total_run_cost
+            card = self.query_one("#models-card")
+            header = next(
+                (child for child in card.children if isinstance(child, Static)),
+                None,
+            )
+            if header is None:
+                return
+            rebuilt = TerminalBox._build_header(
+                "AI MODELS",
+                f"EST COST · base ${total:.2f}",
+            )
+            if rebuilt is not None:
+                header.update(rebuilt.render())
+        except Exception:
+            pass
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -285,4 +355,5 @@ class ConfirmScreen(ReconScreen):
         self.dismiss(ConfirmResult(
             model_name=self._current_model_name,
             workers=self._workers,
+            verification_mode=self._current_verification_mode,
         ))

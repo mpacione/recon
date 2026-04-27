@@ -8,7 +8,7 @@ without each screen having to re-declare the CSS.
 ``TerminalBox``
     A bordered card container. 1px solid ``#3a3a3a`` border, 5px
     radius, 12px/16px padding, black background. Optional
-    ``title=`` renders a ``── HEADING ──`` divider at the top of
+    ``title=`` renders a ``▒ HEADING ▒`` divider at the top of
     the box (Phase D visual language). Optional ``meta=`` renders a
     dim subtitle line under the title.
 
@@ -42,7 +42,7 @@ class TerminalBox(Vertical):
 
     The primitive ships with recon's border styling baked in; screens
     don't have to repeat the CSS. Pass ``title=`` to render a
-    ``── HEADING ──`` divider and ``meta=`` for a dim subtitle.
+    ``▒ HEADING ▒`` divider and ``meta=`` for a dim subtitle.
     """
 
     DEFAULT_CSS = """
@@ -90,13 +90,13 @@ class TerminalBox(Vertical):
         # v4 palette: cream title, tan meta.
         if title and meta:
             return Static(
-                f"[bold #DDEDC4]── {title} ──[/]  [#a59a86]{meta}[/]",
+                f"[bold #DDEDC4]▒ {title} ▒[/]  [#a59a86]{meta}[/]",
                 classes="terminal-box-title terminal-box-meta",
                 markup=True,
             )
         if title:
             return Static(
-                f"[bold #DDEDC4]── {title} ──[/]",
+                f"[bold #DDEDC4]▒ {title} ▒[/]",
                 classes="terminal-box-title",
                 markup=True,
             )
@@ -150,12 +150,12 @@ class _Tab:
 #   - web/static/app.js::TABS
 #   - cli_ui/renderables/tab_breadcrumb.py::_TABS
 TABS: tuple[_Tab, ...] = (
-    _Tab("recon",  "HOME",   1),
-    _Tab("plan",   "PLAN",   2),
-    _Tab("schema", "SCHEMA", 3),
-    _Tab("comps",  "COMP'S", 4),
-    _Tab("agents", "AGENTS", 5),
-    _Tab("output", "OUTPUT", 6),
+    _Tab("recon",  "MAIN",   0),
+    _Tab("plan",   "PROJECT",   1),
+    _Tab("schema", "SCHEMA", 2),
+    _Tab("comps",  "COMPANIES", 3),
+    _Tab("agents", "PIPELINE", 4),
+    _Tab("output", "OUTPUT", 5),
 )
 
 

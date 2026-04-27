@@ -81,6 +81,9 @@ class TestResultsScreen:
 
         themes_dir = tmp_path / "themes"
         themes_dir.mkdir()
+        competitors_dir = tmp_path / "competitors"
+        competitors_dir.mkdir()
+        (competitors_dir / "lululemon.md").write_text("---\nname: Lululemon\n---\n# Lululemon\n")
         (themes_dir / "price_compression.md").write_text("# Price\n")
         (tmp_path / "executive_summary.md").write_text("# Summary\n")
 
@@ -107,6 +110,7 @@ class TestResultsScreen:
             all_text = " ".join(str(s.render()) for s in statics)
             assert "Executive Summary" in all_text or "executive_summary" in all_text
             assert "Price" in all_text or "price_compress" in all_text
+            assert "lululemon" in all_text.lower()
 
     async def test_truncates_long_tree_labels(self, tmp_path: Path) -> None:
         from recon.tui.screens.results import ResultsScreen

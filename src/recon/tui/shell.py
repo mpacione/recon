@@ -37,6 +37,8 @@ from recon.events import (
     RunCancelled,
     RunCompleted,
     RunFailed,
+    RunPaused,
+    RunResumed,
     RunStageCompleted,
     RunStageStarted,
     RunStarted,
@@ -500,6 +502,9 @@ class RunStatusBar(Static):
         self._stage: str = ""
         self._cost: float = 0.0
         self._started_at: float | None = None
+        self._paused_at: float | None = None
+        self._paused_total: float = 0.0
+        self._ended_at: float | None = None
         self._active: bool = False
         self._subscriber = self._on_event
 
@@ -526,8 +531,21 @@ class RunStatusBar(Static):
             self._stage = ""
             self._cost = 0.0
             self._started_at = time.monotonic()
+            self._paused_at = None
+            self._paused_total = 0.0
+            self._ended_at = None
             self._active = True
             self._show()
+        elif isinstance(event, RunPaused):
+            if self._active and self._paused_at is None:
+                self._paused_at = time.monotonic()
+            self._render_status()
+        elif isinstance(event, RunResumed):
+            if self._paused_at is not None:
+                resumed_at = time.monotonic()
+                self._paused_total += max(0.0, resumed_at - self._paused_at)
+                self._paused_at = None
+            self._render_status()
         elif isinstance(event, RunStageStarted):
             self._stage = event.stage
             self._render_status()
@@ -538,6 +556,11 @@ class RunStatusBar(Static):
             self._cost += event.cost_usd
             self._render_status()
         elif isinstance(event, (RunCompleted, RunFailed, RunCancelled)):
+            if self._started_at is not None and self._ended_at is None:
+                self._ended_at = self._paused_at if self._paused_at is not None else time.monotonic()
+                if self._paused_at is not None:
+                    self._paused_total += max(0.0, self._ended_at - self._paused_at)
+                    self._paused_at = None
             self._active = False
             self._hide()
 
@@ -549,13 +572,19 @@ class RunStatusBar(Static):
         self.add_class("idle")
 
     def _tick(self) -> None:
-        if self._active:
+        if self._active and self._paused_at is None:
             self._render_status()
 
     def _elapsed_str(self) -> str:
         if self._started_at is None:
             return "0:00"
-        seconds = int(time.monotonic() - self._started_at)
+        if self._ended_at is not None:
+            now = self._ended_at
+        elif self._paused_at is not None:
+            now = self._paused_at
+        else:
+            now = time.monotonic()
+        seconds = int(max(0.0, now - self._started_at - self._paused_total))
         minutes, secs = divmod(seconds, 60)
         if minutes >= 60:
             hours, minutes = divmod(minutes, 60)
@@ -640,11 +669,14 @@ class ReconScreen(Screen):
         height: auto;
         layout: vertical;
     }
+    .action-spacer {
+        width: 1fr;
+    }
     """
 
     keybind_hints: str = "[#a59a86]q quit · ? help[/]"
 
-    # Flow step for breadcrumb. None = not part of the v2 flow.
+    # Legacy attribute kept for compatibility with older tests/screens.
     flow_step: int | None = None
 
     _FLOW_STEPS = [
@@ -671,10 +703,6 @@ class ReconScreen(Screen):
             ctx = self._current_workspace_context()
             yield ReconHeaderBar(ctx)
 
-        # Breadcrumb for v2 flow screens
-        if self.flow_step is not None:
-            yield Static(self._render_breadcrumb(), id="flow-breadcrumb")
-
         with Vertical(id="recon-body"):
             yield from self.compose_body()
 
@@ -696,7 +724,10 @@ class ReconScreen(Screen):
                     yield KeybindHint(self.keybind_hints)
 
     def on_mount(self) -> None:
-        self._disable_button_focus()
+        self.call_after_refresh(self._disable_button_focus)
+
+    def on_show(self) -> None:
+        self.call_after_refresh(self._disable_button_focus)
 
     def compose_body(self) -> ComposeResult:
         """Override in subclasses to render the screen's actual content."""

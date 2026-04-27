@@ -196,7 +196,7 @@ class WizardScreen(ModalScreen[WizardResult]):
             else:
                 dots.append("[#3a3a3a]○[/]")
         meter = " ".join(dots)
-        return f"[bold #DDEDC4]── WIZARD ── {label} ──[/]  {meter}  [#a59a86]step {idx}/4[/]"
+        return f"[bold #DDEDC4]▒ WIZARD ▒ {label}[/]  {meter}  [#a59a86]step {idx}/4[/]"
 
     def _refresh_phase(self) -> None:
         try:

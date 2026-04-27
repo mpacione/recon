@@ -68,30 +68,52 @@ def pipeline_config_for_operation(operation: Operation) -> PipelineConfig:
     Raises NotImplementedError for operations that don't yet have a
     pipeline shape.
     """
+    verification_enabled = False
+    verification_tier = "verified"
+    if operation == Operation.FULL_PIPELINE:
+        verification_enabled = False
+    return _pipeline_config_for_operation(
+        operation,
+        verification_enabled=verification_enabled,
+        verification_tier=verification_tier,
+    )
+
+
+def _pipeline_config_for_operation(
+    operation: Operation,
+    *,
+    verification_enabled: bool,
+    verification_tier: str,
+) -> PipelineConfig:
+    """Internal config factory with explicit verification controls."""
     if operation == Operation.FULL_PIPELINE:
         return PipelineConfig(
             start_from=PipelineStage.RESEARCH,
             stop_after=PipelineStage.DELIVER,
-            verification_enabled=False,
+            verification_enabled=verification_enabled,
+            verification_tier=verification_tier,
         )
     if operation in (Operation.UPDATE_ALL, Operation.UPDATE_SPECIFIC):
         return PipelineConfig(
             start_from=PipelineStage.RESEARCH,
             stop_after=PipelineStage.RESEARCH,
-            verification_enabled=False,
+            verification_enabled=verification_enabled,
+            verification_tier=verification_tier,
         )
     if operation in (Operation.DIFF_ALL, Operation.DIFF_SPECIFIC):
         return PipelineConfig(
             start_from=PipelineStage.RESEARCH,
             stop_after=PipelineStage.RESEARCH,
-            verification_enabled=False,
+            verification_enabled=verification_enabled,
+            verification_tier=verification_tier,
             stale_only=True,
         )
     if operation == Operation.RERUN_FAILED:
         return PipelineConfig(
             start_from=PipelineStage.RESEARCH,
             stop_after=PipelineStage.RESEARCH,
-            verification_enabled=False,
+            verification_enabled=verification_enabled,
+            verification_tier=verification_tier,
             failed_only=True,
         )
     msg = f"Operation not yet implemented: {operation.value}"
@@ -114,6 +136,7 @@ def build_pipeline_fn(
     targets: list[str] | None = None,
     model_name: str | None = None,
     worker_count: int | None = None,
+    verification_mode: str = "standard",
 ) -> PipelineFn:
     """Create a pipeline_fn bound to a workspace + operation.
 
@@ -182,7 +205,12 @@ def build_pipeline_fn(
             store = StateStore(db_path=workspace_path / ".recon" / "state.db")
             await store.initialize()
 
-            config = pipeline_config_for_operation(operation)
+            normalized_verification = (verification_mode or "standard").strip().lower()
+            config = _pipeline_config_for_operation(
+                operation,
+                verification_enabled=(normalized_verification != "standard"),
+                verification_tier=normalized_verification if normalized_verification in {"verified", "deep"} else "verified",
+            )
             if targets is not None:
                 from dataclasses import replace
 
@@ -280,9 +308,17 @@ def _collect_output_files(workspace_root: Path) -> list[dict[str, str]]:
     """Collect output file paths from a completed pipeline run.
 
     Returns a list of {label, path} dicts for files the user would
-    want to open: executive summary, theme files, distilled files.
+    want to open: dossiers, executive summary, theme files, distilled files.
     """
     output_files: list[dict[str, str]] = []
+
+    competitors_dir = workspace_root / "competitors"
+    if competitors_dir.is_dir():
+        for dossier_file in sorted(competitors_dir.glob("*.md")):
+            output_files.append({
+                "label": f"Dossier: {dossier_file.stem.replace('_', ' ').replace('-', ' ').title()}",
+                "path": str(dossier_file),
+            })
 
     summary_path = workspace_root / "executive_summary.md"
     if summary_path.exists():

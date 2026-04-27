@@ -86,17 +86,18 @@ class DescribeScreen(ReconScreen):
     }
     """
 
-    def __init__(self, output_dir: Path) -> None:
+    def __init__(self, output_dir: Path, initial_description: str = "") -> None:
         super().__init__()
         self._output_dir = output_dir
         self._editing_keys = False
+        self._initial_description = initial_description
 
     def compose_body(self) -> ComposeResult:
         keys = load_api_keys(workspace_root=self._output_dir)
 
         with Vertical(id="describe-container"):
             yield Static(
-                "[bold #DDEDC4]── DESCRIBE YOUR SPACE ──[/]\n\n"
+                "[bold #DDEDC4]▒ DESCRIBE YOUR SPACE ▒[/]\n\n"
                 "[#a59a86]Describe your company, product, or the competitive space you want\n"
                 "to research. A sentence or two is enough — we'll figure out the rest.[/]",
             )
@@ -104,7 +105,7 @@ class DescribeScreen(ReconScreen):
             yield TextArea(id="describe-area")
             yield Static("")
             yield Static(
-                "[bold #DDEDC4]── API KEYS ──[/] "
+                "[bold #DDEDC4]▒ API KEYS ▒[/] "
                 "[#a59a86]stored in .env (persists across sessions)[/]",
                 id="api-keys-header",
             )
@@ -139,6 +140,10 @@ class DescribeScreen(ReconScreen):
     def on_mount(self) -> None:
         # Hide key inputs initially, show status
         self._set_key_edit_mode(False)
+        try:
+            self.query_one("#describe-area", TextArea).text = self._initial_description
+        except Exception:
+            pass
         # Do NOT pre-fill password inputs — loading masked keys into
         # editable fields risks overwriting good keys with stale values.
         # The status display shows whether keys are saved.

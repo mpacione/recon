@@ -117,8 +117,9 @@ class TestWelcomeScreen:
     async def test_renders_primary_action_buttons(self, welcome_app) -> None:
         app, _ = welcome_app
         async with app.run_test(size=(120, 40)):
-            assert app.query_one("#welcome-open", Button) is not None
+            assert app.query_one("#welcome-open-path", Button) is not None
             assert app.query_one("#welcome-new", Button) is not None
+            assert app.query_one("#welcome-next", Button) is not None
 
     async def test_shows_no_recent_message_when_empty(self, welcome_app) -> None:
         app, _ = welcome_app
@@ -129,12 +130,31 @@ class TestWelcomeScreen:
     async def test_shows_recent_projects(self, welcome_app) -> None:
         app, json_path = welcome_app
         manager = RecentProjectsManager(json_path)
-        manager.add(Path("/tmp/acme"), "Acme CI")
-        manager.add(Path("/tmp/fintech"), "Fintech Scan")
+        acme = json_path.parent / "acme"
+        fintech = json_path.parent / "fintech"
+        acme.mkdir()
+        fintech.mkdir()
+        manager.add(acme, "Acme CI")
+        manager.add(fintech, "Fintech Scan")
 
         async with app.run_test(size=(120, 40)):
             recent_items = app.query(".recent-item")
             assert len(recent_items) == 2
+
+    async def test_filters_missing_recent_projects(self, welcome_app, tmp_path: Path) -> None:
+        app, json_path = welcome_app
+        manager = RecentProjectsManager(json_path)
+        existing = tmp_path / "existing-project"
+        existing.mkdir()
+        missing = tmp_path / "missing-project"
+        manager.add(missing, "Missing Project")
+        manager.add(existing, "Existing Project")
+
+        async with app.run_test(size=(120, 40)):
+            recent_items = list(app.query(".recent-item"))
+            assert len(recent_items) == 1
+            assert "Existing Project" in str(recent_items[0].content)
+            assert "Missing Project" not in str(recent_items[0].content)
 
     async def test_renders_recon_banner_in_intro(self, welcome_app) -> None:
         app, _ = welcome_app

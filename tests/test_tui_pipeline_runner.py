@@ -106,6 +106,34 @@ class TestPipelineConfigForOperation:
 
 
 class TestBuildPipelineFn:
+    async def test_pipeline_fn_forwards_verification_mode_to_pipeline_config(
+        self, tmp_path: Path, monkeypatch,
+    ) -> None:
+        ws_dir = _setup_workspace(tmp_path / "ws")
+        from recon.workspace import Workspace
+
+        Workspace.open(ws_dir).create_profile("Alpha")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+
+        async def fake_execute(self, run_id: str) -> None:
+            assert self.config.verification_enabled is True
+            assert self.config.verification_tier == "deep"
+            await self.progress_callback("research", "start")  # type: ignore[misc]
+
+        with patch("recon.pipeline.Pipeline.execute", fake_execute):
+            pipeline_fn = build_pipeline_fn(
+                workspace_path=ws_dir,
+                operation=Operation.FULL_PIPELINE,
+                verification_mode="deep",
+            )
+
+            app = _RunTestApp()
+            async with app.run_test(size=(120, 40)) as pilot:
+                screen = app.query_one(RunScreen)
+                screen.start_pipeline(pipeline_fn)
+                await pilot.pause()
+                await pilot.pause()
+
     async def test_pipeline_fn_updates_phase_and_progress(
         self, tmp_path: Path, monkeypatch
     ) -> None:

@@ -26,13 +26,21 @@ class TestRunScreen:
         async with app.run_test(size=(120, 40)):
             monitor = app.query_one(StageMonitor)
             content = str(monitor.render())
-            assert "MONITOR" in content or "waiting" in content.lower()
+            assert "READY" in content or "waiting" in content.lower()
 
     async def test_shows_idle_phase(self) -> None:
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)):
             phase = app.query_one("#run-phase", Static)
             assert "Idle" in str(phase.content)
+
+    async def test_ready_state_mentions_verification_mode(self) -> None:
+        app = _RunTestApp()
+        app._load_plan_settings = lambda: {"verification_mode": "deep"}  # type: ignore[attr-defined]
+        async with app.run_test(size=(120, 40)):
+            ready = app.query_one("#run-empty-state", Static)
+            assert "verification" in str(ready.content).lower()
+            assert "deep" in str(ready.content)
 
     async def test_shows_progress_bar(self) -> None:
         app = _RunTestApp()
@@ -50,10 +58,16 @@ class TestRunScreen:
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
             screen = app.query_one(RunScreen)
+            app._load_plan_settings = lambda: {"verification_mode": "deep", "workers": 5}  # type: ignore[attr-defined]
+            screen._competitor_names = lambda: ["Alpha"]  # type: ignore[method-assign]
+            screen._section_keys = lambda: ["overview"]  # type: ignore[method-assign]
             screen.current_phase = "research"
             await pilot.pause()
             phase = app.query_one("#run-phase", Static)
             assert "Research" in str(phase.content)
+            ready = app.query_one("#run-empty-state", Static)
+            assert "companies" in str(ready.content)
+            assert "RESEARCH" in str(ready.content)
 
     async def test_update_progress(self) -> None:
         app = _RunTestApp()
@@ -174,6 +188,22 @@ class TestRunScreen:
             assert cancel.is_set()
             assert pause.is_set(), "Stop should release the pause event"
 
+    async def test_action_stop_freezes_monitor_elapsed_immediately(self) -> None:
+        import asyncio
+
+        app = _RunTestApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            cancel = asyncio.Event()
+            app._pipeline_cancel_event = cancel
+
+            screen = app.query_one(RunScreen)
+            screen._monitor.state.started_at = 1.0
+
+            screen.action_stop()
+            await pilot.pause()
+
+            assert screen._monitor.state.ended_at is not None
+
     async def test_action_stop_with_no_active_pipeline_notifies(self) -> None:
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
@@ -248,10 +278,11 @@ class TestRunScreenKeybindings:
     async def test_renders_run_control_buttons(self) -> None:
         app = _RunTestApp()
         async with app.run_test(size=(120, 40)):
+            assert app.query_one("#run-start", Button)
             assert app.query_one("#run-pause", Button)
             assert app.query_one("#run-stop", Button)
-            assert app.query_one("#run-output", Button)
             assert app.query_one("#run-back", Button)
+            assert app.query_one("#run-next", Button)
 
     async def test_action_back_switches_to_dashboard_mode(self) -> None:
         switch_calls: list[str] = []

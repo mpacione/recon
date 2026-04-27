@@ -12,6 +12,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
+from recon.section_library import all_sections
+
 
 class WizardPhase(StrEnum):
     IDENTITY = "identity"
@@ -48,12 +50,12 @@ _SECTION_RECOMMENDATIONS: dict[DecisionContext, list[str]] = {
         "overview",
         "capabilities",
         "pricing",
-        "enterprise",
+        "financial_health",
         "strategic_notes",
     ],
     DecisionContext.POSITIONING: [
         "capabilities",
-        "developer_love",
+        "brand_market",
         "head_to_head",
         "pricing",
     ],
@@ -61,13 +63,15 @@ _SECTION_RECOMMENDATIONS: dict[DecisionContext, list[str]] = {
         "overview",
         "capabilities",
         "pricing",
-        "developer_love",
+        "distribution_gtm",
+        "customer_segments",
     ],
     DecisionContext.EXECUTIVE_BRIEFING: [
         "overview",
         "capabilities",
         "enterprise",
         "head_to_head",
+        "leadership_strategy",
         "strategic_notes",
     ],
 }
@@ -99,10 +103,30 @@ _DEFAULT_SOURCE_PREFERENCES: dict[str, dict[str, list[str]]] = {
         "secondary": ["analyst reports", "enterprise review sites"],
         "avoid": ["vendor press releases without verification"],
     },
-    "developer_love": {
+    "brand_market": {
         "primary": ["Hacker News", "Reddit", "dev.to", "Stack Overflow"],
         "secondary": ["Twitter/X", "Discord communities"],
         "avoid": ["sponsored content", "vendor press releases"],
+    },
+    "customer_segments": {
+        "primary": ["official website", "case studies", "customer stories"],
+        "secondary": ["review sites", "analyst reports", "job postings"],
+        "avoid": ["vague positioning copy without customer evidence"],
+    },
+    "distribution_gtm": {
+        "primary": ["official website", "store locators", "partner directories"],
+        "secondary": ["industry news", "marketplace listings", "channel partner pages"],
+        "avoid": ["generic launch copy without distribution evidence"],
+    },
+    "financial_health": {
+        "primary": ["earnings", "investor relations", "funding databases"],
+        "secondary": ["industry reporting", "hiring signals", "executive interviews"],
+        "avoid": ["rumors", "unsourced speculation"],
+    },
+    "leadership_strategy": {
+        "primary": ["leadership pages", "interviews", "shareholder letters"],
+        "secondary": ["conference talks", "press releases", "earnings calls"],
+        "avoid": ["generic bios without strategic substance"],
     },
     "head_to_head": {
         "primary": ["official comparison pages", "feature matrices"],
@@ -118,64 +142,7 @@ _DEFAULT_SOURCE_PREFERENCES: dict[str, dict[str, list[str]]] = {
 
 
 class DefaultSections:
-    ALL: list[dict[str, Any]] = [
-        {
-            "key": "overview",
-            "title": "Overview",
-            "description": "High-level company and product summary.",
-            "allowed_formats": ["prose"],
-            "preferred_format": "prose",
-        },
-        {
-            "key": "capabilities",
-            "title": "Capabilities",
-            "description": "Core product capabilities with ratings.",
-            "allowed_formats": ["rated_table", "prose"],
-            "preferred_format": "rated_table",
-        },
-        {
-            "key": "pricing",
-            "title": "Pricing",
-            "description": "Pricing tiers, free plan, enterprise options.",
-            "allowed_formats": ["table", "key_value"],
-            "preferred_format": "table",
-        },
-        {
-            "key": "integration",
-            "title": "Integration Ecosystem",
-            "description": "API surface, marketplace, partner integrations.",
-            "allowed_formats": ["status_table", "prose"],
-            "preferred_format": "status_table",
-        },
-        {
-            "key": "enterprise",
-            "title": "Enterprise Readiness",
-            "description": "Compliance, SSO, audit, data residency.",
-            "allowed_formats": ["status_table", "key_value"],
-            "preferred_format": "status_table",
-        },
-        {
-            "key": "developer_love",
-            "title": "Developer Love",
-            "description": "Community sentiment, quotes, traction signals.",
-            "allowed_formats": ["key_value", "bullet_list", "prose"],
-            "preferred_format": "key_value",
-        },
-        {
-            "key": "head_to_head",
-            "title": "Head-to-Head",
-            "description": "Direct comparison against your products.",
-            "allowed_formats": ["comparison_table", "prose"],
-            "preferred_format": "comparison_table",
-        },
-        {
-            "key": "strategic_notes",
-            "title": "Strategic Notes",
-            "description": "Watch signals, partnership potential, M&A indicators.",
-            "allowed_formats": ["prose", "bullet_list"],
-            "preferred_format": "prose",
-        },
-    ]
+    ALL: list[dict[str, Any]] = all_sections()
 
 
 _DEFAULT_RATING_SCALES: dict[str, dict[str, Any]] = {

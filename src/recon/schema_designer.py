@@ -13,106 +13,34 @@ from typing import Any
 
 from recon.llm import LLMClient  # noqa: TCH001
 from recon.logging import get_logger
+from recon.section_library import all_sections
 
 _log = get_logger(__name__)
 
 
 SECTION_POOL: list[dict[str, str]] = [
     {
-        "key": "overview",
-        "title": "Overview",
-        "description": "Company background, founding, positioning, key facts",
-        "when_relevant": "always",
-    },
-    {
-        "key": "product_lineup",
-        "title": "Product Lineup",
-        "description": "Products, models, specs, price points, target segments",
-        "when_relevant": "product companies",
-    },
-    {
-        "key": "technology_ip",
-        "title": "Technology & IP",
-        "description": "Core tech, patents, engineering approach, quality metrics",
-        "when_relevant": "tech, hardware, deep-tech",
-    },
-    {
-        "key": "pricing_business",
-        "title": "Pricing & Business Model",
-        "description": "Revenue model, pricing tiers, free tier, market position",
-        "when_relevant": "always",
-    },
-    {
-        "key": "distribution_gtm",
-        "title": "Distribution & GTM",
-        "description": "Sales channels, go-to-market, availability, partnerships",
-        "when_relevant": "physical products, SaaS",
-    },
-    {
-        "key": "developer_experience",
-        "title": "Developer Experience",
-        "description": "API quality, SDK, docs, DX friction, time to first value",
-        "when_relevant": "dev tools, APIs, platforms",
-    },
-    {
-        "key": "enterprise_features",
-        "title": "Enterprise Features",
-        "description": "Admin controls, SSO, compliance, audit, governance",
-        "when_relevant": "B2B, enterprise SaaS",
-    },
-    {
-        "key": "community_ecosystem",
-        "title": "Community & Ecosystem",
-        "description": "User community, open-source, marketplace, ecosystem health",
-        "when_relevant": "open-source, platforms, communities",
-    },
-    {
-        "key": "customer_segments",
-        "title": "Customer Segments",
-        "description": "Target customers, ICPs, segment breakdown, use cases",
-        "when_relevant": "B2B and B2C companies",
-    },
-    {
-        "key": "regulatory_compliance",
-        "title": "Regulatory & Compliance",
-        "description": "Industry regulations, certifications, compliance posture",
-        "when_relevant": "healthcare, fintech, regulated industries",
-    },
-    {
-        "key": "partnerships",
-        "title": "Partnerships & Integrations",
-        "description": "Key partnerships, integration ecosystem, API surface",
-        "when_relevant": "platform businesses, API-first",
-    },
-    {
-        "key": "team_leadership",
-        "title": "Team & Leadership",
-        "description": "Founders, leadership team, key hires, org structure",
-        "when_relevant": "startups, VC-backed companies",
-    },
-    {
-        "key": "funding_financials",
-        "title": "Funding & Financials",
-        "description": "Funding rounds, revenue, financials, investors",
-        "when_relevant": "public companies, funded startups",
-    },
-    {
-        "key": "head_to_head",
-        "title": "Head-to-Head Comparison",
-        "description": "Direct comparison against the user's company on key dimensions",
-        "when_relevant": "always",
-    },
-    {
-        "key": "market_position",
-        "title": "Market Position & Trends",
-        "description": "Market share, growth trajectory, industry trends",
-        "when_relevant": "always",
-    },
+        "key": str(section["key"]),
+        "title": str(section["title"]),
+        "description": str(section["description"]),
+        "when_relevant": str(section.get("when_relevant", "often relevant")),
+    }
+    for section in all_sections()
 ]
 
 _POOL_BY_KEY = {s["key"]: s for s in SECTION_POOL}
 
-_DEFAULT_SECTIONS = ["overview", "pricing_business", "market_position", "head_to_head"]
+_DEFAULT_SECTIONS = [
+    "overview",
+    "capabilities",
+    "pricing",
+    "customer_segments",
+    "distribution_gtm",
+    "integration",
+    "enterprise",
+    "head_to_head",
+    "strategic_notes",
+]
 
 _SELECT_SYSTEM_PROMPT = """\
 You are a competitive intelligence research planner. Given a description of a \
@@ -126,7 +54,7 @@ Available sections:
 
 Rules:
 - Select 5-8 sections that are most relevant to this specific space.
-- Always include: overview, pricing_business, market_position.
+- Always include: overview, pricing, customer_segments.
 - Only include sections that will produce meaningful differentiated research.
 - Prefer sections that highlight competitive dynamics in this specific industry."""
 

@@ -19,9 +19,10 @@ from textual.reactive import reactive
 from textual.widgets import Button, Static
 
 from recon.logging import get_logger
+from recon.events import RunPaused, RunResumed, publish
 from recon.tui.shell import ReconScreen
 from recon.tui.stage_monitor import StageMonitor
-from recon.tui.widgets import button_label, format_progress_bar
+from recon.tui.widgets import action_button, format_progress_bar
 
 _log = get_logger(__name__)
 
@@ -32,10 +33,12 @@ class RunScreen(ReconScreen):
     """Live pipeline monitor — v4 AGENTS tab."""
 
     tab_key = "agents"
-    flow_step = 4
     show_activity_feed = False
 
     BINDINGS = [
+        Binding("enter", "run", "run", show=False),
+        Binding("space", "next", "next", show=False),
+        Binding("r", "run", "run", show=False),
         Binding("p", "pause", "pause/resume"),
         Binding("s", "stop", "stop"),
         Binding("b", "back", "back to dashboard"),
@@ -48,8 +51,8 @@ class RunScreen(ReconScreen):
     ]
 
     keybind_hints = (
-        "[#DDEDC4]p[/] pause/resume · [#DDEDC4]s[/] stop · "
-        "[#DDEDC4]o[/] output · [#DDEDC4]esc[/] back · [#DDEDC4]q[/] quit"
+        "[#DDEDC4]↲[/] run · [#DDEDC4]p[/] pause/resume · [#DDEDC4]s[/] stop · "
+        "[#DDEDC4]space[/] next · [#DDEDC4]esc[/] back · [#DDEDC4]q[/] quit"
     )
 
     DEFAULT_CSS = """
@@ -68,6 +71,11 @@ class RunScreen(ReconScreen):
     #run-actions Button {
         margin: 0 1 0 0;
         min-width: 15;
+    }
+    #run-empty-state {
+        height: auto;
+        margin: 0 0 1 0;
+        color: #a59a86;
     }
     #run-workers {
         height: auto;
@@ -132,18 +140,20 @@ class RunScreen(ReconScreen):
 
 
     def compose_body(self) -> ComposeResult:
-        # v2: StageMonitor replaces the legacy phase/progress/cost
-        # statics and the CompetitorGrid+WorkerPanel combo with a
-        # two-column layout (competitor list + worker cards).
         with Horizontal(id="run-actions"):
-            yield Button(button_label("PAUSE/RESUME", "P"), id="run-pause")
-            yield Button(button_label("STOP", "S"), id="run-stop")
-            yield Button(button_label("OUTPUT", "O"), id="run-output")
-            yield Button(button_label("BACK", "Esc"), id="run-back")
+            yield action_button("BACK", "Esc", button_id="run-back")
+            yield action_button("RUN", "Enter", button_id="run-start", variant="primary")
+            yield action_button("PAUSE/RESUME", "P", button_id="run-pause")
+            yield action_button("STOP", "S", button_id="run-stop")
+            yield Static("", classes="action-spacer")
+            yield action_button("NEXT", "Space", button_id="run-next")
+
+        yield Static(self._render_ready_state(), id="run-empty-state")
 
         self._monitor = StageMonitor(
             competitor_names=self._competitor_names(),
             section_keys=self._section_keys(),
+            verification_mode=self._verification_mode(),
         )
         yield self._monitor
 
@@ -156,14 +166,16 @@ class RunScreen(ReconScreen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        if button_id == "run-pause":
+        if button_id == "run-start":
+            self.action_run()
+        elif button_id == "run-pause":
             self.action_pause()
         elif button_id == "run-stop":
             self.action_stop()
-        elif button_id == "run-output":
-            self.action_goto_output()
         elif button_id == "run-back":
             self.action_back()
+        elif button_id == "run-next":
+            self.action_next()
         else:
             return
         event.stop()
@@ -196,9 +208,36 @@ class RunScreen(ReconScreen):
         except Exception:
             return []
 
+    def _verification_mode(self) -> str:
+        try:
+            settings_loader = getattr(self.app, "_load_plan_settings", None)
+            if callable(settings_loader):
+                settings = settings_loader()
+                if isinstance(settings, dict):
+                    return str(settings.get("verification_mode", "standard"))
+        except Exception:
+            pass
+        return "standard"
+
+    def _configured_workers(self) -> int:
+        try:
+            settings_loader = getattr(self.app, "_load_plan_settings", None)
+            if callable(settings_loader):
+                settings = settings_loader()
+                if isinstance(settings, dict):
+                    return int(settings.get("workers", 5))
+        except Exception:
+            pass
+        return 5
+
     def action_back(self) -> None:
         _log.info("RunScreen action_back")
         self.app.switch_mode("dashboard")
+
+    def action_run(self) -> None:
+        _log.info("RunScreen action_run")
+        with contextlib.suppress(Exception):
+            self.app.launch_pipeline_from_plan()
 
     def action_goto_output(self) -> None:
         """Jump to the OUTPUT tab — matches the web UI's post-run flow.
@@ -211,6 +250,9 @@ class RunScreen(ReconScreen):
         _log.info("RunScreen action_goto_output")
         with contextlib.suppress(Exception):
             self.app.action_goto_tab("output")
+
+    def action_next(self) -> None:
+        self.action_goto_output()
 
     def action_pause(self) -> None:
         _log.info("RunScreen action_pause")
@@ -235,6 +277,8 @@ class RunScreen(ReconScreen):
         if pause_event is not None and not pause_event.is_set():
             pause_event.set()
         self.current_phase = "stopping"
+        with contextlib.suppress(Exception):
+            self._monitor.freeze_clock()
         self.add_activity("Stop requested -- waiting for current stage to finish")
         self.app.notify("Stop requested", severity="warning")
 
@@ -260,18 +304,28 @@ class RunScreen(ReconScreen):
             # Currently running -> pause
             pause_event.clear()
             self.current_phase = "paused"
+            with contextlib.suppress(Exception):
+                self._monitor.pause_clock()
+            with contextlib.suppress(Exception):
+                publish(RunPaused())
             self.add_activity("Pipeline paused -- press p again to resume")
             self.app.notify("Pipeline paused", severity="information")
         else:
             # Currently paused -> resume
             pause_event.set()
             self.current_phase = "running"
+            with contextlib.suppress(Exception):
+                self._monitor.resume_clock()
+            with contextlib.suppress(Exception):
+                publish(RunResumed())
             self.add_activity("Pipeline resumed")
             self.app.notify("Pipeline resumed", severity="information")
 
     def watch_current_phase(self, value: str) -> None:
         with contextlib.suppress(Exception):
             self.query_one("#run-phase", Static).update(self._format_phase())
+        with contextlib.suppress(Exception):
+            self.query_one("#run-empty-state", Static).update(self._render_ready_state())
         # Phase changes the bar color/state, so refresh the bar too
         with contextlib.suppress(Exception):
             self.query_one("#run-progress", Static).update(self._format_progress())
@@ -357,7 +411,7 @@ class RunScreen(ReconScreen):
 
         lines = [
             "",
-            "[bold #DDEDC4]── RUN COMPLETE ──[/]",
+            "[bold #DDEDC4]▒ RUN COMPLETE ▒[/]",
             "",
             "[#DDEDC4]Output files:[/]",
         ]
@@ -373,3 +427,44 @@ class RunScreen(ReconScreen):
         )
 
         self.add_activity("\n".join(lines))
+
+    def _render_ready_state(self) -> str:
+        competitors = self._competitor_names()
+        sections = self._section_keys()
+        workers = self._configured_workers()
+        verification = self._verification_mode()
+        verification_text = (
+            f"[#DDEDC4]{verification}[/]" if verification != "standard" else "[#787266]off[/]"
+        )
+        if not competitors:
+            return (
+                f"[#a59a86]{len(sections)} sections[/] [#787266]·[/] "
+                f"[#a59a86]verification[/] {verification_text} [#787266]·[/] "
+                f"[#a59a86]{workers} workers[/]\n"
+                "[#787266]No accepted companies yet.[/]\n"
+                "[#a59a86]Go to[/] [#DDEDC4]COMPANIES[/] [#a59a86]and discover or add companies before starting a run.[/]"
+            )
+        if not sections:
+            return (
+                f"[#a59a86]{len(competitors)} companies[/] [#787266]·[/] "
+                f"[#a59a86]verification[/] {verification_text} [#787266]·[/] "
+                f"[#a59a86]{workers} workers[/]\n"
+                "[#787266]No schema sections selected yet.[/]\n"
+                "[#a59a86]Go to[/] [#DDEDC4]SCHEMA[/] [#a59a86]and select at least one section first.[/]"
+            )
+        if self.current_phase in ("idle", "", "done", "cancelled", "error"):
+            return (
+                f"[#DDEDC4]Ready to run[/] [#787266]·[/] "
+                f"[#a59a86]{len(competitors)} companies[/] [#787266]·[/] "
+                f"[#a59a86]{len(sections)} sections[/] [#787266]·[/] "
+                f"[#a59a86]verification[/] {verification_text} [#787266]·[/] "
+                f"[#a59a86]{workers} workers[/]\n"
+                "[#787266]Launch from this screen with[/] [#DDEDC4]RUN [R][/][#787266].[/]"
+            )
+        return (
+            f"[#DDEDC4]{(self.current_phase or 'running').upper()}[/] [#787266]·[/] "
+            f"[#a59a86]{len(competitors)} companies[/] [#787266]·[/] "
+            f"[#a59a86]{len(sections)} sections[/] [#787266]·[/] "
+            f"[#a59a86]verification[/] {verification_text} [#787266]·[/] "
+            f"[#a59a86]{workers} workers[/]"
+        )

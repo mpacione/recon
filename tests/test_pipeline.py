@@ -8,6 +8,8 @@ It tracks state via the StateStore and supports incremental/resumable runs.
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import yaml
+
 from recon.llm import LLMResponse
 from recon.pipeline import Pipeline, PipelineConfig, PipelineStage
 
@@ -108,6 +110,29 @@ class TestPipeline:
 
         assert "stages" in summary
         assert len(summary["stages"]) > 0
+
+    async def test_plan_writes_run_manifest(self, tmp_workspace: Path) -> None:
+        from recon.state import StateStore
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=_mock_llm(),
+        )
+
+        run_id = await pipeline.plan()
+
+        manifest_path = tmp_workspace / ".recon" / "runs" / run_id / "run.yaml"
+        assert manifest_path.exists()
+        manifest = yaml.safe_load(manifest_path.read_text())
+        assert manifest["run_id"] == run_id
+        assert manifest["status"] == "planning"
+        assert manifest["config"]["verification_enabled"] is True
 
     async def test_execute_runs_research_stage(self, tmp_workspace: Path) -> None:
         from recon.state import StateStore

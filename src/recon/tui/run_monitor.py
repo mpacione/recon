@@ -8,7 +8,7 @@ complete, or fail.
 
 Layout (as rendered in the RunScreen body)::
 
-    ── RESEARCH MONITOR ──    00:04:32    $0.42    Workers: 3/5
+    ▒ RESEARCH MONITOR ▒    00:04:32    $0.42    Workers: 3/5
     ──────────────────────────────────────────────────────────────
 
     Dell Technologies     ████████████████░░░░░░░░  5/8   62%
@@ -111,6 +111,9 @@ class RunMonitorState:
     )
     section_keys: list[str] = field(default_factory=list)
     started_at: float | None = None
+    paused_at: float | None = None
+    paused_total: float = 0.0
+    ended_at: float | None = None
     total_cost: float = 0.0
     active_workers: int = 0
     max_workers: int = 5
@@ -146,12 +149,42 @@ class RunMonitorState:
     def elapsed_str(self) -> str:
         if self.started_at is None:
             return "0:00"
-        seconds = int(time.monotonic() - self.started_at)
+        if self.ended_at is not None:
+            now = self.ended_at
+        elif self.paused_at is not None:
+            now = self.paused_at
+        else:
+            now = time.monotonic()
+        seconds = int(max(0.0, now - self.started_at - self.paused_total))
         minutes, secs = divmod(seconds, 60)
         if minutes >= 60:
             hours, minutes = divmod(minutes, 60)
             return f"{hours}:{minutes:02d}:{secs:02d}"
         return f"{minutes}:{secs:02d}"
+
+    @property
+    def is_clock_running(self) -> bool:
+        return self.started_at is not None and self.paused_at is None and self.ended_at is None
+
+    def pause_clock(self) -> None:
+        if self.is_clock_running:
+            self.paused_at = time.monotonic()
+
+    def resume_clock(self) -> None:
+        if self.paused_at is None or self.ended_at is not None:
+            return
+        resumed_at = time.monotonic()
+        self.paused_total += max(0.0, resumed_at - self.paused_at)
+        self.paused_at = None
+
+    def freeze_clock(self) -> None:
+        if self.started_at is None or self.ended_at is not None:
+            return
+        frozen_at = self.paused_at if self.paused_at is not None else time.monotonic()
+        if self.paused_at is not None:
+            self.paused_total += max(0.0, frozen_at - self.paused_at)
+            self.paused_at = None
+        self.ended_at = frozen_at
 
     @property
     def progress_fraction(self) -> float:
@@ -332,7 +365,7 @@ class CompetitorGrid(Static):
         pct = f"{s.progress_fraction * 100:.0f}%" if total > 0 else "0%"
 
         lines.append(
-            f"[bold #DDEDC4]── RESEARCH MONITOR ──[/]  "
+            f"[bold #DDEDC4]▒ RESEARCH MONITOR ▒[/]  "
             f"[#a59a86]{elapsed}[/]  "
             f"[#DDEDC4]{cost}[/]  "
             f"[#a59a86]Workers:[/] [#DDEDC4]{workers}[/]"

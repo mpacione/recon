@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 from recon.llm import LLMClient  # noqa: TCH001
 from recon.logging import get_logger
+from recon.provenance import ProvenanceRecorder
 
 _log = get_logger(__name__)
 
@@ -34,6 +35,27 @@ class DiscoveryCandidate:
     provenance: str
     suggested_tier: CompetitorTier
     accepted: bool = True
+
+    def to_dict(self) -> dict[str, str | bool]:
+        return {
+            "name": self.name,
+            "url": self.url,
+            "blurb": self.blurb,
+            "provenance": self.provenance,
+            "suggested_tier": self.suggested_tier.value,
+            "accepted": self.accepted,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> DiscoveryCandidate:
+        return cls(
+            name=str(data.get("name", "")),
+            url=str(data.get("url", "")),
+            blurb=str(data.get("blurb", "")),
+            provenance=str(data.get("provenance", "")),
+            suggested_tier=_tier_from_string(str(data.get("suggested_tier", "unknown"))),
+            accepted=bool(data.get("accepted", True)),
+        )
 
 
 def _extract_domain(url: str) -> str:
@@ -118,6 +140,32 @@ class DiscoveryState:
         accepted = len(self.accepted_candidates)
         rejected = len(self.rejected_candidates)
         return f"Accepted: {accepted}, Rejected: {rejected}"
+
+    def to_dict(self) -> dict:
+        return {
+            "round_count": self._round_count,
+            "candidates": [candidate.to_dict() for candidate in self._candidates],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> DiscoveryState:
+        state = cls()
+        if not isinstance(data, dict):
+            return state
+        candidates = data.get("candidates", [])
+        if isinstance(candidates, list):
+            for raw in candidates:
+                if not isinstance(raw, dict):
+                    continue
+                candidate = DiscoveryCandidate.from_dict(raw)
+                domain = _extract_domain(candidate.url)
+                if domain not in state._seen_domains:
+                    state._seen_domains.add(domain)
+                    state._candidates.append(candidate)
+        round_count = data.get("round_count", 0)
+        if isinstance(round_count, int) and round_count >= 0:
+            state._round_count = round_count
+        return state
 
 
 def _tier_from_string(value: str) -> CompetitorTier:
@@ -246,11 +294,13 @@ class DiscoveryAgent:
         domain: str,
         seed_competitors: list[str] | None = None,
         use_web_search: bool = True,
+        provenance: ProvenanceRecorder | None = None,
     ) -> None:
         self._client = llm_client
         self._domain = domain
         self._seeds = seed_competitors or []
         self._use_web_search = use_web_search
+        self._provenance = provenance
 
     async def search(
         self,
@@ -324,6 +374,26 @@ class DiscoveryAgent:
             "DiscoveryAgent.search parsed %d candidates from response",
             len(candidates),
         )
+        if self._provenance is not None:
+            self._provenance.record_discovery_search(
+                provider="anthropic_web_search" if tools else "anthropic_knowledge",
+                domain=self._domain,
+                round_count=state.round_count if state else 0,
+                system_prompt=_SEARCH_SYSTEM_PROMPT if tools else _SEARCH_SYSTEM_PROMPT_NO_WEB,
+                user_prompt=user_prompt,
+                tools=tools,
+                response=response,
+                candidates=[
+                    {
+                        "name": candidate.name,
+                        "url": candidate.url,
+                        "blurb": candidate.blurb,
+                        "provenance": candidate.provenance,
+                        "suggested_tier": candidate.suggested_tier.value,
+                    }
+                    for candidate in candidates
+                ],
+            )
         return candidates
 
     async def analyze_patterns(self, state: DiscoveryState) -> str:

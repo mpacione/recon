@@ -22,7 +22,7 @@ from textual.widgets import Button, Input, Static
 
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
-from recon.tui.widgets import button_label
+from recon.tui.widgets import action_button, button_label
 
 _log = get_logger(__name__)
 
@@ -191,7 +191,7 @@ class _PromptModal(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="prompt-modal"):
-            yield Static(f"[bold #DDEDC4]── {self._title} ──[/]")
+            yield Static(f"[bold #DDEDC4]▒ {self._title} ▒[/]")
             yield Static(self._copy, id="prompt-copy")
             yield Input(placeholder=self._placeholder, id=self._input_id)
             with Horizontal(id="prompt-actions"):
@@ -332,6 +332,7 @@ class WelcomeScreen(ReconScreen):
         Binding("down", "cursor_down", "down", show=False),
         Binding("up", "cursor_up", "up", show=False),
         Binding("enter", "open_selected", "open", show=False),
+        Binding("space", "open_selected", "next", show=False),
         # Numeric fast-jump — same contract as before, still fires
         # `action_open_recent` so the MISSING-workspace guard applies.
         Binding("1", "open_recent(0)", "recent 1", show=False),
@@ -348,14 +349,14 @@ class WelcomeScreen(ReconScreen):
     show_log_pane = False
     show_activity_feed = False
     show_run_status_bar = False
-    show_tab_strip = False
-    # Welcome has no workspace loaded, so the "recon · no workspace"
-    # header bar is just noise. TabStrip above carries the screen
-    # identity.
+    show_tab_strip = True
+    # HOME is the root screen. It keeps the global nav visible even
+    # before a workspace is selected.
     show_header_bar = False
     keybar_items = (
         ("↑↓", "NAV"),
         ("↲", "OPEN"),
+        ("SPACE", "NEXT"),
         ("N", "NEW"),
         ("O", "OPEN PATH"),
         ("1-9", "RECENT"),
@@ -363,7 +364,7 @@ class WelcomeScreen(ReconScreen):
     )
 
     keybind_hints = (
-        "[#DDEDC4]↑↓[/] nav · [#DDEDC4]↲[/] open · [#DDEDC4]n[/] new · "
+        "[#DDEDC4]↑↓[/] nav · [#DDEDC4]↲[/] open · [#DDEDC4]space[/] next · [#DDEDC4]n[/] new · "
         "[#DDEDC4]o[/] open path · [#DDEDC4]1-9[/] recent · [#DDEDC4]q[/] quit"
     )
 
@@ -395,7 +396,7 @@ class WelcomeScreen(ReconScreen):
                 id="welcome-intro",
             )
 
-            projects = self._manager.load()
+            projects = self._visible_projects()
             meta = (
                 f"{len(projects)} project{'s' if len(projects) != 1 else ''}"
                 if projects
@@ -411,14 +412,23 @@ class WelcomeScreen(ReconScreen):
                     yield from self._compose_project_rows(projects)
                 with Horizontal(id="welcome-projects-foot"):
                     yield Static("[#787266][↑↓][/][#686359] keyboard nav[/]", id="welcome-foot-copy")
-                    yield Button(
-                        button_label("OPEN", "↲"),
-                        id="welcome-open",
+                    yield action_button(
+                        "NEW",
+                        "N",
+                        button_id="welcome-new",
                         classes="welcome-action",
                     )
-                    yield Button(
-                        button_label("NEW", "N"),
-                        id="welcome-new",
+                    yield action_button(
+                        "OPEN PATH",
+                        "O",
+                        button_id="welcome-open-path",
+                        classes="welcome-action",
+                    )
+                    yield Static("", classes="action-spacer")
+                    yield action_button(
+                        "NEXT",
+                        "Space",
+                        button_id="welcome-next",
                         variant="primary",
                         classes="welcome-action",
                     )
@@ -448,6 +458,18 @@ class WelcomeScreen(ReconScreen):
                 # selector still match.
                 classes="proj-row recent-item",
             )
+
+    def _visible_projects(self) -> list[RecentProject]:
+        """Recent projects that still resolve to an existing directory.
+
+        Keep stale entries on disk for now, but do not surface them in the
+        HOME UI or keyboard navigation.
+        """
+        return [
+            project
+            for project in self._manager.load()
+            if self._is_valid_workspace_path(project.path)
+        ]
 
     def _render_project_row(
         self, index: int, project: RecentProject, selected: bool,
@@ -515,20 +537,22 @@ class WelcomeScreen(ReconScreen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "welcome-new":
             self.action_new()
-        elif event.button.id == "welcome-open":
+        elif event.button.id == "welcome-open-path":
+            self.action_open()
+        elif event.button.id == "welcome-next":
             self.action_open_selected()
 
     # -- keyboard row nav -------------------------------------------------
 
     def action_cursor_down(self) -> None:
-        total = len(self._manager.load()[:9])
+        total = len(self._visible_projects()[:9])
         if total == 0:
             return
         self._selected_index = (self._selected_index + 1) % total
         self._refresh_selection()
 
     def action_cursor_up(self) -> None:
-        total = len(self._manager.load()[:9])
+        total = len(self._visible_projects()[:9])
         if total == 0:
             return
         self._selected_index = (self._selected_index - 1) % total
@@ -546,7 +570,7 @@ class WelcomeScreen(ReconScreen):
         ``self._selected_index``. Single-query walk; cheap enough to
         do on every keystroke.
         """
-        projects = self._manager.load()
+        projects = self._visible_projects()
         for i, project in enumerate(projects[:9]):
             try:
                 static = self.query_one(f"#recent-item-{i}", Static)
@@ -559,7 +583,7 @@ class WelcomeScreen(ReconScreen):
             )
 
     def action_open_recent(self, index: int) -> None:
-        projects = self._manager.load()
+        projects = self._visible_projects()
         if not (0 <= index < len(projects)):
             return
         # Track the keystroke-selected row so the ↑↓ cursor and the

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from rich.text import Text
 from textual.message import Message
-from textual.widgets import Static
+from textual.widgets import Button, Static
 
 from recon.tui.models.curation import ThemeCurationModel  # noqa: TCH001
 from recon.tui.models.monitor import RunMonitorModel, WorkerStatus  # noqa: TCH001
@@ -26,6 +26,30 @@ def button_label(label: str, hotkey: str | None = None) -> Text:
     if hotkey:
         return Text(f"{label} [{hotkey}]")
     return Text(label)
+
+
+def action_button(
+    label: str,
+    hotkey: str | None = None,
+    *,
+    button_id: str | None = None,
+    variant: str = "default",
+    classes: str | None = None,
+) -> Button:
+    """Return a click-only action button for full-screen TUI views.
+
+    Recon's full-screen surfaces are keyboard-first. Buttons exist for mouse
+    support and discoverability, but they should not take focus and steal
+    ``Enter`` from screen-level actions.
+    """
+    button = Button(
+        button_label(label, hotkey),
+        id=button_id,
+        variant=variant,
+        classes=classes,
+    )
+    button.can_focus = False
+    return button
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +72,7 @@ class ChecklistItem(Static):
 
     DEFAULT_CSS = """
     ChecklistItem {
-        height: 1;
+        height: auto;
         width: 100%;
         padding: 0 1;
     }
@@ -75,9 +99,11 @@ class ChecklistItem(Static):
         # for empty — mirrors the web UI's Lucide square-check /
         # square-dashed pair so both surfaces read identically.
         marker = "[#DDEDC4]\u25a3[/]" if self._selected else "[#3a3a3a]\u25a2[/]"
-        desc = f"  [#3a3a3a]{self._description}[/]" if self._description else ""
         color = "#DDEDC4" if self._selected else "#a59a86"
-        return f"{marker} [{color}]{self._label}[/]{desc}"
+        title = f"{marker} [{color}]{self._label}[/]"
+        if not self._description:
+            return title
+        return f"{title}\n   [#787266]{self._description}[/]"
 
     @property
     def selected(self) -> bool:

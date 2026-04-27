@@ -18,10 +18,12 @@ class _MonitorTestApp(App):
         self,
         competitor_names: list[str] | None = None,
         section_keys: list[str] | None = None,
+        verification_mode: str = "standard",
     ) -> None:
         super().__init__()
         self._competitor_names = competitor_names or []
         self._section_keys = section_keys or []
+        self._verification_mode = verification_mode
 
     def compose(self) -> ComposeResult:
         from recon.tui.stage_monitor import StageMonitor
@@ -29,6 +31,7 @@ class _MonitorTestApp(App):
         yield StageMonitor(
             competitor_names=self._competitor_names,
             section_keys=self._section_keys,
+            verification_mode=self._verification_mode,
         )
 
 
@@ -165,3 +168,18 @@ class TestStageMonitor:
             content = str(monitor.render())
             assert "[W1]" not in content
             assert "Alpha" in content
+
+    async def test_shows_stage_header_and_active_counts(self) -> None:
+        app = _MonitorTestApp(
+            competitor_names=["Alpha"],
+            section_keys=["overview"],
+            verification_mode="deep",
+        )
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            from recon.tui.stage_monitor import StageMonitor
+
+            monitor = app.query_one(StageMonitor)
+            content = str(monitor.render())
+            assert "READY" in content
+            assert "Active:" in content

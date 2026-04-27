@@ -9,7 +9,9 @@ import pytest
 from recon.cost import (
     CostTracker,
     ModelPricing,
+    SectionCostSpec,
     estimate_full_run,
+    estimate_run_breakdown,
     estimate_section_tokens,
     get_model_pricing,
     list_available_models,
@@ -63,6 +65,55 @@ class TestModelPricing:
         )
 
         assert estimate > 0
+
+    def test_estimate_run_breakdown_reports_per_company_and_fixed_costs(self) -> None:
+        pricing = get_model_pricing("sonnet")
+
+        breakdown = estimate_run_breakdown(
+            pricing,
+            competitor_count=3,
+            sections=[
+                SectionCostSpec(format_type="prose", verification_tier="standard"),
+                SectionCostSpec(format_type="rated_table", verification_tier="verified"),
+            ],
+            verification_mode="verified",
+        )
+
+        assert breakdown.research_per_company > 0
+        assert breakdown.enrichment_per_company > 0
+        assert breakdown.variable_per_company > breakdown.enrichment_per_company
+        assert breakdown.fixed_total > 0
+        assert breakdown.blended_per_company > 0
+        assert breakdown.total_run_cost > breakdown.fixed_total
+
+    def test_global_verification_mode_increases_breakdown_cost(self) -> None:
+        pricing = get_model_pricing("sonnet")
+        sections = [
+            SectionCostSpec(format_type="prose", verification_tier="standard"),
+            SectionCostSpec(format_type="prose", verification_tier="standard"),
+        ]
+
+        standard = estimate_run_breakdown(
+            pricing,
+            competitor_count=4,
+            sections=sections,
+            verification_mode="standard",
+        )
+        verified = estimate_run_breakdown(
+            pricing,
+            competitor_count=4,
+            sections=sections,
+            verification_mode="verified",
+        )
+        deep = estimate_run_breakdown(
+            pricing,
+            competitor_count=4,
+            sections=sections,
+            verification_mode="deep",
+        )
+
+        assert verified.total_run_cost > standard.total_run_cost
+        assert deep.total_run_cost > verified.total_run_cost
 
 
 class TestSectionTokenEstimation:

@@ -17,6 +17,7 @@ from recon.discovery import (
     parse_candidates_response,
 )
 from recon.llm import LLMClient, LLMResponse
+from recon.provenance import ProvenanceRecorder
 
 
 def _make_mock_client(response_text: str) -> LLMClient:
@@ -235,6 +236,31 @@ class TestDiscoveryAgent:
         suggestion = _run(agent.analyze_patterns(state))
 
         assert len(suggestion) > 0
+
+    def test_search_records_discovery_provenance(self, tmp_path) -> None:
+        response = _candidates_json([
+            {
+                "name": "Cursor",
+                "url": "https://cursor.com",
+                "blurb": "AI editor",
+                "provenance": "G2",
+                "suggested_tier": "established",
+            },
+        ])
+        mock_client = _make_mock_client(response)
+        agent = DiscoveryAgent(
+            llm_client=mock_client,
+            domain="Developer Tools",
+            provenance=ProvenanceRecorder.for_discovery(tmp_path),
+        )
+
+        _run(agent.search())
+
+        search_log = tmp_path / ".recon" / "discovery" / "searches.jsonl"
+        assert search_log.exists()
+        payload = json.loads(search_log.read_text().splitlines()[0])
+        assert payload["provider"] == "anthropic_web_search"
+        assert payload["candidates"][0]["url"] == "https://cursor.com"
 
 
 def _run(coro):

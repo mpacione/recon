@@ -135,7 +135,7 @@ class TestSectionRecommendations:
         assert "overview" in recommended
         assert "capabilities" in recommended
         assert "pricing" in recommended
-        assert "enterprise" in recommended
+        assert "financial_health" in recommended
         assert "strategic_notes" in recommended
 
     def test_general_awareness_recommends_all_sections(self) -> None:
@@ -208,9 +208,13 @@ class TestDefaultSections:
             "overview",
             "capabilities",
             "pricing",
+            "customer_segments",
+            "distribution_gtm",
             "integration",
             "enterprise",
-            "developer_love",
+            "brand_market",
+            "financial_health",
+            "leadership_strategy",
             "head_to_head",
             "strategic_notes",
         }
@@ -225,10 +229,10 @@ class TestSourcePreferences:
         assert len(sources["primary"]) > 0
         assert "official pricing pages" in sources["primary"]
 
-    def test_default_sources_for_developer_love(self) -> None:
+    def test_default_sources_for_brand_market(self) -> None:
         state = _state_at_sources_phase()
 
-        sources = state.get_source_preferences("developer_love")
+        sources = state.get_source_preferences("brand_market")
 
         assert "Hacker News" in sources["primary"]
         assert "Reddit" in sources["primary"]

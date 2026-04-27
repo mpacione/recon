@@ -145,7 +145,7 @@ class RunPlannerScreen(ModalScreen[Operation | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="planner-container"):
             with Vertical(id="planner-header"):
-                yield Static("[bold #DDEDC4]── RUN PLANNER ──[/]", id="planner-title")
+                yield Static("[bold #DDEDC4]▒ RUN PLANNER ▒[/]", id="planner-title")
                 yield Static(
                     f"[#a59a86]workspace: {self._competitor_count} competitors · "
                     f"{self._section_count} sections[/]",

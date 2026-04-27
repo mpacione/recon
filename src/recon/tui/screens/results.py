@@ -2,8 +2,7 @@
 
 Two-pane layout mirroring the web UI's OUTPUT tab:
 
-- **Left**: ASCII-tree-style file browser grouped into
-  ``output/``, ``themes/``, ``themes/distilled/``.
+- **Left**: grouped file browser for dossiers, summaries, and themes.
 - **Right**: Markdown preview of the currently-selected file, with
   a reveal-in-Finder action and a fallback stats panel for empty
   workspaces.
@@ -31,7 +30,7 @@ from textual.widgets import Button, Markdown, Static
 
 from recon.logging import get_logger
 from recon.tui.shell import ReconScreen
-from recon.tui.widgets import button_label
+from recon.tui.widgets import action_button
 
 _log = get_logger(__name__)
 
@@ -44,7 +43,7 @@ class _FileEntry:
 
     label: str        # display label ("executive_summary.md")
     path: Path        # absolute path on disk
-    group: str        # "output" / "themes" / "themes/distilled"
+    group: str        # "competitors" / "output" / "themes" / "themes/distilled"
 
 
 class ResultsScreen(ReconScreen):
@@ -62,6 +61,7 @@ class ResultsScreen(ReconScreen):
         # this "REVEAL [↲]"). `l` opens the workspace root instead —
         # useful when you want to browse everything, not just one file.
         Binding("enter", "reveal", "reveal", show=False),
+        Binding("space", "next", "next", show=False),
         Binding("l", "open_folder", "open dir", show=False),
         Binding("v", "view_summary", "View full summary", show=False),
         Binding("b", "back", "Back", show=False),
@@ -70,7 +70,7 @@ class ResultsScreen(ReconScreen):
 
     keybind_hints = (
         "[#DDEDC4]↑↓[/] nav · [#DDEDC4]↲[/] reveal · "
-        "[#DDEDC4]l[/] open dir · [#DDEDC4]esc[/] back · [#DDEDC4]q[/] quit"
+        "[#DDEDC4]l[/] open dir · [#DDEDC4]space[/] next · [#DDEDC4]esc[/] back · [#DDEDC4]q[/] quit"
     )
 
     DEFAULT_CSS = """
@@ -190,16 +190,17 @@ class ResultsScreen(ReconScreen):
                         yield from self._compose_preview()
 
         with Horizontal(id="results-actions"):
-            yield Button(button_label("OPEN FOLDER", "L"), id="btn-open-folder", variant="primary")
-            yield Button(button_label("VIEW SUMMARY", "V"), id="btn-view-summary")
-            yield Button(button_label("BACK", "Esc"), id="btn-back")
+            yield action_button("BACK", "Esc", button_id="btn-back")
+            yield action_button("OPEN FOLDER", "L", button_id="btn-open-folder", variant="primary")
+            yield action_button("VIEW SUMMARY", "V", button_id="btn-view-summary")
+            yield Static("", classes="action-spacer")
+            yield action_button("NEXT", "Space", button_id="btn-next")
 
     def _compose_tree_rows(self) -> ComposeResult:
         if not self._files:
             yield Static(
                 "[#787266]No outputs yet.[/]\n\n"
-                "[#a59a86]Run research first.[/]\n"
-                "[#787266]Press[/] [#DDEDC4]3[/] [#787266]for COMP'S.[/]",
+                "[#a59a86]Go to[/] [#DDEDC4]AGENTS[/] [#a59a86]and run the workflow first.[/]",
             )
             return
 
@@ -311,6 +312,10 @@ class ResultsScreen(ReconScreen):
             with contextlib.suppress(Exception):
                 self.app.switch_mode("dashboard")
 
+    def action_next(self) -> None:
+        with contextlib.suppress(Exception):
+            self.app.action_goto_tab("recon")
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
         if button_id == "btn-view-summary":
@@ -319,6 +324,8 @@ class ResultsScreen(ReconScreen):
             self.action_open_folder()
         elif button_id == "btn-back":
             self.action_back()
+        elif button_id == "btn-next":
+            self.action_next()
 
     # -- refresh helpers --------------------------------------------------
 
@@ -382,11 +389,18 @@ class ResultsScreen(ReconScreen):
 
     def _collect_files(self) -> list[_FileEntry]:
         """Walk the workspace once and return the flat list the tree +
-        preview share. Groups are emitted in display order (output →
-        themes → themes/distilled) so ``_compose_tree_rows`` can detect
-        group transitions with a single comparison.
+        preview share. Groups are emitted in display order (dossiers →
+        output → themes → themes/distilled) so ``_compose_tree_rows``
+        can detect group transitions with a single comparison.
         """
         files: list[_FileEntry] = []
+
+        competitors_dir = self._workspace_root / "competitors"
+        if competitors_dir.is_dir():
+            for f in sorted(competitors_dir.glob("*.md")):
+                files.append(
+                    _FileEntry(label=f.name, path=f, group="competitors"),
+                )
 
         # output/ — executive summary + any top-level files.
         output_dir = self._workspace_root / "output"

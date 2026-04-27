@@ -27,6 +27,7 @@ import frontmatter
 
 from recon.llm import LLMClient  # noqa: TCH001
 from recon.logging import get_logger
+from recon.provenance import ProvenanceRecorder, extract_urls
 from recon.prompts import compose_research_prompt, compose_system_prompt
 from recon.schema import ReconSchema  # noqa: TCH001
 from recon.workers import WorkerPool
@@ -85,6 +86,7 @@ class ResearchOrchestrator:
     use_web_search: bool = True
     max_retries: int = 1
     cost_callback: CostCallback | None = None
+    provenance: ProvenanceRecorder | None = None
 
     @property
     def _schema(self) -> ReconSchema:
@@ -263,7 +265,7 @@ class ResearchOrchestrator:
                 )
 
             try:
-                response = await self._call_llm(system_prompt, task)
+                response, user_prompt, tools = await self._call_llm(system_prompt, task)
             except Exception as exc:
                 last_error = exc
                 continue
@@ -276,6 +278,31 @@ class ResearchOrchestrator:
                 response.output_tokens,
                 len(response.text),
             )
+
+            if self.provenance is not None:
+                cited_urls = extract_urls(response.text)
+                self.provenance.record_llm_call(
+                    actor="research",
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    tools=tools,
+                    response=response,
+                    context={
+                        "competitor": task.competitor_name,
+                        "competitor_slug": task.competitor_slug,
+                        "section": task.section_key,
+                    },
+                )
+                self.provenance.record_sources(
+                    actor="research",
+                    context={
+                        "competitor": task.competitor_name,
+                        "competitor_slug": task.competitor_slug,
+                        "section": task.section_key,
+                    },
+                    cited_urls=cited_urls,
+                    selected_urls=cited_urls,
+                )
 
             self._append_to_profile(task.competitor_slug, task.section_key, response.text)
 
@@ -301,7 +328,11 @@ class ResearchOrchestrator:
         self._mark_section_failed(task.competitor_slug, task.section_key, error_detail)
         raise last_error  # type: ignore[misc]
 
-    async def _call_llm(self, system_prompt: str, task: ResearchTask) -> "LLMResponse":
+    async def _call_llm(
+        self,
+        system_prompt: str,
+        task: ResearchTask,
+    ) -> tuple["LLMResponse", str, list[dict[str, Any]] | None]:
         """Make the LLM call, falling back to no-tools if web_search is unavailable."""
         from recon.llm import LLMResponse  # noqa: F811
 
@@ -321,12 +352,13 @@ class ResearchOrchestrator:
         )
 
         try:
-            return await self.llm_client.complete(
+            response = await self.llm_client.complete(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 tools=tools,
                 max_tokens=8192,
             )
+            return (response, user_prompt, tools)
         except Exception as exc:
             msg = str(exc).lower()
             if tools and ("web_search" in msg or "tool" in msg or "not enabled" in msg):
@@ -334,11 +366,12 @@ class ResearchOrchestrator:
                     "research web_search tool unavailable, retrying without: %s",
                     exc,
                 )
-                return await self.llm_client.complete(
+                response = await self.llm_client.complete(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     max_tokens=4096,
                 )
+                return (response, user_prompt, None)
             raise
 
     def _append_to_profile(self, slug: str, section_key: str, content: str) -> None:

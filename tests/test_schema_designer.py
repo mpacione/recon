@@ -45,7 +45,7 @@ class TestDesignSections:
     async def test_returns_selected_sections(self) -> None:
         from recon.schema_designer import design_sections
 
-        llm = _mock_llm("overview, pricing_business, product_lineup, market_position")
+        llm = _mock_llm("overview, pricing, customer_segments, strategic_notes")
 
         sections = await design_sections(
             description="Bambu Lab makes 3D printers",
@@ -60,7 +60,7 @@ class TestDesignSections:
     async def test_always_includes_overview(self) -> None:
         from recon.schema_designer import design_sections
 
-        llm = _mock_llm("pricing_business")
+        llm = _mock_llm("pricing")
 
         sections = await design_sections(
             description="SaaS company",

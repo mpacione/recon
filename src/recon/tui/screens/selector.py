@@ -78,7 +78,7 @@ class CompetitorSelectorScreen(ModalScreen[list[str]]):
     def compose(self) -> ComposeResult:
         with Vertical(id="selector-container"):
             yield Static(
-                f"[bold #DDEDC4]── SELECT COMPETITORS ──[/]  "
+                f"[bold #DDEDC4]▒ SELECT COMPETITORS ▒[/]  "
                 f"[#DDEDC4]{len(self._competitors)}[/] available",
                 id="selector-title",
             )

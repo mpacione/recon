@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio  # noqa: TCH003 -- used at runtime for cancel_event type
 import contextlib
+import datetime as dt
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -25,6 +26,7 @@ from recon.enrichment import EnrichmentOrchestrator, EnrichmentPass
 from recon.index import IndexManager, chunk_markdown
 from recon.llm import LLMClient  # noqa: TCH001
 from recon.logging import get_logger
+from recon.provenance import ProvenanceRecorder
 from recon.research import ResearchOrchestrator
 from recon.schema import VerificationTier
 from recon.state import RunStatus, StateStore  # noqa: TCH001
@@ -62,12 +64,36 @@ _STAGE_ORDER = list(PipelineStage)
 _SOURCE_URL_RE = re.compile(r"\((https?://[^)\s]+)\)")
 _DEFAULT_MODEL = "claude-sonnet-4-20250514"
 _SECTION_HEADING_RE = re.compile(r"^(#{2,4})\s+(.+)$", re.MULTILINE)
+_VERIFICATION_RANK = {
+    VerificationTier.STANDARD: 0,
+    VerificationTier.VERIFIED: 1,
+    VerificationTier.DEEP: 2,
+}
+
+
+def _now_iso() -> str:
+    return dt.datetime.now(dt.UTC).isoformat()
 
 
 def _theme_slug(label: str) -> str:
     """File-safe slug for theme label."""
     cleaned = re.sub(r"[^\w\s-]", "", label).strip().lower()
     return re.sub(r"[-\s]+", "_", cleaned) or "unnamed_theme"
+
+
+def _effective_verification_tier(
+    section_tier: VerificationTier,
+    config_tier: str,
+) -> VerificationTier:
+    """Use the plan-level verification mode as a minimum floor."""
+    normalized = (config_tier or "standard").strip().lower()
+    try:
+        requested = VerificationTier(normalized)
+    except ValueError:
+        requested = VerificationTier.STANDARD
+    if _VERIFICATION_RANK[requested] > _VERIFICATION_RANK[section_tier]:
+        return requested
+    return section_tier
 
 
 def _split_markdown_sections(content: str) -> list[tuple[str, str]]:
@@ -151,6 +177,7 @@ class Pipeline:
     discovered_themes: list[DiscoveredTheme] = field(default_factory=list)
     syntheses: list[SynthesisResult] = field(default_factory=list)
     verification_results: list[VerificationOutcome] = field(default_factory=list)
+    _provenance: ProvenanceRecorder | None = field(default=None, init=False, repr=False)
 
     @property
     def _cancelled(self) -> bool:
@@ -190,6 +217,30 @@ class Pipeline:
                 "verification_enabled": self.config.verification_enabled,
             },
         )
+        self._provenance = ProvenanceRecorder.for_run(self.workspace.root, run_id)
+        self._provenance.write_yaml(
+            "run.yaml",
+            {
+                "run_id": run_id,
+                "workspace_root": str(self.workspace.root),
+                "status": "planning",
+                "created_at": _now_iso(),
+                "config": {
+                    "start_from": self.config.start_from.value,
+                    "stop_after": self.config.stop_after.value,
+                    "deep_synthesis": self.config.deep_synthesis,
+                    "verification_enabled": self.config.verification_enabled,
+                    "verification_tier": self.config.verification_tier,
+                    "max_research_workers": self.config.max_research_workers,
+                    "max_enrich_workers": self.config.max_enrich_workers,
+                    "targets": self.config.targets or [],
+                    "theme_count": self.config.theme_count,
+                    "stale_only": self.config.stale_only,
+                    "max_age_days": self.config.max_age_days,
+                    "failed_only": self.config.failed_only,
+                },
+            },
+        )
         return run_id
 
     async def get_plan_summary(self, run_id: str) -> dict[str, Any]:
@@ -224,6 +275,31 @@ class Pipeline:
             self.config.verification_enabled,
             self.config.targets if self.config.targets else "all",
         )
+        if self._provenance is None:
+            self._provenance = ProvenanceRecorder.for_run(self.workspace.root, run_id)
+        self._provenance.write_yaml(
+            "run.yaml",
+            {
+                "run_id": run_id,
+                "workspace_root": str(self.workspace.root),
+                "status": "running",
+                "started_at": _now_iso(),
+                "config": {
+                    "start_from": self.config.start_from.value,
+                    "stop_after": self.config.stop_after.value,
+                    "deep_synthesis": self.config.deep_synthesis,
+                    "verification_enabled": self.config.verification_enabled,
+                    "verification_tier": self.config.verification_tier,
+                    "max_research_workers": self.config.max_research_workers,
+                    "max_enrich_workers": self.config.max_enrich_workers,
+                    "targets": self.config.targets or [],
+                    "theme_count": self.config.theme_count,
+                    "stale_only": self.config.stale_only,
+                    "max_age_days": self.config.max_age_days,
+                    "failed_only": self.config.failed_only,
+                },
+            },
+        )
         publish(RunStarted(run_id=run_id, operation="pipeline"))
         await self.state_store.update_run_status(run_id, RunStatus.RUNNING)
 
@@ -252,6 +328,16 @@ class Pipeline:
                 await self._await_resume()
                 if self._cancelled:
                     await self._emit(stage.value, "cancelled")
+                    if self._provenance is not None:
+                        self._provenance.write_yaml(
+                            "run.yaml",
+                            {
+                                "run_id": run_id,
+                                "workspace_root": str(self.workspace.root),
+                                "status": "cancelled",
+                                "cancelled_at": _now_iso(),
+                            },
+                        )
                     _publish(RunCancelled(run_id=run_id))
                     await self.state_store.update_run_status(
                         run_id, RunStatus.CANCELLED,
@@ -266,6 +352,16 @@ class Pipeline:
             if self._cancelled:
                 _log.info("pipeline execute run_id=%s -> CANCELLED", run_id)
                 _publish(RunCancelled(run_id=run_id))
+                if self._provenance is not None:
+                    self._provenance.write_yaml(
+                        "run.yaml",
+                        {
+                            "run_id": run_id,
+                            "workspace_root": str(self.workspace.root),
+                            "status": "cancelled",
+                            "cancelled_at": _now_iso(),
+                        },
+                    )
                 await self.state_store.update_run_status(
                     run_id, RunStatus.CANCELLED,
                 )
@@ -273,10 +369,35 @@ class Pipeline:
 
             _log.info("pipeline execute run_id=%s -> COMPLETED", run_id)
             total = await self.state_store.get_run_total_cost(run_id)
+            if self._provenance is not None:
+                self._provenance.write_yaml(
+                    "run.yaml",
+                    {
+                        "run_id": run_id,
+                        "workspace_root": str(self.workspace.root),
+                        "status": "completed",
+                        "completed_at": _now_iso(),
+                        "total_cost_usd": total,
+                        "theme_count": len(self.discovered_themes),
+                        "synthesis_count": len(self.syntheses),
+                        "verification_count": len(self.verification_results),
+                    },
+                )
             _publish(RunCompleted(run_id=run_id, total_cost_usd=total))
             await self.state_store.update_run_status(run_id, RunStatus.COMPLETED)
         except Exception as exc:
             _log.exception("pipeline execute run_id=%s -> FAILED", run_id)
+            if self._provenance is not None:
+                self._provenance.write_yaml(
+                    "run.yaml",
+                    {
+                        "run_id": run_id,
+                        "workspace_root": str(self.workspace.root),
+                        "status": "failed",
+                        "failed_at": _now_iso(),
+                        "error": str(exc),
+                    },
+                )
             _publish(RunFailed(run_id=run_id, error=str(exc)))
             await self.state_store.update_run_status(run_id, RunStatus.FAILED)
             raise
@@ -358,6 +479,7 @@ class Pipeline:
             llm_client=self.llm_client,
             max_workers=self.config.max_research_workers,
             cost_callback=_on_cost,
+            provenance=self._provenance,
         )
 
         await orchestrator.research_all(
@@ -390,7 +512,10 @@ class Pipeline:
             self.verification_results = []
             return
 
-        engine = VerificationEngine(llm_client=self.llm_client)
+        engine = VerificationEngine(
+            llm_client=self.llm_client,
+            provenance=self._provenance,
+        )
         section_tiers = {s.key: s.verification_tier for s in schema.sections}
         title_to_key = {s.title: s.key for s in schema.sections}
 
@@ -417,6 +542,10 @@ class Pipeline:
                     key = matches[0]
 
                 tier = section_tiers.get(key, VerificationTier.STANDARD)
+                tier = _effective_verification_tier(
+                    tier,
+                    self.config.verification_tier,
+                )
                 if tier == VerificationTier.STANDARD:
                     continue
 
@@ -443,6 +572,31 @@ class Pipeline:
 
                 outcomes.append(outcome)
                 profile_summary[key] = _summarize_outcome(outcome)
+                if self._provenance is not None:
+                    self._provenance.record_sources(
+                        actor="verification",
+                        context={
+                            "competitor": profile_meta.get("name", profile_meta["_slug"]),
+                            "competitor_slug": profile_meta["_slug"],
+                            "section": key,
+                            "tier": tier.value,
+                        },
+                        cited_urls=request.sources,
+                        selected_urls=[
+                            result.url
+                            for result in outcome.source_results
+                            if result.status != SourceStatus.DISPUTED
+                        ],
+                        source_results=[
+                            {
+                                "url": result.url,
+                                "status": result.status.value,
+                                "notes": result.notes,
+                            }
+                            for result in outcome.source_results
+                        ],
+                        notes=outcome.corroboration_notes,
+                    )
                 await self._record_tokens(
                     run_id,
                     cost_tracker,

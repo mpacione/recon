@@ -100,7 +100,8 @@ class TestTerminalBox:
             box = app.query_one(TerminalBox)
             title_widget = box.query_one(".terminal-box-title", Static)
             content = str(title_widget.content)
-            assert "──" in content
+            assert "▒" in content
+            assert "RUN MONITOR" in content
 
     async def test_can_omit_title(self) -> None:
         from recon.tui.primitives import TerminalBox
@@ -172,9 +173,9 @@ class TestCardStack:
         rendered = TabStrip(active="schema").render()
 
         assert "RECON NAV" in rendered
-        assert "[1] HOME" in rendered
-        assert "[2] PLAN" in rendered
-        assert "[3] SCHEMA" in rendered
-        assert "[6] OUTPUT" in rendered
+        assert "[0] MAIN" in rendered
+        assert "[1] PROJECT" in rendered
+        assert "[2] SCHEMA" in rendered
+        assert "[5] OUTPUT" in rendered
         assert "╮" in rendered
         assert "╯" in rendered
