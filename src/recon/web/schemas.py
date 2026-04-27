@@ -108,7 +108,7 @@ class ThemeFileModel(BaseModel):
 class OutputFileModel(BaseModel):
     name: str
     path: str
-    kind: str           # "exec_summary" | "theme" | "distilled" | "other"
+    kind: str           # "exec_summary" | "theme" | "distilled" | "dossier" | "other"
 
 
 class ResultsResponse(BaseModel):
@@ -118,6 +118,7 @@ class ResultsResponse(BaseModel):
     theme_files: list[ThemeFileModel] = Field(default_factory=list)
     output_files: list[OutputFileModel] = Field(default_factory=list)
     total_cost: float = 0.0
+    provenance: "RunProvenanceModel | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +213,7 @@ class TemplateSectionModel(BaseModel):
     title: str
     description: str
     selected: bool = False
+    when_relevant: str = ""
     allowed_formats: list[str] = Field(default_factory=list)
     preferred_format: str = "prose"
 
@@ -223,6 +225,24 @@ class TemplateResponse(BaseModel):
 class PutTemplateRequest(BaseModel):
     path: str
     section_keys: list[str] = Field(default_factory=list)
+    sections: list[TemplateSectionModel] = Field(default_factory=list)
+
+
+class DiscoveryAuditResponse(BaseModel):
+    search_count: int = 0
+    last_searched_at: str = ""
+    last_candidate_count: int = 0
+    last_provider: str = ""
+
+
+class RunProvenanceModel(BaseModel):
+    run_id: str
+    status: str = ""
+    llm_call_count: int = 0
+    source_entry_count: int = 0
+    manifest_path: str = ""
+    llm_calls_path: str = ""
+    sources_path: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +251,7 @@ class PutTemplateRequest(BaseModel):
 
 
 class ModelOption(BaseModel):
+    name: str = ""
     id: str
     label: str
     input_price_per_million: float
@@ -240,6 +261,19 @@ class ModelOption(BaseModel):
     recommended: bool = False
 
 
+class PlanSettingsResponse(BaseModel):
+    model_name: str = "sonnet"
+    workers: int = 5
+    verification_mode: str = "standard"
+
+
+class UpdatePlanSettingsRequest(BaseModel):
+    path: str
+    model_name: str | None = None
+    workers: int | None = None
+    verification_mode: str | None = None
+
+
 class StartRunRequest(BaseModel):
     path: str
     # Hook for a future real-LLM toggle. Ignored by the prototype —
@@ -247,6 +281,7 @@ class StartRunRequest(BaseModel):
     use_fake_llm: bool = True
     model: str | None = None
     workers: int | None = None
+    verification_mode: str | None = None
 
 
 class StartRunResponse(BaseModel):
@@ -296,11 +331,26 @@ class RunStateResponse(BaseModel):
 
 class ConfirmResponse(BaseModel):
     competitor_count: int
+    estimate_competitor_count: int = 0
     section_keys: list[str] = Field(default_factory=list)
     section_names: list[str] = Field(default_factory=list)
     cost_by_stage: dict[str, float] = Field(default_factory=dict)
     estimated_total: float = 0.0
     eta_seconds: int = 0
     model_options: list[ModelOption] = Field(default_factory=list)
-    default_model: str = "claude-sonnet-4-20250514"
+    default_model: str = "sonnet"
     default_workers: int = 5
+    default_verification_mode: str = "standard"
+    research_per_company: float = 0.0
+    enrichment_per_company: float = 0.0
+    total_cost_per_company: float = 0.0
+    verification_uplift_per_company: float = 0.0
+    fixed_themes: float = 0.0
+    fixed_summary: float = 0.0
+    fixed_total: float = 0.0
+    blended_per_company: float = 0.0
+    current_tracked_spend: float = 0.0
+    run_count: int = 0
+
+
+ResultsResponse.model_rebuild()

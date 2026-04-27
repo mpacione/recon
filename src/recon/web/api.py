@@ -34,16 +34,19 @@ from recon.web.schemas import (
     CreateWorkspaceRequest,
     DashboardResponse,
     DiscoverRequest,
+    DiscoveryAuditResponse,
     DiscoverResponse,
     DiscoveredCandidate,
     HealthResponse,
     ModelOption,
     OutputFileModel,
+    PlanSettingsResponse,
     PutTemplateRequest,
     RecentProjectModel,
     RecentProjectsResponse,
     ResultsResponse,
     RunListResponse,
+    RunProvenanceModel,
     RunStateResponse,
     RunSummary,
     SaveApiKeyRequest,
@@ -53,6 +56,7 @@ from recon.web.schemas import (
     TemplateResponse,
     TemplateSectionModel,
     ThemeFileModel,
+    UpdatePlanSettingsRequest,
     WorkspaceResponse,
 )
 
@@ -64,21 +68,13 @@ _STATIC_DIR = Path(__file__).parent / "static"
 # real bug report. Tests monkeypatch this to redirect into tmp_path.
 _DEFAULT_WORKSPACES_PARENT = Path.home() / "recon-workspaces"
 
-# Confirm-screen cost model. Mirrors the numbers in design/v2-spec.md
-# §Screen 6. These are rough per-call/per-profile/per-theme averages
-# and will be tightened when we wire real cost telemetry back in.
-_COST_PER_SECTION_USD = 0.30
-_COST_PER_ENRICH_PROFILE_USD = 0.30
-_COST_PER_THEME_USD = 0.30
-_COST_PER_SUMMARY_USD = 0.30
 _DEFAULT_THEME_COUNT = 5
 _ENRICHMENT_PASSES = 3
-
-# Wall-clock ETA model: per research-section seconds, divided by
-# worker count. Enrichment + synthesis add fixed overhead.
-_SECONDS_PER_SECTION = 15.0
-_ENRICHMENT_OVERHEAD_S = 60.0
-_SYNTHESIS_OVERHEAD_S = 45.0
+_DEFAULT_PLAN_SETTINGS: dict[str, object] = {
+    "model_name": "sonnet",
+    "workers": 5,
+    "verification_mode": "standard",
+}
 
 
 def _project_status(path_str: str) -> str:
@@ -104,38 +100,6 @@ def _project_status(path_str: str) -> str:
     if (project_path / "recon.yaml").exists():
         return "ready"
     return "new"
-
-# Canonical Claude 4 tier list for the Confirm screen. Prices are in
-# USD per million tokens. Keep in sync with recon.cost.ModelPricing.
-_MODEL_CATALOG: list[dict] = [
-    {
-        "id": "claude-sonnet-4-20250514",
-        "label": "Sonnet 4",
-        "description": "recommended",
-        "input_price_per_million": 3.0,
-        "output_price_per_million": 15.0,
-        "recommended": True,
-    },
-    {
-        "id": "claude-opus-4-20250805",
-        "label": "Opus 4",
-        "description": "deeper analysis",
-        "input_price_per_million": 15.0,
-        "output_price_per_million": 75.0,
-        "recommended": False,
-    },
-    {
-        "id": "claude-haiku-4-20250514",
-        "label": "Haiku 4",
-        "description": "faster, less depth",
-        "input_price_per_million": 0.8,
-        "output_price_per_million": 4.0,
-        "recommended": False,
-    },
-]
-# Sonnet = baseline for the cost model; other tiers scale the total
-# by the ratio of their blended price to Sonnet's.
-_BASELINE_MODEL_ID = "claude-sonnet-4-20250514"
 
 # Provider names recognized by the api-keys endpoints. Mirrors
 # recon.api_keys._KEY_MAP keys (the lowercase aliases).
@@ -371,6 +335,42 @@ def create_app() -> FastAPI:
             yaml.dump(raw, default_flow_style=False, sort_keys=False),
         )
         return {"ok": "true", **changed}
+
+    @app.get("/api/plan-settings", response_model=PlanSettingsResponse)
+    async def get_plan_settings(
+        path: str = Query(..., description="Workspace directory path"),
+    ) -> PlanSettingsResponse:
+        ws = _open_workspace(path)
+        return PlanSettingsResponse(**_load_plan_settings_for_workspace(ws.root))
+
+    @app.patch("/api/plan-settings", response_model=PlanSettingsResponse)
+    async def patch_plan_settings(
+        payload: UpdatePlanSettingsRequest,
+    ) -> PlanSettingsResponse:
+        from recon.cost import get_model_pricing
+
+        ws = _open_workspace(payload.path)
+        current = _load_plan_settings_for_workspace(ws.root)
+        if payload.model_name is not None:
+            model_name = str(payload.model_name).strip() or "sonnet"
+            try:
+                get_model_pricing(model_name)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            current["model_name"] = model_name
+        if payload.workers is not None:
+            current["workers"] = max(1, min(16, int(payload.workers)))
+        if payload.verification_mode is not None:
+            mode = str(payload.verification_mode).strip().lower() or "standard"
+            if mode not in {"standard", "verified", "deep"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"unknown verification mode: {mode}",
+                )
+            current["verification_mode"] = mode
+
+        _save_plan_settings_for_workspace(ws.root, current)
+        return PlanSettingsResponse(**current)
 
     @app.get("/api/files")
     async def get_file_content(
@@ -753,6 +753,13 @@ def create_app() -> FastAPI:
             used_web_search=used_web_search,
         )
 
+    @app.get("/api/discovery-audit", response_model=DiscoveryAuditResponse)
+    async def get_discovery_audit(
+        path: str = Query(..., description="Workspace directory path"),
+    ) -> DiscoveryAuditResponse:
+        ws = _open_workspace(path)
+        return _load_discovery_audit(ws.root)
+
     @app.delete("/api/competitors/{slug}", status_code=204)
     async def delete_competitor(slug: str, path: str = Query(..., description="Workspace directory path")):
         """Remove a profile by slug. Path-traversal attempts return 400."""
@@ -773,127 +780,166 @@ def create_app() -> FastAPI:
 
     @app.get("/api/template", response_model=TemplateResponse)
     async def get_template(path: str = Query(..., description="Workspace directory path")) -> TemplateResponse:
-        """Return the full section pool with per-section selected flag.
-
-        The pool is ``DefaultSections.ALL``. A section is "selected"
-        iff it appears in the workspace's recon.yaml.
-        """
-        from recon.wizard import DefaultSections
-
+        """Return the editable section pool with per-section selected flag."""
         ws = _open_workspace(path)
-        selected_keys = (
-            {s.key for s in ws.schema.sections} if ws.schema else set()
-        )
         sections = [
-            TemplateSectionModel(
-                key=s["key"],
-                title=s["title"],
-                description=s["description"],
-                selected=s["key"] in selected_keys,
-                allowed_formats=list(s.get("allowed_formats", [])),
-                preferred_format=s.get("preferred_format", "prose"),
-            )
-            for s in DefaultSections.ALL
+            TemplateSectionModel(**section)
+            for section in _load_schema_pool_for_workspace(ws.root)
         ]
-        # Any custom sections already selected but not in the pool
-        # (future custom-section support) get surfaced too.
-        known = {s.key for s in sections}
-        if ws.schema is not None:
-            for section in ws.schema.sections:
-                if section.key in known:
-                    continue
-                sections.append(
-                    TemplateSectionModel(
-                        key=section.key,
-                        title=section.title,
-                        description=section.description,
-                        selected=True,
-                        allowed_formats=list(section.allowed_formats),
-                        preferred_format=section.preferred_format,
-                    ),
-                )
         return TemplateResponse(sections=sections)
 
     @app.put("/api/template", response_model=TemplateResponse)
     async def put_template(payload: PutTemplateRequest) -> TemplateResponse:
-        """Replace the workspace's selected section list.
-
-        Unknown keys cause a 400 and the yaml stays untouched, so
-        callers don't corrupt state on a typo.
-        """
-        from recon.wizard import DefaultSections
-
+        """Persist the editable section pool and selected section subset."""
         ws = _open_workspace(payload.path)
-        pool = {s["key"]: s for s in DefaultSections.ALL}
-        unknown = [k for k in payload.section_keys if k not in pool]
-        if unknown:
-            raise HTTPException(
-                status_code=400,
-                detail=f"unknown section keys: {sorted(unknown)}",
-            )
+        if payload.sections:
+            sections = [_normalize_template_section(section.model_dump()) for section in payload.sections]
+        else:
+            pool = _load_schema_pool_for_workspace(ws.root)
+            pool_by_key = {str(section["key"]): dict(section) for section in pool}
+            unknown = [key for key in payload.section_keys if key not in pool_by_key]
+            if unknown:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"unknown section keys: {sorted(unknown)}",
+                )
+            selected = set(payload.section_keys)
+            sections = [
+                {**section, "selected": section["key"] in selected}
+                for section in pool
+            ]
 
-        schema_path = ws.root / "recon.yaml"
-        raw = yaml.safe_load(schema_path.read_text()) or {}
-        raw["sections"] = [dict(pool[key]) for key in payload.section_keys]
-        schema_path.write_text(
-            yaml.dump(raw, default_flow_style=False, sort_keys=False),
-        )
-
+        _save_schema_pool_for_workspace(ws.root, sections)
         return await get_template(str(ws.root))  # type: ignore[return-value]
 
     @app.get("/api/confirm", response_model=ConfirmResponse)
     async def get_confirm(path: str = Query(..., description="Workspace directory path")) -> ConfirmResponse:
         """Cost breakdown, model options, and ETA for the Confirm screen."""
+        from recon.cost import (
+            SectionCostSpec,
+            estimate_run_breakdown,
+            estimate_run_duration_minutes,
+            get_model_pricing,
+            list_available_models,
+        )
+
         ws = _open_workspace(path)
         profiles = ws.list_profiles()
         competitor_count = len(profiles)
+        estimate_competitor_count = competitor_count if competitor_count > 0 else 10
 
         sections = ws.schema.sections if ws.schema else []
         section_keys = [s.key for s in sections]
         section_names = [s.title for s in sections]
         section_count = len(sections)
-
-        cost_by_stage = _estimate_cost_by_stage(competitor_count, section_count)
-        estimated_total = sum(cost_by_stage.values())
-        eta_seconds = _estimate_eta_seconds(competitor_count, section_count)
-
-        baseline = next(
-            m for m in _MODEL_CATALOG if m["id"] == _BASELINE_MODEL_ID
+        plan_settings = _load_plan_settings_for_workspace(ws.root)
+        model_name = str(plan_settings.get("model_name", "sonnet"))
+        workers = int(plan_settings.get("workers", 5))
+        verification_mode = str(plan_settings.get("verification_mode", "standard"))
+        pricing = get_model_pricing(model_name)
+        section_specs = [
+            SectionCostSpec(
+                format_type=section.preferred_format,
+                verification_tier=section.verification_tier.value,
+            )
+            for section in sections
+        ]
+        projected = estimate_run_breakdown(
+            pricing=pricing,
+            competitor_count=estimate_competitor_count,
+            sections=section_specs,
+            section_count=section_count,
+            verification_mode=verification_mode,
+            theme_count=_DEFAULT_THEME_COUNT,
+            enrichment_passes=_ENRICHMENT_PASSES,
         )
-        baseline_blended = (
-            baseline["input_price_per_million"]
-            + baseline["output_price_per_million"]
+        per_company = estimate_run_breakdown(
+            pricing=pricing,
+            competitor_count=1,
+            sections=section_specs,
+            section_count=section_count,
+            verification_mode=verification_mode,
+            theme_count=_DEFAULT_THEME_COUNT,
+            enrichment_passes=_ENRICHMENT_PASSES,
         )
+        standard_per_company = estimate_run_breakdown(
+            pricing=pricing,
+            competitor_count=1,
+            sections=section_specs,
+            section_count=section_count,
+            verification_mode="standard",
+            theme_count=_DEFAULT_THEME_COUNT,
+            enrichment_passes=_ENRICHMENT_PASSES,
+        )
+        verification_uplift = max(
+            0.0,
+            per_company.variable_per_company - standard_per_company.variable_per_company,
+        )
+        eta_minutes = estimate_run_duration_minutes(
+            section_count=section_count,
+            competitor_count=estimate_competitor_count,
+            worker_count=workers,
+            verification_mode=verification_mode,
+            enrichment_passes=_ENRICHMENT_PASSES,
+        )
+        cost_summary = _safe_cost_summary(ws)
+
+        cost_by_stage = {
+            "research": round(projected.research_total, 2),
+            "enrichment": round(projected.enrichment_total, 2),
+            "themes": round(projected.fixed_themes, 2),
+            "summaries": round(projected.fixed_summary, 2),
+        }
+        estimated_total = round(sum(cost_by_stage.values()), 2)
+        eta_seconds = int(eta_minutes * 60)
 
         model_options: list[ModelOption] = []
-        for entry in _MODEL_CATALOG:
-            blended = (
-                entry["input_price_per_million"]
-                + entry["output_price_per_million"]
+        for entry in list_available_models():
+            option_pricing = get_model_pricing(str(entry["name"]))
+            option_breakdown = estimate_run_breakdown(
+                pricing=option_pricing,
+                competitor_count=estimate_competitor_count,
+                sections=section_specs,
+                section_count=section_count,
+                verification_mode=verification_mode,
+                theme_count=_DEFAULT_THEME_COUNT,
+                enrichment_passes=_ENRICHMENT_PASSES,
             )
-            scale = blended / baseline_blended if baseline_blended else 1.0
             model_options.append(
                 ModelOption(
+                    name=str(entry["name"]),
                     id=entry["id"],
                     label=entry["label"],
                     input_price_per_million=entry["input_price_per_million"],
                     output_price_per_million=entry["output_price_per_million"],
                     description=entry["description"],
-                    estimated_total=round(estimated_total * scale, 2),
-                    recommended=entry["recommended"],
+                    estimated_total=round(option_breakdown.total_run_cost, 2),
+                    recommended=bool(entry["recommended"]),
                 ),
             )
 
         return ConfirmResponse(
             competitor_count=competitor_count,
+            estimate_competitor_count=estimate_competitor_count,
             section_keys=section_keys,
             section_names=section_names,
             cost_by_stage=cost_by_stage,
-            estimated_total=round(estimated_total, 2),
+            estimated_total=estimated_total,
             eta_seconds=eta_seconds,
             model_options=model_options,
-            default_model=_BASELINE_MODEL_ID,
-            default_workers=5,
+            default_model=model_name,
+            default_workers=workers,
+            default_verification_mode=verification_mode,
+            research_per_company=round(per_company.research_per_company, 2),
+            enrichment_per_company=round(per_company.enrichment_per_company, 2),
+            total_cost_per_company=round(projected.blended_per_company, 2),
+            verification_uplift_per_company=round(verification_uplift, 2),
+            fixed_themes=round(projected.fixed_themes, 2),
+            fixed_summary=round(projected.fixed_summary, 2),
+            fixed_total=round(projected.fixed_total, 2),
+            blended_per_company=round(projected.blended_per_company, 2),
+            current_tracked_spend=round(cost_summary["total_cost"], 2),
+            run_count=int(cost_summary["run_count"]),
         )
 
     @app.post("/api/api-keys")
@@ -987,13 +1033,20 @@ def create_app() -> FastAPI:
         store = StateStore(db_path=ws.root / ".recon" / "state.db")
         await store.initialize()
 
+        plan_settings = _load_plan_settings_for_workspace(ws.root)
+        workers = int(payload.workers or plan_settings.get("workers", 5))
+        verification_mode = str(
+            payload.verification_mode or plan_settings.get("verification_mode", "standard")
+        ).strip().lower()
         config = PipelineConfig(
             start_from=PipelineStage.RESEARCH,
             stop_after=PipelineStage.DELIVER,
-            verification_enabled=False,
+            verification_enabled=verification_mode != "standard",
+            verification_tier=(
+                verification_mode if verification_mode in {"verified", "deep"} else "verified"
+            ),
         )
-        if payload.workers:
-            config = replace(config, max_research_workers=payload.workers)
+        config = replace(config, max_research_workers=max(1, workers))
 
         import asyncio as _asyncio
 
@@ -1341,6 +1394,240 @@ def _load_global_api_key_status() -> dict[str, bool]:
     return present
 
 
+def _workspace_state_path(workspace_root: Path, *parts: str) -> Path:
+    path = workspace_root / ".recon"
+    for part in parts:
+        path = path / part
+    return path
+
+
+def _load_plan_settings_for_workspace(workspace_root: Path) -> dict[str, object]:
+    from recon.cost import get_model_pricing
+
+    path = _workspace_state_path(workspace_root, "plan.yaml")
+    settings = dict(_DEFAULT_PLAN_SETTINGS)
+    if not path.exists():
+        return settings
+    try:
+        data = yaml.safe_load(path.read_text()) or {}
+        if not isinstance(data, dict):
+            return settings
+        settings["model_name"] = str(data.get("model_name", settings["model_name"]))
+        settings["workers"] = max(1, min(16, int(data.get("workers", settings["workers"]))))
+        verification = str(data.get("verification_mode", settings["verification_mode"])).strip().lower()
+        settings["verification_mode"] = verification if verification in {"standard", "verified", "deep"} else "standard"
+        try:
+            get_model_pricing(str(settings["model_name"]))
+        except Exception:
+            settings["model_name"] = "sonnet"
+    except Exception:
+        return dict(_DEFAULT_PLAN_SETTINGS)
+    return settings
+
+
+def _save_plan_settings_for_workspace(
+    workspace_root: Path,
+    settings: dict[str, object],
+) -> None:
+    path = _workspace_state_path(workspace_root, "plan.yaml")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    normalized = {
+        "model_name": str(settings.get("model_name", "sonnet")),
+        "workers": max(1, min(16, int(settings.get("workers", 5)))),
+        "verification_mode": str(settings.get("verification_mode", "standard")).strip().lower() or "standard",
+    }
+    path.write_text(yaml.safe_dump(normalized, sort_keys=False))
+
+
+def _normalize_template_section(raw: dict[str, Any]) -> dict[str, Any]:
+    key = str(raw.get("key", "")).strip().lower()
+    title = str(raw.get("title", "")).strip()
+    description = str(raw.get("description", "")).strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="section title required")
+    if not description:
+        raise HTTPException(status_code=400, detail="section description required")
+    if not key:
+        key = _slugify_for_path(title).replace("-", "_")
+    allowed_formats_raw = raw.get("allowed_formats", ["prose"])
+    if isinstance(allowed_formats_raw, list):
+        allowed_formats = [
+            str(item).strip()
+            for item in allowed_formats_raw
+            if str(item).strip()
+        ] or ["prose"]
+    else:
+        allowed_formats = ["prose"]
+    preferred_format = str(raw.get("preferred_format", allowed_formats[0] if allowed_formats else "prose")).strip() or "prose"
+    if preferred_format not in allowed_formats:
+        allowed_formats = [preferred_format, *[fmt for fmt in allowed_formats if fmt != preferred_format]]
+    normalized = {
+        "key": key,
+        "title": title,
+        "description": description,
+        "selected": bool(raw.get("selected", False)),
+        "when_relevant": str(raw.get("when_relevant", "")).strip(),
+        "allowed_formats": allowed_formats,
+        "preferred_format": preferred_format,
+    }
+    return normalized
+
+
+def _load_schema_pool_for_workspace(workspace_root: Path) -> list[dict[str, Any]]:
+    from recon.section_library import merge_with_selected
+    from recon.workspace import Workspace
+
+    ws = Workspace.open(workspace_root)
+    state_path = _workspace_state_path(workspace_root, "schema_sections.yaml")
+    if state_path.exists():
+        try:
+            data = yaml.safe_load(state_path.read_text()) or []
+            if isinstance(data, list):
+                seen: set[str] = set()
+                sections: list[dict[str, Any]] = []
+                for entry in data:
+                    if not isinstance(entry, dict):
+                        continue
+                    section = _normalize_template_section(entry)
+                    if section["key"] in seen:
+                        continue
+                    seen.add(section["key"])
+                    sections.append(section)
+                if sections:
+                    return sections
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    selected = []
+    if ws.schema is not None:
+        selected = [
+            {
+                "key": section.key,
+                "title": section.title,
+                "description": section.description or "",
+                "allowed_formats": list(section.allowed_formats),
+                "preferred_format": section.preferred_format,
+                "when_relevant": getattr(section, "when_relevant", ""),
+                "selected": True,
+            }
+            for section in ws.schema.sections
+        ]
+    return [
+        _normalize_template_section(section)
+        for section in merge_with_selected(selected)
+    ]
+
+
+def _save_schema_pool_for_workspace(
+    workspace_root: Path,
+    sections: list[dict[str, Any]],
+) -> None:
+    from recon.workspace import Workspace
+
+    ws = Workspace.open(workspace_root)
+    schema_path = ws.root / "recon.yaml"
+    if not schema_path.exists():
+        raise HTTPException(status_code=404, detail=f"no recon.yaml in: {ws.root}")
+
+    normalized_sections: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in sections:
+        section = _normalize_template_section(raw)
+        if section["key"] in seen:
+            raise HTTPException(status_code=400, detail=f"duplicate section key: {section['key']}")
+        seen.add(section["key"])
+        normalized_sections.append(section)
+
+    pool_path = _workspace_state_path(workspace_root, "schema_sections.yaml")
+    pool_path.parent.mkdir(parents=True, exist_ok=True)
+    pool_path.write_text(yaml.safe_dump(normalized_sections, sort_keys=False))
+
+    raw_schema = yaml.safe_load(schema_path.read_text()) or {}
+    raw_schema["sections"] = [
+        {
+            "key": section["key"],
+            "title": section["title"],
+            "description": section["description"],
+            "allowed_formats": list(section.get("allowed_formats", ["prose"])),
+            "preferred_format": section.get("preferred_format", "prose"),
+            **({"when_relevant": section["when_relevant"]} if section.get("when_relevant") else {}),
+        }
+        for section in normalized_sections
+        if section.get("selected")
+    ]
+    schema_path.write_text(yaml.safe_dump(raw_schema, sort_keys=False))
+
+
+def _load_discovery_audit(workspace_root: Path) -> DiscoveryAuditResponse:
+    path = _workspace_state_path(workspace_root, "discovery", "searches.jsonl")
+    if not path.exists():
+        return DiscoveryAuditResponse()
+    search_count = 0
+    last_record: dict[str, Any] = {}
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                search_count += 1
+                try:
+                    last_record = json.loads(line)
+                except Exception:
+                    continue
+    except Exception:
+        return DiscoveryAuditResponse()
+    return DiscoveryAuditResponse(
+        search_count=search_count,
+        last_searched_at=str(last_record.get("timestamp", "")),
+        last_candidate_count=len(last_record.get("candidates", []) or []),
+        last_provider=str(last_record.get("provider", "")),
+    )
+
+
+def _latest_run_provenance(workspace_root: Path) -> RunProvenanceModel | None:
+    runs_root = _workspace_state_path(workspace_root, "runs")
+    if not runs_root.exists():
+        return None
+    run_dirs = [path for path in runs_root.iterdir() if path.is_dir()]
+    if not run_dirs:
+        return None
+    latest = max(
+        run_dirs,
+        key=lambda path: (path / "run.yaml").stat().st_mtime if (path / "run.yaml").exists() else path.stat().st_mtime,
+    )
+    manifest_path = latest / "run.yaml"
+    manifest: dict[str, Any] = {}
+    if manifest_path.exists():
+        try:
+            manifest = yaml.safe_load(manifest_path.read_text()) or {}
+        except Exception:
+            manifest = {}
+    llm_calls_path = latest / "llm_calls.jsonl"
+    sources_path = latest / "sources.jsonl"
+    return RunProvenanceModel(
+        run_id=latest.name,
+        status=str(manifest.get("status", "")),
+        llm_call_count=_jsonl_line_count(llm_calls_path),
+        source_entry_count=_jsonl_line_count(sources_path),
+        manifest_path=str(manifest_path) if manifest_path.exists() else "",
+        llm_calls_path=str(llm_calls_path) if llm_calls_path.exists() else "",
+        sources_path=str(sources_path) if sources_path.exists() else "",
+    )
+
+
+def _jsonl_line_count(path: Path) -> int:
+    if not path.exists():
+        return 0
+    try:
+        with path.open(encoding="utf-8") as handle:
+            return sum(1 for line in handle if line.strip())
+    except Exception:
+        return 0
+
+
 def _heuristic_company_name(description: str) -> str:
     """Pull a likely company name out of a freeform description.
 
@@ -1369,46 +1656,6 @@ def _heuristic_company_name(description: str) -> str:
     if leading:
         return " ".join(leading)
     return tokens[0]
-
-
-def _estimate_cost_by_stage(
-    competitor_count: int,
-    section_count: int,
-) -> dict[str, float]:
-    """Stage-by-stage USD estimates for the Confirm screen.
-
-    Numbers are intentionally rough — the cost tracker records real
-    spend during a run. This is just "how many dollars should the
-    user steel themselves for before hitting Start?"
-    """
-    research = competitor_count * section_count * _COST_PER_SECTION_USD
-    enrichment = (
-        competitor_count * _ENRICHMENT_PASSES * _COST_PER_ENRICH_PROFILE_USD
-    )
-    themes = _DEFAULT_THEME_COUNT * _COST_PER_THEME_USD
-    summaries = _DEFAULT_THEME_COUNT * _COST_PER_SUMMARY_USD + _COST_PER_SUMMARY_USD
-    return {
-        "research": round(research, 2),
-        "enrichment": round(enrichment, 2),
-        "themes": round(themes, 2),
-        "summaries": round(summaries, 2),
-    }
-
-
-def _estimate_eta_seconds(
-    competitor_count: int,
-    section_count: int,
-    workers: int = 5,
-) -> int:
-    """Rough wall-clock estimate. Research dominates; fixed overhead
-    for enrichment + synthesis is added separately."""
-    workers = max(1, workers)
-    research_work = competitor_count * section_count * _SECONDS_PER_SECTION
-    return int(
-        (research_work / workers)
-        + _ENRICHMENT_OVERHEAD_S
-        + _SYNTHESIS_OVERHEAD_S,
-    )
 
 
 def _profile_to_model(
@@ -1464,7 +1711,7 @@ def _slugify_for_path(name: str) -> str:
 
 
 def _build_results_response(workspace_root: Path) -> ResultsResponse:
-    """Enumerate exec summary + theme files on disk."""
+    """Enumerate dossiers, exec summary, and theme files on disk."""
     summary_path = workspace_root / "executive_summary.md"
     summary_preview = ""
     summary_path_str: str | None = None
@@ -1474,8 +1721,15 @@ def _build_results_response(workspace_root: Path) -> ResultsResponse:
 
     theme_files: list[ThemeFileModel] = []
     output_files: list[OutputFileModel] = []
+    competitors_dir = workspace_root / "competitors"
     themes_dir = workspace_root / "themes"
     distilled_dir = themes_dir / "distilled"
+
+    if competitors_dir.exists():
+        for path in sorted(competitors_dir.glob("*.md")):
+            output_files.append(
+                OutputFileModel(name=path.stem, path=str(path), kind="dossier"),
+            )
 
     if themes_dir.exists():
         # themes/<slug>.md (skip the distilled subdirectory)
@@ -1508,12 +1762,18 @@ def _build_results_response(workspace_root: Path) -> ResultsResponse:
             ),
         )
 
+    from recon.workspace import Workspace
+
+    cost_summary = _safe_cost_summary(Workspace.open(workspace_root))
+
     return ResultsResponse(
         workspace_path=str(workspace_root),
         executive_summary_path=summary_path_str,
         executive_summary_preview=summary_preview,
         theme_files=theme_files,
         output_files=output_files,
+        total_cost=cost_summary["total_cost"],
+        provenance=_latest_run_provenance(workspace_root),
     )
 
 

@@ -63,6 +63,14 @@ def workspace_with_results(populated_workspace: Path) -> Path:
         "The widget market is dominated by Acme. Three trends:\n"
         "1. Consolidation\n2. Pricing pressure\n3. New entrants from Asia.\n",
     )
+    (populated_workspace / "competitors" / "acme-corp.md").write_text(
+        "---\n"
+        "name: Acme Corp\n"
+        "type: competitor\n"
+        "research_status: researched\n"
+        "---\n\n"
+        "# Acme Corp\n\n## Overview\n\nDossier content.\n",
+    )
     themes_dir = populated_workspace / "themes"
     themes_dir.mkdir(exist_ok=True)
     (themes_dir / "consolidation.md").write_text(
@@ -258,6 +266,12 @@ class TestResults:
     def test_returns_summary_and_theme_files(
         self, client: TestClient, workspace_with_results: Path,
     ) -> None:
+        run_root = workspace_with_results / ".recon" / "runs" / "run123"
+        run_root.mkdir(parents=True)
+        (run_root / "run.yaml").write_text("status: complete\n")
+        (run_root / "llm_calls.jsonl").write_text('{"ok": true}\n{"ok": true}\n')
+        (run_root / "sources.jsonl").write_text('{"url": "https://example.com"}\n')
+
         response = client.get(f"/api/results?path={workspace_with_results}")
         assert response.status_code == 200
         body = response.json()
@@ -269,6 +283,13 @@ class TestResults:
         # themes/distilled subdirectory which holds different content).
         theme_names = {t["name"] for t in body["theme_files"]}
         assert "consolidation" in theme_names
+        dossier_files = [f for f in body["output_files"] if f["kind"] == "dossier"]
+        assert dossier_files
+        assert any(f["name"] == "acme-corp" for f in dossier_files)
+        assert body["provenance"]["run_id"] == "run123"
+        assert body["provenance"]["status"] == "complete"
+        assert body["provenance"]["llm_call_count"] == 2
+        assert body["provenance"]["source_entry_count"] == 1
 
     def test_handles_workspace_with_no_results_yet(
         self, client: TestClient, populated_workspace: Path,
@@ -315,3 +336,22 @@ class TestPathTraversalDefense:
         # bad value returns a 4xx instead of 5xx.
         response = client.get("/api/workspace?path=/../../etc")
         assert 400 <= response.status_code < 500
+
+
+class TestDiscoveryAudit:
+    def test_returns_discovery_search_summary(
+        self, client: TestClient, populated_workspace: Path,
+    ) -> None:
+        audit_path = populated_workspace / ".recon" / "discovery"
+        audit_path.mkdir(parents=True)
+        (audit_path / "searches.jsonl").write_text(
+            '{"timestamp":"2026-04-26T18:00:00+00:00","provider":"anthropic","candidates":[{"name":"Foo"},{"name":"Bar"}]}\n'
+            '{"timestamp":"2026-04-26T18:05:00+00:00","provider":"google","candidates":[{"name":"Baz"}]}\n',
+        )
+
+        response = client.get(f"/api/discovery-audit?path={populated_workspace}")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["search_count"] == 2
+        assert body["last_provider"] == "google"
+        assert body["last_candidate_count"] == 1

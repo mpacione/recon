@@ -68,7 +68,7 @@ class TestGetTemplate:
             s for s in response.json()["sections"] if s["key"] == "overview"
         )
         assert section["title"] == "Overview"
-        assert "summary" in section["description"].lower()
+        assert "high-level" in section["description"].lower()
 
     def test_404_for_missing_workspace(
         self, client: TestClient, tmp_path: Path,
@@ -119,6 +119,42 @@ class TestPutTemplate:
         assert response.status_code == 200
         raw = yaml.safe_load((tmp_workspace / "recon.yaml").read_text())
         assert raw["sections"] == []
+
+    def test_persists_full_section_pool_with_custom_section(
+        self, client: TestClient, tmp_workspace: Path,
+    ) -> None:
+        response = client.put(
+            "/api/template",
+            json={
+                "path": str(tmp_workspace),
+                "sections": [
+                    {
+                        "key": "overview",
+                        "title": "Overview",
+                        "description": "Summarize the company at a high level.",
+                        "selected": True,
+                        "allowed_formats": ["prose"],
+                        "preferred_format": "prose",
+                    },
+                    {
+                        "key": "channel_risk",
+                        "title": "Channel Risk",
+                        "description": "Assess channel concentration, platform dependency, and partner risk.",
+                        "selected": False,
+                        "allowed_formats": ["prose"],
+                        "preferred_format": "prose",
+                    },
+                ],
+            },
+        )
+        assert response.status_code == 200, response.text
+
+        raw = yaml.safe_load((tmp_workspace / "recon.yaml").read_text())
+        assert [s["key"] for s in raw["sections"]] == ["overview"]
+
+        pool = yaml.safe_load((tmp_workspace / ".recon" / "schema_sections.yaml").read_text())
+        assert [s["key"] for s in pool] == ["overview", "channel_risk"]
+        assert pool[1]["selected"] is False
 
     def test_rejects_unknown_section_key(
         self, client: TestClient, tmp_workspace: Path,
@@ -209,8 +245,69 @@ class TestGetConfirm:
         # ETA to something absurd (< 5s for 2 competitors × 1 section).
         assert body["eta_seconds"] >= 10
 
+    def test_uses_saved_plan_settings_for_defaults_and_breakdown(
+        self, client: TestClient, workspace_with_competitors: Path,
+    ) -> None:
+        patch = client.patch(
+            "/api/plan-settings",
+            json={
+                "path": str(workspace_with_competitors),
+                "model_name": "opus",
+                "workers": 7,
+                "verification_mode": "deep",
+            },
+        )
+        assert patch.status_code == 200, patch.text
+
+        response = client.get(f"/api/confirm?path={workspace_with_competitors}")
+        body = response.json()
+        assert body["default_model"] == "opus"
+        assert body["default_workers"] == 7
+        assert body["default_verification_mode"] == "deep"
+        assert body["estimate_competitor_count"] == 2
+        assert body["research_per_company"] > 0
+        assert body["enrichment_per_company"] > 0
+        assert body["fixed_total"] > 0
+        assert body["verification_uplift_per_company"] >= 0
+
     def test_404_for_missing_workspace(
         self, client: TestClient, tmp_path: Path,
     ) -> None:
         response = client.get(f"/api/confirm?path={tmp_path / 'nope'}")
         assert response.status_code == 404
+
+
+class TestPlanSettings:
+    def test_get_returns_defaults_when_no_plan_yaml_exists(
+        self, client: TestClient, tmp_workspace: Path,
+    ) -> None:
+        response = client.get(f"/api/plan-settings?path={tmp_workspace}")
+        assert response.status_code == 200
+        assert response.json() == {
+            "model_name": "sonnet",
+            "workers": 5,
+            "verification_mode": "standard",
+        }
+
+    def test_patch_persists_workspace_plan_settings(
+        self, client: TestClient, tmp_workspace: Path,
+    ) -> None:
+        response = client.patch(
+            "/api/plan-settings",
+            json={
+                "path": str(tmp_workspace),
+                "model_name": "haiku",
+                "workers": 3,
+                "verification_mode": "verified",
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json() == {
+            "model_name": "haiku",
+            "workers": 3,
+            "verification_mode": "verified",
+        }
+
+        get_response = client.get(f"/api/plan-settings?path={tmp_workspace}")
+        assert get_response.status_code == 200
+        assert get_response.json() == response.json()

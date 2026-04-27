@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RECON</title>
-  <link rel="stylesheet" href="/static/primitives.css">
-  <link rel="stylesheet" href="/static/recon.css">
+  <link rel="stylesheet" href="/static/primitives.css?v=20260427b">
+  <link rel="stylesheet" href="/static/recon.css?v=20260427b">
   <!--RECON_CONFIG-->
   <script src="https://code.iconify.design/iconify-icon/2.0.0/iconify-icon.min.js"></script>
   <!-- marked for markdown rendering in the OUTPUT tab. Loaded non-defer
@@ -13,23 +13,22 @@
        sanitizes the rendered HTML before we inject it. -->
   <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
-  <script defer src="/static/app.js"></script>
+  <script defer src="/static/app.js?v=20260427b"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body x-data="reconShell()" x-cloak
       @keydown.window="$store.hotkeys.handle($event)">
 
   <!-- ============== Top nav ==============
-       RECON brand (home) on the left; 5 numbered flow tabs on the right.
-       Brand acts as the "home" tab — no number, clicking it jumps to #/
-       which is the RECON projects list. -->
+       MAIN (home) on the left; 5 numbered project tabs on the right. -->
   <header class="topnav">
     <a class="topnav-brand"
        :class="{ 'is-active': screen === 'home' }"
        href="#/"
-       aria-label="Recon home">
+       aria-label="Recon main">
       <iconify-icon icon="lucide:globe" width="12"></iconify-icon>
-      <span>RECON</span>
+      <span>MAIN</span>
+      <span class="topnav-tab-num">[0]</span>
     </a>
 
     <nav class="topnav-tabs"
@@ -269,48 +268,109 @@
         </section>
       </template>
 
-      <!-- AI Models card -->
-      <template x-if="!loading && !error && models.length">
+      <!-- Run settings + estimate -->
+      <template x-if="!loading && !error && confirm">
         <section class="card">
           <header class="card-head">
-            <span class="card-title">AI Models</span>
-            <span class="card-meta">EST COST @ ~<span x-text="competitorCount"></span>/COMPETITORS</span>
+            <span class="card-title">Run Settings</span>
+            <span class="card-meta">
+              <span x-text="currentModelOption() ? currentModelOption().label : modelName"></span>
+              <span class="dim">·</span>
+              <span x-text="workers"></span> workers
+              <span class="dim">·</span>
+              <span x-text="verificationMode"></span>
+            </span>
           </header>
 
           <div class="card-body stack stack-tight">
-            <template x-for="(m, i) in models" :key="m.id">
-              <button type="button"
-                      class="plan-model-row"
-                      :class="{ 'is-selected': model === m.id, 'is-focused': focusIdx === i }"
-                      @click="focusIdx = i; model = m.id">
-                <iconify-icon class="plan-model-check"
-                              :icon="model === m.id ? 'lucide:square-check' : 'lucide:square-dashed'"
-                              width="12"></iconify-icon>
-                <span class="plan-model-label" x-text="m.label"></span>
-                <span class="plan-model-sep">—</span>
-                <span class="plan-model-desc trunc" x-text="m.description"></span>
-                <span class="plan-model-cost" x-text="formatCost(m.estimated_total)"></span>
-              </button>
-            </template>
+            <div class="stack stack-tight">
+              <p class="body">
+                <span class="dim">Model</span>
+                <span class="fg" x-text="currentModelOption() ? currentModelOption().label : modelName"></span>
+                <span class="dim">(<kbd>M</kbd> cycle)</span>
+              </p>
+              <p class="body">
+                <span class="dim">Parallel workers</span>
+                <span class="fg" x-text="workers"></span>
+                <span class="dim">(<kbd>+</kbd>/<kbd>-</kbd> change)</span>
+              </p>
+              <p class="body">
+                <span class="dim">Verification</span>
+                <span class="fg" x-text="verificationMode"></span>
+                <span class="dim">(<kbd>V</kbd> cycle)</span>
+              </p>
+              <p class="dim">These settings update the estimate and the PIPELINE run path directly.</p>
+            </div>
           </div>
+        </section>
+      </template>
 
-          <!-- Worker count stepper -->
-          <div class="card-body plan-workers">
-            <span class="field-label">Workers</span>
-            <button type="button" class="btn btn--sm" @click="decWorkers()" :disabled="workers <= 1">−</button>
-            <span class="plan-workers-num" x-text="workers"></span>
-            <button type="button" class="btn btn--sm" @click="incWorkers()" :disabled="workers >= 16">+</button>
-            <span class="dim">parallel</span>
+      <template x-if="!loading && !error && confirm">
+        <section class="card">
+          <header class="card-head">
+            <span class="card-title">Cost Estimate</span>
+            <span class="card-meta">
+              <span x-text="confirm.competitor_count"></span> companies
+              <span class="dim">·</span>
+              <span x-text="confirm.section_keys.length"></span> sections
+            </span>
+          </header>
+          <div class="card-body stack stack-tight">
+            <p class="body">
+              <span class="dim">Total cost per company</span>
+              <span class="fg" x-text="formatCost(confirm.total_cost_per_company)"></span>
+              <span class="dim" x-text="'(includes ' + verificationMode + ' verification)'"></span>
+            </p>
+            <p class="body">
+              <span class="dim">Includes research</span>
+              <span class="fg" x-text="formatCost(confirm.research_per_company)"></span>
+              <span class="dim">enrichment</span>
+              <span class="fg" x-text="formatCost(confirm.enrichment_per_company)"></span>
+            </p>
+            <p class="body">
+              <span class="dim">Verification uplift</span>
+              <span class="fg" x-text="'+' + formatCost(confirm.verification_uplift_per_company) + '/company'"></span>
+            </p>
+            <p class="body">
+              <span class="dim">Fixed overhead</span>
+              <span class="fg" x-text="formatCost(confirm.fixed_total)"></span>
+              <span class="dim">(shared once per run)</span>
+            </p>
+            <p class="dim">
+              themes <span x-text="formatCost(confirm.fixed_themes)"></span>
+              + executive summary <span x-text="formatCost(confirm.fixed_summary)"></span>
+            </p>
+            <p class="body">
+              <span class="dim">Projected full run</span>
+              <span class="fg" x-text="formatCost(confirm.estimated_total)"></span>
+              <span class="dim" x-text="'(' + confirm.estimate_competitor_count + ' companies)'"></span>
+            </p>
+            <p class="body">
+              <span class="dim">Estimated time</span>
+              <span class="fg" x-text="'~' + Math.max(1, Math.round(confirm.eta_seconds / 60)) + 'm'"></span>
+              <span class="dim" x-text="'@ ' + confirm.estimate_competitor_count + ' competitors'"></span>
+            </p>
+            <p class="body">
+              <span class="dim">Current tracked spend</span>
+              <span class="fg" x-text="formatCost(confirm.current_tracked_spend)"></span>
+            </p>
           </div>
-
           <footer class="card-foot">
-            <span class="dim"><kbd>↑↓</kbd> KEYBOARD NAV</span>
-            <span class="fill"></span>
             <button type="button" class="btn" @click="back()">
               BACK <span class="btn-key">[ESC]</span>
             </button>
-            <button type="button" class="btn" @click="selectFocused()">
-              SELECT <span class="btn-key">[↲]</span>
+            <span class="fill"></span>
+            <button type="button" class="btn" @click="cycleModel(1)">
+              MODEL <span class="btn-key">[M]</span>
+            </button>
+            <button type="button" class="btn" @click="cycleVerification()">
+              VERIFY <span class="btn-key">[V]</span>
+            </button>
+            <button type="button" class="btn" @click="decWorkers()" :disabled="workers <= 1">
+              LESS <span class="btn-key">[-]</span>
+            </button>
+            <button type="button" class="btn" @click="incWorkers()" :disabled="workers >= 16">
+              MORE <span class="btn-key">[+]</span>
             </button>
             <button type="button" class="btn btn--primary" @click="next()">
               NEXT <span class="btn-key">[N]</span>
@@ -363,6 +423,7 @@
           </header>
 
           <div class="card-body stack stack-tight" role="listbox" aria-label="Schema sections">
+            <p class="dim">Toggle sections on or off to shape what each company dossier covers.</p>
             <template x-for="(s, i) in sections" :key="s.key">
               <button type="button"
                       class="schema-row"
@@ -372,35 +433,107 @@
                               :icon="s.selected ? 'lucide:square-check' : 'lucide:square-dashed'"
                               width="12"></iconify-icon>
                 <span class="schema-row-title" x-text="s.title"></span>
-                <span class="schema-row-sep">—</span>
-                <span class="schema-row-desc trunc" x-text="s.description"></span>
                 <span class="schema-row-format tag" x-text="s.preferred_format"></span>
               </button>
             </template>
+          </div>
+        </section>
+      </template>
 
-            <!-- Add section affordance (disabled until backend lands) -->
-            <button type="button"
-                    class="schema-row schema-row--add"
-                    @click="openAdd()"
-                    aria-disabled="true"
-                    title="Coming soon — edit recon.yaml directly for now">
-              <iconify-icon icon="lucide:plus" width="12"></iconify-icon>
-              <span class="muted">Add section</span>
-              <span class="dim">— requires backend support (phase 9)</span>
+      <template x-if="!loading && !error && selectedSection">
+        <section class="card">
+          <header class="card-head">
+            <span class="card-title">Selected Section</span>
+            <span class="card-meta" x-text="selectedMeta"></span>
+          </header>
+          <div class="card-body stack stack-tight">
+            <p class="body fg" x-text="selectedSection.title"></p>
+            <p class="body" x-text="selectedSection.description"></p>
+            <div class="inline inline-tight">
+              <span class="tag" x-text="selectedSection.preferred_format || 'prose'"></span>
+              <template x-if="selectedSection.when_relevant">
+                <span class="dim" x-text="'best when: ' + selectedSection.when_relevant"></span>
+              </template>
+            </div>
+            <div class="inline inline-tight">
+              <span class="fill"></span>
+              <button type="button" class="btn" @click="openEdit()">
+                EDIT SECTION <span class="btn-key">[E]</span>
+              </button>
+            </div>
+          </div>
+        </section>
+      </template>
+
+      <template x-if="!loading && !error">
+        <section class="card">
+          <header class="card-head">
+            <span class="card-title">Section Library</span>
+            <span class="card-meta">CUSTOMIZE</span>
+          </header>
+          <div class="card-body stack stack-tight">
+            <p class="dim">Add a custom section or dimension to the dossier.</p>
+            <button type="button" class="btn" @click="openAdd()">
+              ADD SECTION <span class="btn-key">[M]</span>
             </button>
           </div>
-
           <footer class="card-foot">
-            <span class="dim"><kbd>↑↓</kbd> NAV · <kbd>space</kbd> TOGGLE</span>
-            <span class="fill"></span>
             <button type="button" class="btn" @click="back()">
               BACK <span class="btn-key">[ESC]</span>
             </button>
+            <button type="button" class="btn" @click="selectAll()">
+              SELECT ALL <span class="btn-key">[A]</span>
+            </button>
+            <button type="button" class="btn" @click="deselectAll()">
+              DESELECT ALL <span class="btn-key">[D]</span>
+            </button>
+            <span class="fill"></span>
             <button type="button" class="btn btn--primary" @click="next()" :disabled="selectedCount === 0">
-              NEXT <span class="btn-key">[N]</span>
+              NEXT <span class="btn-key">[SPACE]</span>
             </button>
           </footer>
         </section>
+      </template>
+
+      <template x-if="editorOpen">
+        <div class="modal"
+             role="dialog"
+             aria-modal="true"
+             :aria-label="editorMode === 'add' ? 'Add section' : 'Edit section'"
+             @click.self="closeEditor()">
+          <div class="modal-sheet card" @click.stop>
+            <header class="card-head">
+              <span class="card-title" x-text="editorMode === 'add' ? 'Add Section' : 'Edit Section'"></span>
+            </header>
+            <div class="card-body stack stack-tight">
+              <label class="field">
+                <span class="field-label">Section title</span>
+                <input type="text"
+                       x-ref="sectionTitleInput"
+                       x-model="editorTitle"
+                       @keydown.enter.prevent="submitEditor()"
+                       placeholder="e.g. Distribution strategy">
+              </label>
+              <label class="field">
+                <span class="field-label">Research prompt</span>
+                <textarea x-model="editorDescription"
+                          @keydown.meta.enter.prevent="submitEditor()"
+                          @keydown.ctrl.enter.prevent="submitEditor()"
+                          rows="4"
+                          placeholder="Describe what the model should look for, compare, and reason about in this section."></textarea>
+              </label>
+            </div>
+            <footer class="card-foot">
+              <button type="button" class="btn" @click="closeEditor()">
+                CANCEL <span class="btn-key">[ESC]</span>
+              </button>
+              <span class="fill"></span>
+              <button type="button" class="btn btn--primary" @click="submitEditor()">
+                SAVE <span class="btn-key">[↲]</span>
+              </button>
+            </footer>
+          </div>
+        </div>
       </template>
     </div>
   </template>
@@ -424,12 +557,14 @@
       <template x-if="!error">
         <section class="card">
           <header class="card-head">
-            <span class="card-title">Competitors</span>
+            <span class="card-title">Companies</span>
             <span class="card-meta">
               <span x-text="selectedCount"></span> / <span x-text="competitors.length"></span> SELECTED
               <span class="dim">·</span>
               <span>EST COST</span>
               <span class="fg" x-text="formatCost(estimatedCost)"></span>
+              <span class="dim">·</span>
+              <span x-text="verificationMode"></span>
             </span>
           </header>
 
@@ -437,7 +572,7 @@
 
             <template x-if="!competitors.length && !discovering">
               <p class="dim" style="padding: 8px 0;">
-                No competitors yet. Press <kbd>S</kbd> to search.
+                <span x-text="blockingMessage || 'No companies yet. Press [S] to search.'"></span>
               </p>
             </template>
 
@@ -474,16 +609,43 @@
               <iconify-icon icon="lucide:settings-2" width="11"></iconify-icon>
               TERMS <span class="btn-key">[T]</span>
             </button>
-            <button type="button" class="btn" @click="search()" :disabled="discovering">
+            <button type="button" class="btn" @click="search()" :disabled="discovering || !!blockingMessage">
               <iconify-icon icon="lucide:search" width="11"></iconify-icon>
               <span x-text="discovering ? 'SEARCHING…' : 'SEARCH'"></span>
               <span class="btn-key" x-show="!discovering">[S]</span>
             </button>
-            <button type="button" class="btn btn--primary" @click="run()" :disabled="starting || selectedCount === 0">
-              <span x-text="starting ? 'STARTING…' : 'RUN'"></span>
-              <span class="btn-key" x-show="!starting">[R]</span>
+            <button type="button" class="btn btn--primary" @click="next()" :disabled="selectedCount === 0 || !!blockingMessage">
+              PIPELINE <span class="btn-key">[N]</span>
             </button>
           </footer>
+        </section>
+      </template>
+
+      <template x-if="!error">
+        <section class="card">
+          <header class="card-head">
+            <span class="card-title">Discovery Audit</span>
+            <span class="card-meta" x-text="discoveryAudit.search_count + ' SEARCHES'"></span>
+          </header>
+          <div class="card-body stack stack-tight">
+            <template x-if="discoveryAudit.search_count > 0">
+              <div class="stack stack-tight">
+                <p class="body">
+                  <span class="dim">Last search</span>
+                  <span class="fg" x-text="formatAuditTimestamp(discoveryAudit.last_searched_at) || '—'"></span>
+                </p>
+                <p class="body">
+                  <span class="dim">Returned candidates</span>
+                  <span class="fg" x-text="discoveryAudit.last_candidate_count"></span>
+                  <span class="dim">via</span>
+                  <span class="fg" x-text="discoveryAudit.last_provider || 'discovery agent'"></span>
+                </p>
+              </div>
+            </template>
+            <template x-if="discoveryAudit.search_count === 0">
+              <p class="dim">No discovery searches logged yet.</p>
+            </template>
+          </div>
         </section>
       </template>
 
@@ -540,18 +702,53 @@
       <!-- No-run state -->
       <template x-if="!runId && !error">
         <div class="card card--pad-loose stack stack-tight">
-          <span class="card-title">No active run</span>
+          <span class="card-title" x-text="blockingMessage ? 'Pipeline blocked' : 'Pipeline ready'"></span>
           <p class="body">
-            Nothing is running. Head to
-            <a :href="'#/p/' + encodedPath + '/comps'" class="fg">COMP'S [3]</a>
-            to kick off research.
+            <span class="fg" x-text="readyState.selectedCount"></span> companies ·
+            <span class="fg" x-text="readyState.sectionCount"></span> sections ·
+            verification <span class="fg" x-text="readyState.verificationMode"></span> ·
+            <span class="fg" x-text="readyState.workers"></span> workers
           </p>
+          <p class="body" x-show="blockingMessage" x-text="blockingMessage"></p>
+          <p class="body" x-show="!blockingMessage">
+            Launch from this screen when the roster and schema look right.
+          </p>
+          <p class="dim">RESEARCH → VERIFY → ENRICH → THEMES → SYNTHESIZE → DELIVER</p>
+          <footer class="card-foot">
+            <button type="button" class="btn" @click="back()">
+              BACK <span class="btn-key">[ESC]</span>
+            </button>
+            <span class="fill"></span>
+            <button type="button" class="btn btn--primary" @click="primaryAction()" :disabled="launching">
+              <span x-text="launching ? 'STARTING…' : primaryActionLabel"></span>
+              <span class="btn-key" x-show="!launching" x-text="blockingMessage ? '[↲]' : '[R]'"></span>
+            </button>
+          </footer>
         </div>
       </template>
 
       <!-- Live: headline, progress, agents, competitors -->
       <template x-if="runId && !error">
         <div class="stack">
+
+          <section class="card">
+            <footer class="card-foot">
+              <button type="button" class="btn" @click="back()">
+                BACK <span class="btn-key">[ESC]</span>
+              </button>
+              <button type="button" class="btn" @click="togglePauseResume()" :disabled="terminal">
+                <span x-text="runPaused ? 'RESUME' : 'PAUSE/RESUME'"></span>
+                <span class="btn-key">[P]</span>
+              </button>
+              <button type="button" class="btn" @click="cancelRun()" :disabled="terminal">
+                STOP <span class="btn-key">[S]</span>
+              </button>
+              <span class="fill"></span>
+              <button type="button" class="btn" @click="goOutput()">
+                OUTPUT <span class="btn-key">[O]</span>
+              </button>
+            </footer>
+          </section>
 
           <!-- Headline row: stage + cost + overall progress -->
           <section class="card">
@@ -581,7 +778,7 @@
           <!-- Agents grid: one card per worker -->
           <section class="card">
             <header class="card-head">
-              <span class="card-title">Agents</span>
+              <span class="card-title">Pipeline</span>
               <span class="card-meta" x-text="agents.length + ' WORKERS'"></span>
             </header>
             <div class="card-body agents-grid">
@@ -676,14 +873,6 @@
                   </button>
                 </header>
                 <div class="card-body stack stack-tight">
-                  <button type="button" class="btn" @click="pauseRun()" :disabled="terminal">
-                    <iconify-icon :icon="runPaused ? 'lucide:play' : 'lucide:pause'" width="11"></iconify-icon>
-                    <span x-text="runPaused ? 'RESUME RUN' : 'PAUSE RUN'"></span>
-                  </button>
-                  <button type="button" class="btn" @click="cancelRun()" :disabled="terminal">
-                    <iconify-icon icon="lucide:square" width="11"></iconify-icon>
-                    CANCEL RUN
-                  </button>
                   <button type="button" class="btn" @click="restartTask()" :disabled="terminal">
                     <iconify-icon icon="lucide:rotate-ccw" width="11"></iconify-icon>
                     RESTART TASK
@@ -693,7 +882,7 @@
                     DEBUG
                   </button>
                   <p class="dim" style="font-size: 0.92em;">
-                    Pause &amp; cancel are wired. Restart + debug land later.
+                    Run-level controls live in the top action bar. Worker-level restart + debug land later.
                   </p>
                 </div>
               </div>
@@ -722,8 +911,8 @@
         <div class="card card--pad-loose stack stack-tight">
           <span class="card-title">No outputs yet</span>
           <p class="body">
-            Run research first.
-            <a :href="'#/p/' + encodedPath + '/comps'" class="fg">COMP'S [3]</a>
+            Run the pipeline first.
+            <a :href="'#/p/' + encodedPath + '/agents'" class="fg">PIPELINE [4]</a>
           </p>
         </div>
       </template>
@@ -775,6 +964,27 @@
                       REVEAL
                     </button>
                   </div>
+
+                  <template x-if="provenance">
+                    <div class="card output-audit-card">
+                      <header class="card-head">
+                        <span class="card-title">Run Provenance</span>
+                        <span class="card-meta" x-text="provenanceStatus() || 'RECORDED'"></span>
+                      </header>
+                      <div class="card-body stack stack-tight">
+                        <p class="body">
+                          <span class="dim">Run ID</span>
+                          <span class="fg" x-text="provenance.run_id"></span>
+                        </p>
+                        <p class="body">
+                          <span class="dim">LLM calls</span>
+                          <span class="fg" x-text="provenance.llm_call_count"></span>
+                          <span class="dim">· source records</span>
+                          <span class="fg" x-text="provenance.source_entry_count"></span>
+                        </p>
+                      </div>
+                    </div>
+                  </template>
 
                   <template x-if="previewError">
                     <p class="alert alert--err" x-text="previewError"></p>

@@ -2,7 +2,7 @@
 //
 // Architecture:
 //   - Hash-based router: #/  = home (RECON), #/p/<path>/<tab> = project
-//   - Five flow tabs: plan, schema, comps, agents, output (numbered 1-5)
+//   - Five project tabs: project, schema, companies, pipeline, output
 //   - Screen registry: each route maps to a <template id="screen-<key>">
 //   - Hotkey registry: scoped stack. Screens push a scope on mount,
 //     pop on unmount. Global keys live at the bottom of the stack.
@@ -20,14 +20,14 @@
 //   - the 1-5 numeric hotkeys (bound at the project scope)
 //   - the Lucide icon shown in the nav
 //
-// "home" is not a tab — the RECON brand button is a separate affordance
+// "home" is not a tab — the MAIN brand button is a separate affordance
 // that lives to the left of the tab list and owns its own route.
 
 const TABS = [
-  { key: 'plan',   label: 'PLAN',    number: 1, icon: 'map' },
+  { key: 'plan',   label: 'PROJECT', number: 1, icon: 'map' },
   { key: 'schema', label: 'SCHEMA',  number: 2, icon: 'square-stack' },
-  { key: 'comps',  label: "COMP'S",  number: 3, icon: 'shapes' },
-  { key: 'agents', label: 'AGENTS',  number: 4, icon: 'rabbit' },
+  { key: 'comps',  label: 'COMPANIES', number: 3, icon: 'shapes' },
+  { key: 'agents', label: 'PIPELINE',  number: 4, icon: 'rabbit' },
   { key: 'output', label: 'OUTPUT',  number: 5, icon: 'folder-open' },
 ];
 
@@ -294,7 +294,7 @@ function reconShell() {
       }));
       projectBindings.push({
         key: '0',
-        label: 'RECON',
+        label: 'MAIN',
         run: () => this.$store.router.goHome(),
       });
       this.$store.hotkeys.register('project-tabs', projectBindings);
@@ -552,7 +552,7 @@ function homeScreen() {
 }
 
 // ---------------------------------------------------------------------------
-// PLAN tab  —  brief + model selector + worker count
+// PROJECT tab  —  brief + settings + cost estimate
 // ---------------------------------------------------------------------------
 
 function planScreen() {
@@ -567,15 +567,15 @@ function planScreen() {
     _briefSaveTimer: 0,
     briefSaving: false,
     briefSaved: false,
-    competitorCount: 0,
+    workspaceTotalCost: 0,
+    workspaceRunCount: 0,
 
-    // Model selection
+    // Settings + estimate
     models: [],
-    model: '',
-    focusIdx: 0,
-
-    // Worker count
+    modelName: 'sonnet',
     workers: 5,
+    verificationMode: 'standard',
+    confirm: null,
 
     get path() { return this.$store.router.params.path; },
     get encodedPath() { return encodeURIComponent(this.path); },
@@ -600,6 +600,7 @@ function planScreen() {
         const initial = ws.domain || '';
         this.brief = initial;
         this._briefOriginal = initial;
+        this.workspaceTotalCost = ws.total_cost || 0;
       } catch (_err) { /* non-fatal */ }
     },
 
@@ -648,15 +649,13 @@ function planScreen() {
           throw new Error(body.detail || `Plan data unavailable (${r.status})`);
         }
         const data = await r.json();
-        this.competitorCount = data.competitor_count || 0;
+        this.confirm = data;
         this.models = data.model_options || [];
+        this.modelName = data.default_model || this.models[0]?.name || this.models[0]?.id || 'sonnet';
         this.workers = data.default_workers || 5;
-
-        // Prefer the backend-recommended model; fall back to default,
-        // then the first option.
-        const rec = this.models.find((m) => m.recommended);
-        this.model = rec?.id || data.default_model || this.models[0]?.id || '';
-        this.focusIdx = Math.max(0, this.models.findIndex((m) => m.id === this.model));
+        this.verificationMode = data.default_verification_mode || 'standard';
+        this.workspaceTotalCost = data.current_tracked_spend || this.workspaceTotalCost;
+        this.workspaceRunCount = data.run_count || 0;
       } catch (e) {
         this.error = e.message || String(e);
       } finally {
@@ -677,19 +676,60 @@ function planScreen() {
     // Actions
     // -----------------------------------------------------------------
 
-    selectFocused() {
-      const m = this.models[this.focusIdx];
-      if (m) this.model = m.id;
+    currentModelOption() {
+      return this.models.find((m) => modelNameFromOption(m) === this.modelName) || this.models[0] || null;
     },
 
-    moveFocus(delta) {
+    cycleModel(delta = 1) {
       if (!this.models.length) return;
-      const n = this.models.length;
-      this.focusIdx = (this.focusIdx + delta + n) % n;
+      const names = this.models.map((m) => modelNameFromOption(m));
+      const current = Math.max(0, names.indexOf(this.modelName));
+      this.modelName = names[(current + delta + names.length) % names.length];
+      this.persistSettings();
     },
 
-    incWorkers() { if (this.workers < 16) this.workers += 1; },
-    decWorkers() { if (this.workers > 1)  this.workers -= 1; },
+    cycleVerification() {
+      const current = Math.max(0, WEB_VERIFICATION_MODES.indexOf(this.verificationMode));
+      this.verificationMode = WEB_VERIFICATION_MODES[(current + 1) % WEB_VERIFICATION_MODES.length];
+      this.persistSettings();
+    },
+
+    incWorkers() {
+      if (this.workers >= 16) return;
+      this.workers += 1;
+      this.persistSettings();
+    },
+    decWorkers() {
+      if (this.workers <= 1) return;
+      this.workers -= 1;
+      this.persistSettings();
+    },
+
+    async persistSettings() {
+      try {
+        const r = await fetch('/api/plan-settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: this.path,
+            model_name: this.modelName,
+            workers: this.workers,
+            verification_mode: this.verificationMode,
+          }),
+        });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.detail || `Settings save failed (${r.status})`);
+        }
+        const data = await r.json();
+        this.modelName = data.model_name || this.modelName;
+        this.workers = data.workers || this.workers;
+        this.verificationMode = data.verification_mode || this.verificationMode;
+        await this.loadConfirm();
+      } catch (e) {
+        this.error = e.message || String(e);
+      }
+    },
 
     back() { this.$store.router.goHome(); },
     next() { this.$store.router.goTab('schema'); },
@@ -708,16 +748,13 @@ function planScreen() {
 
     registerKeys() {
       const bindings = [
-        { key: 'arrowup',   run: () => this.moveFocus(-1) },
-        { key: 'arrowdown', run: () => this.moveFocus(+1) },
-        { key: 'k',         run: () => this.moveFocus(-1) },
-        { key: 'j',         run: () => this.moveFocus(+1) },
-        { key: 'enter',     label: 'SELECT', run: () => this.selectFocused() },
-        { key: 'n',         label: 'NEXT',   run: () => this.next() },
+        { key: 'm',         label: 'MODEL', run: () => this.cycleModel(1) },
+        { key: 'v',         label: 'VERIFY', run: () => this.cycleVerification() },
+        { key: '+',         label: 'MORE', run: () => this.incWorkers() },
+        { key: '-',         label: 'LESS', run: () => this.decWorkers() },
+        { key: 'n',         label: 'NEXT', run: () => this.next() },
         { key: 'escape',    label: 'BACK',   run: () => this.back() },
         { key: 'l',         run: () => this.revealInFinder() },
-        { key: '+',         run: () => this.incWorkers() },
-        { key: '-',         run: () => this.decWorkers() },
       ];
       this.$store.hotkeys.register('screen:plan', bindings);
     },
@@ -734,6 +771,10 @@ function schemaScreen() {
     error: '',
     sections: [],
     focusIdx: 0,
+    editorOpen: false,
+    editorMode: 'edit',
+    editorTitle: '',
+    editorDescription: '',
 
     // Debounced save state
     saving: false,
@@ -743,6 +784,12 @@ function schemaScreen() {
     get path() { return this.$store.router.params.path; },
     get encodedPath() { return encodeURIComponent(this.path); },
     get selectedCount() { return this.sections.filter((s) => s.selected).length; },
+    get selectedSection() { return this.sections[this.focusIdx] || null; },
+    get selectedMeta() {
+      const section = this.selectedSection;
+      if (!section) return '';
+      return section.selected ? 'ENABLED' : 'DISABLED';
+    },
 
     async init() {
       await this.load();
@@ -760,6 +807,7 @@ function schemaScreen() {
         }
         const data = await r.json();
         this.sections = data.sections || [];
+        this.focusIdx = Math.min(this.focusIdx, Math.max(0, this.sections.length - 1));
       } catch (e) {
         this.error = e.message || String(e);
       } finally {
@@ -787,13 +835,17 @@ function schemaScreen() {
     async save() {
       this.saving = true;
       try {
-        const section_keys = this.sections.filter((s) => s.selected).map((s) => s.key);
         const r = await fetch('/api/template', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: this.path, section_keys }),
+          body: JSON.stringify({ path: this.path, sections: this.sections }),
         });
         if (!r.ok) throw new Error(`Save failed (${r.status})`);
+        const data = await r.json().catch(() => ({ sections: this.sections }));
+        const selectedKey = this.selectedSection?.key || '';
+        this.sections = data.sections || this.sections;
+        const nextIdx = this.sections.findIndex((section) => section.key === selectedKey);
+        this.focusIdx = nextIdx >= 0 ? nextIdx : Math.min(this.focusIdx, Math.max(0, this.sections.length - 1));
         this.justSaved = true;
         setTimeout(() => { this.justSaved = false; }, 1500);
       } catch (e) {
@@ -809,10 +861,88 @@ function schemaScreen() {
       this.focusIdx = (this.focusIdx + delta + n) % n;
     },
 
+    selectAll() {
+      this.sections = this.sections.map((section) => ({ ...section, selected: true }));
+      this.scheduleSave();
+    },
+
+    deselectAll() {
+      this.sections = this.sections.map((section) => ({ ...section, selected: false }));
+      this.scheduleSave();
+    },
+
+    openEdit() {
+      const section = this.selectedSection;
+      if (!section) return;
+      this.editorMode = 'edit';
+      this.editorTitle = section.title || '';
+      this.editorDescription = section.description || '';
+      this.editorOpen = true;
+      this.$nextTick(() => this.$refs.sectionTitleInput?.focus());
+    },
+
     openAdd() {
-      // Add-section support lands with a backend endpoint later. For
-      // now the button is a hint only.
-      alert('Add section coming soon. For now, edit recon.yaml directly.');
+      this.editorMode = 'add';
+      this.editorTitle = '';
+      this.editorDescription = '';
+      this.editorOpen = true;
+      this.$nextTick(() => this.$refs.sectionTitleInput?.focus());
+    },
+
+    closeEditor() {
+      this.editorOpen = false;
+      this.editorTitle = '';
+      this.editorDescription = '';
+    },
+
+    submitEditor() {
+      const title = this.editorTitle.trim();
+      const description = this.editorDescription.trim();
+      if (!title || !description) {
+        this.error = 'Section title and description are required';
+        return;
+      }
+      this.error = '';
+      if (this.editorMode === 'add') {
+        const key = this._uniqueKey(title);
+        this.sections = [
+          ...this.sections,
+          {
+            key,
+            title,
+            description,
+            selected: true,
+            when_relevant: '',
+            allowed_formats: ['prose'],
+            preferred_format: 'prose',
+          },
+        ];
+        this.focusIdx = this.sections.length - 1;
+      } else if (this.selectedSection) {
+        const key = this.selectedSection.key;
+        this.sections = this.sections.map((section) => (
+          section.key === key
+            ? { ...section, title, description }
+            : section
+        ));
+      }
+      this.closeEditor();
+      this.scheduleSave();
+    },
+
+    _uniqueKey(title) {
+      const base = title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '') || 'custom_section';
+      let key = base;
+      let suffix = 2;
+      const existing = new Set(this.sections.map((section) => section.key));
+      while (existing.has(key)) {
+        key = `${base}_${suffix}`;
+        suffix += 1;
+      }
+      return key;
     },
 
     back() { this.$store.router.goTab('plan'); },
@@ -827,10 +957,15 @@ function schemaScreen() {
         { key: 'arrowdown', run: () => this.moveFocus(+1) },
         { key: 'k',         run: () => this.moveFocus(-1) },
         { key: 'j',         run: () => this.moveFocus(+1) },
-        { key: 'space',     label: 'TOGGLE', run: () => this.toggle(this.focusIdx) },
+        { key: 'space',     label: 'NEXT', run: () => this.next() },
         { key: 'enter',     run: () => this.toggle(this.focusIdx) },
+        { key: 'a',         label: 'ALL', run: () => this.selectAll() },
+        { key: 'd',         label: 'NONE', run: () => this.deselectAll() },
+        { key: 'e',         label: 'EDIT', run: () => this.openEdit() },
+        { key: 'm',         label: 'ADD', run: () => this.openAdd() },
         { key: 'n',         label: 'NEXT', run: () => this.next() },
-        { key: 'escape',    label: 'BACK', run: () => this.back() },
+        { key: 'escape',    label: 'BACK',
+          run: () => { if (this.editorOpen) this.closeEditor(); else this.back(); } },
       ];
       this.$store.hotkeys.register('screen:schema', bindings);
     },
@@ -838,7 +973,7 @@ function schemaScreen() {
 }
 
 // ---------------------------------------------------------------------------
-// COMP'S tab  —  discovery + selection + run kickoff
+// COMPANIES tab  —  discovery + selection
 // ---------------------------------------------------------------------------
 
 function compsScreen() {
@@ -853,13 +988,18 @@ function compsScreen() {
     competitors: [],
     deselected: new Set(),   // slugs the user has opted out of
     focusIdx: 0,
+    workspaceBrief: '',
+    discoveryAudit: {
+      search_count: 0,
+      last_searched_at: '',
+      last_candidate_count: 0,
+      last_provider: '',
+    },
 
     // Cost estimate — snapshotted from /api/confirm
     costPerCompetitor: 0,
     sectionCount: 0,
-
-    // Run kickoff
-    starting: false,
+    verificationMode: 'standard',
 
     // Search-terms modal
     termsModalOpen: false,
@@ -868,14 +1008,20 @@ function compsScreen() {
     get path() { return this.$store.router.params.path; },
     get encodedPath() { return encodeURIComponent(this.path); },
     get selectedCount() { return this.competitors.filter((c) => this.isSelected(c)).length; },
+    get blockingMessage() {
+      if (!this.workspaceBrief.trim()) return 'Go to PROJECT [1] and define the research brief first.';
+      if (this.sectionCount <= 0) return 'Go to SCHEMA [2] and enable at least one dossier section first.';
+      return '';
+    },
     get estimatedCost() {
-      return (this.selectedCount * this.costPerCompetitor).toFixed(2) * 1;
+      return Number(this.selectedCount * this.costPerCompetitor).toFixed(2) * 1;
     },
 
     async init() {
       this.registerKeys();
       await this.loadAll();
-      if (this.competitors.length === 0) {
+      this._loadSelectionState();
+      if (this.competitors.length === 0 && !this.blockingMessage) {
         await this.search({ silent: true });
       }
     },
@@ -887,9 +1033,11 @@ function compsScreen() {
     async loadAll() {
       this.error = '';
       try {
-        const [compResp, confResp] = await Promise.all([
+        const [compResp, confResp, workspaceResp, auditResp] = await Promise.all([
           fetch('/api/competitors?path=' + this.encodedPath),
           fetch('/api/confirm?path=' + this.encodedPath),
+          fetch('/api/workspace?path=' + this.encodedPath),
+          fetch('/api/discovery-audit?path=' + this.encodedPath),
         ]);
         if (compResp.ok) {
           const data = await compResp.json();
@@ -898,17 +1046,15 @@ function compsScreen() {
         if (confResp.ok) {
           const conf = await confResp.json();
           this.sectionCount = conf.section_keys?.length || 0;
-          // Per-competitor cost = estimated_total / competitor_count,
-          // with a fallback when the workspace has 0 comps yet.
-          const total = conf.estimated_total || 0;
-          const cc = conf.competitor_count || 1;
-          this.costPerCompetitor = total / Math.max(1, cc);
-          // If the workspace has no comps yet, the server returns 0
-          // for estimated_total — seed a rough minimum so the number
-          // doesn't stay at 0 once the user has selected some.
-          if (!this.costPerCompetitor && this.sectionCount) {
-            this.costPerCompetitor = 0.35 * this.sectionCount;  // ~$0.35/section heuristic
-          }
+          this.costPerCompetitor = conf.blended_per_company || conf.total_cost_per_company || 0;
+          this.verificationMode = conf.default_verification_mode || 'standard';
+        }
+        if (workspaceResp.ok) {
+          const workspace = await workspaceResp.json();
+          this.workspaceBrief = workspace.domain || '';
+        }
+        if (auditResp.ok) {
+          this.discoveryAudit = await auditResp.json();
         }
       } catch (e) {
         this.error = e.message || String(e);
@@ -921,6 +1067,7 @@ function compsScreen() {
 
     async search({ silent = false } = {}) {
       if (this.discovering) return;
+      if (this.blockingMessage) return;
       this.discovering = true;
       this.discoveryMessage = silent ? 'Discovering competitors…' : 'Searching for more competitors…';
       this.error = '';
@@ -970,6 +1117,7 @@ function compsScreen() {
 
         // Refresh cost estimate now that the workspace has more comps.
         await this.loadAll();
+        this._loadSelectionState();
       } catch (e) {
         this.error = e.message || String(e);
       } finally {
@@ -993,6 +1141,7 @@ function compsScreen() {
       if (next.has(c.slug)) next.delete(c.slug);
       else next.add(c.slug);
       this.deselected = next;
+      this._saveSelectionState();
     },
 
     moveFocus(delta) {
@@ -1029,36 +1178,36 @@ function compsScreen() {
     improveWithAi() { /* deferred — no backend endpoint yet */ },
 
     // -----------------------------------------------------------------
-    // Run kickoff
+    // Navigation
     // -----------------------------------------------------------------
 
-    async run() {
-      if (this.starting) return;
-      if (this.selectedCount === 0) return;
-      this.starting = true;
-      this.error = '';
+    next() {
+      if (this.selectedCount === 0 || this.blockingMessage) return;
+      this.$store.router.goTab('agents');
+    },
+
+    formatAuditTimestamp(ts) {
+      if (!ts) return '';
       try {
-        // Reconcile selection: delete deselected competitors so the
-        // pipeline only iterates the chosen set. Do this here (rather
-        // than on the agents tab) so the work doesn't happen under a
-        // live progress view.
-        const slugsToDrop = [...this.deselected];
-        for (const slug of slugsToDrop) {
-          try {
-            await fetch('/api/competitors/' + encodeURIComponent(slug) + '?path=' + this.encodedPath, {
-              method: 'DELETE',
-            });
-          } catch (_err) { /* keep going */ }
-        }
-        // Hand off to the agents tab with autostart=1. The agents tab
-        // opens SSE first, THEN POSTs /api/runs — that ordering avoids
-        // a race where fast (fake-LLM) runs finish before SSE attaches.
-        this.$store.router.navigate('#/p/' + encodeURIComponent(this.path) + '/agents?autostart=1');
-      } catch (e) {
-        this.error = e.message || String(e);
-      } finally {
-        this.starting = false;
+        return new Date(ts).toLocaleString();
+      } catch (_err) {
+        return ts;
       }
+    },
+
+    _loadSelectionState() {
+      try {
+        const raw = localStorage.getItem(selectionStateKey(this.path));
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) this.deselected = new Set(parsed);
+      } catch (_err) { /* ignore */ }
+    },
+
+    _saveSelectionState() {
+      try {
+        localStorage.setItem(selectionStateKey(this.path), JSON.stringify([...this.deselected]));
+      } catch (_err) { /* ignore */ }
     },
 
     // -----------------------------------------------------------------
@@ -1082,7 +1231,7 @@ function compsScreen() {
           } },
         { key: 's',         label: 'SEARCH', run: () => this.search() },
         { key: 't',         label: 'TERMS',  run: () => this.openTerms() },
-        { key: 'r',         label: 'RUN',    run: () => this.run() },
+        { key: 'n',         label: 'NEXT',   run: () => this.next() },
         { key: 'escape',    allowInEditable: true,
           run: () => { if (this.termsModalOpen) this.closeTerms(); else this.back(); } },
       ];
@@ -1092,7 +1241,7 @@ function compsScreen() {
 }
 
 // ---------------------------------------------------------------------------
-// AGENTS tab  —  live run monitor via SSE
+// PIPELINE tab  —  live run monitor via SSE
 // ---------------------------------------------------------------------------
 //
 // Two panels:
@@ -1128,9 +1277,20 @@ function blockBar(pct, width) {
   return '▓'.repeat(filled) + (half ? '▒' : '') + '░'.repeat(Math.max(0, width - filled - half));
 }
 
+const WEB_VERIFICATION_MODES = ['standard', 'verified', 'deep'];
+
+function modelNameFromOption(option) {
+  return option?.name || option?.id || 'sonnet';
+}
+
+function selectionStateKey(path) {
+  return `recon:web:selection:${path || ''}`;
+}
+
 function agentsScreen() {
   return {
     error: '',
+    launching: false,
 
     // Run state
     runId: '',
@@ -1146,6 +1306,14 @@ function agentsScreen() {
     // Workers + competitors
     agents: [],               // [{ id, name, icon, stage, task, taskPct, state }]
     competitorsByName: {},    // { [name]: { name, total, done, failed, currentSection, pct, status } }
+    readyState: {
+      competitorCount: 0,
+      sectionCount: 0,
+      selectedCount: 0,
+      workers: 5,
+      verificationMode: 'standard',
+      modelName: 'sonnet',
+    },
 
     // UI
     completionModalOpen: false,
@@ -1158,6 +1326,16 @@ function agentsScreen() {
     get path() { return this.$store.router.params.path; },
     get encodedPath() { return encodeURIComponent(this.path); },
     get terminal() { return ['complete', 'failed', 'cancelled'].includes(this.status); },
+    get blockingMessage() {
+      if (this.readyState.sectionCount <= 0) return 'Go to SCHEMA [2] and enable at least one dossier section first.';
+      if (this.readyState.selectedCount <= 0) return 'Go to COMPANIES [3] and accept at least one company first.';
+      return '';
+    },
+    get primaryActionLabel() {
+      if (this.readyState.sectionCount <= 0) return 'GO TO SCHEMA';
+      if (this.readyState.selectedCount <= 0) return 'GO TO COMPANIES';
+      return 'RUN PIPELINE';
+    },
     get progressPct() {
       if (!this.totalTasks) return 0;
       return Math.round((this.doneTasks / this.totalTasks) * 100);
@@ -1173,14 +1351,15 @@ function agentsScreen() {
         clearInterval(this._pollTimer);
       });
 
-      this._initAgents();
+      await this._loadReadyState();
+      this._initAgents(this.readyState.workers);
       // Always open the global event stream first. Filtering to a
       // specific run happens client-side once we know the run_id.
       this._openStream();
 
       const autostart = this.$store.router.params.query?.autostart === '1';
       if (autostart) {
-        await this._autostart();
+        await this.launchRun();
       } else {
         this.runId = this._extractRunIdFromHash() || await this._findActiveRun();
       }
@@ -1195,13 +1374,72 @@ function agentsScreen() {
       }
     },
 
-    async _autostart() {
-      this.currentStage = 'STARTING';
+    async _loadReadyState() {
       try {
+        const [confirmResp, compResp] = await Promise.all([
+          fetch('/api/confirm?path=' + this.encodedPath),
+          fetch('/api/competitors?path=' + this.encodedPath),
+        ]);
+        if (confirmResp.ok) {
+          const confirm = await confirmResp.json();
+          this.readyState.competitorCount = confirm.competitor_count || 0;
+          this.readyState.sectionCount = confirm.section_keys?.length || 0;
+          this.readyState.workers = confirm.default_workers || 5;
+          this.readyState.verificationMode = confirm.default_verification_mode || 'standard';
+          this.readyState.modelName = confirm.default_model || 'sonnet';
+        }
+        if (compResp.ok) {
+          const data = await compResp.json();
+          const deselected = this._loadDeselectedSlugs();
+          const competitors = data.competitors || [];
+          this.readyState.selectedCount = competitors.filter((c) => !deselected.has(c.slug)).length;
+          this.readyState.competitorCount = competitors.length;
+        }
+      } catch (_err) { /* non-fatal */ }
+    },
+
+    _loadDeselectedSlugs() {
+      try {
+        const raw = localStorage.getItem(selectionStateKey(this.path));
+        const parsed = raw ? JSON.parse(raw) : [];
+        return new Set(Array.isArray(parsed) ? parsed : []);
+      } catch (_err) {
+        return new Set();
+      }
+    },
+
+    async _reconcileSelection() {
+      const deselected = this._loadDeselectedSlugs();
+      if (!deselected.size) return;
+      for (const slug of deselected) {
+        try {
+          await fetch('/api/competitors/' + encodeURIComponent(slug) + '?path=' + this.encodedPath, {
+            method: 'DELETE',
+          });
+        } catch (_err) { /* keep going */ }
+      }
+      try { localStorage.removeItem(selectionStateKey(this.path)); } catch (_err) { /* ignore */ }
+      this.readyState.selectedCount = Math.max(0, this.readyState.competitorCount - deselected.size);
+      this.readyState.competitorCount = this.readyState.selectedCount;
+    },
+
+    async launchRun() {
+      if (this.launching || this.runId) return;
+      if (this.blockingMessage) return;
+      this.currentStage = 'STARTING';
+      this.launching = true;
+      try {
+        await this._reconcileSelection();
         const r = await fetch('/api/runs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: this.path, use_fake_llm: true }),
+          body: JSON.stringify({
+            path: this.path,
+            use_fake_llm: true,
+            model: this.readyState.modelName,
+            workers: this.readyState.workers,
+            verification_mode: this.readyState.verificationMode,
+          }),
         });
         if (!r.ok) {
           const b = await r.json().catch(() => ({}));
@@ -1215,6 +1453,8 @@ function agentsScreen() {
         history.replaceState(null, '', '#/p/' + p + '/agents?run=' + encodeURIComponent(this.runId));
       } catch (e) {
         this.error = e.message || String(e);
+      } finally {
+        this.launching = false;
       }
     },
 
@@ -1271,10 +1511,10 @@ function agentsScreen() {
       } catch (_err) { /* non-fatal */ }
     },
 
-    _initAgents() {
+    _initAgents(workerCount = 5) {
       // Size the grid to the default worker count from /api/confirm;
       // fall back to 5 if we can't resolve it.
-      const n = Math.min(AGENT_PERSONA_POOL.length, 5);
+      const n = Math.min(AGENT_PERSONA_POOL.length, Math.max(1, workerCount || 5));
       this.agents = Array.from({ length: n }, (_, i) => ({
         id: i,
         name: AGENT_PERSONA_POOL[i % AGENT_PERSONA_POOL.length].name,
@@ -1420,6 +1660,11 @@ function agentsScreen() {
       }
     },
 
+    async togglePauseResume() {
+      if (!this.runId || this.terminal) return;
+      await this.pauseRun();
+    },
+
     async cancelRun() {
       if (!this.runId) { this.menuOpen = null; return; }
       if (!confirm('Cancel this run? Workers will stop at the next check.')) {
@@ -1439,7 +1684,7 @@ function agentsScreen() {
     restartTask() {
       // Per-task restart needs backend support we don't have yet;
       // point the user at the obvious alternative.
-      alert('Per-task restart coming later. For now, start a new run from COMP\'S.');
+      alert('Per-task restart coming later. For now, start a new run from COMPANIES.');
       this.menuOpen = null;
     },
 
@@ -1456,10 +1701,26 @@ function agentsScreen() {
       this.$store.router.goTab('output');
     },
 
+    primaryAction() {
+      if (this.readyState.sectionCount <= 0) {
+        this.$store.router.goTab('schema');
+        return;
+      }
+      if (this.readyState.selectedCount <= 0) {
+        this.$store.router.goTab('comps');
+        return;
+      }
+      this.launchRun();
+    },
+
     back() { this.$store.router.goTab('comps'); },
 
     registerKeys() {
       const bindings = [
+        { key: 'r', allowInEditable: true, run: () => { if (!this.runId) this.primaryAction(); } },
+        { key: 'p', allowInEditable: true, run: () => { if (this.runId && !this.terminal) this.togglePauseResume(); } },
+        { key: 's', allowInEditable: true, run: () => { if (this.runId && !this.terminal) this.cancelRun(); } },
+        { key: 'o', allowInEditable: true, run: () => { if (this.runId) this.goOutput(); } },
         { key: 'escape', allowInEditable: true,
           run: () => {
             if (this.menuOpen != null) { this.menuOpen = null; return; }
@@ -1468,6 +1729,10 @@ function agentsScreen() {
           } },
         { key: 'enter', allowInEditable: true,
           run: () => {
+            if (!this.runId) {
+              this.primaryAction();
+              return;
+            }
             if (this.completionModalOpen) this.goOutput();
           } },
       ];
@@ -1585,6 +1850,7 @@ function outputScreen() {
     previewError: '',
     previewHtml: '',
     _previewCache: {},  // path -> rendered html
+    provenance: null,
 
     get path() { return this.$store.router.params.path; },
     get encodedPath() { return encodeURIComponent(this.path); },
@@ -1605,6 +1871,7 @@ function outputScreen() {
           throw new Error(b.detail || `Outputs unavailable (${r.status})`);
         }
         const data = await r.json();
+        this.provenance = data.provenance || null;
         this._buildTree(data);
         if (this.tree.length) {
           // Default selection: exec summary (or first file).
@@ -1667,6 +1934,7 @@ function outputScreen() {
     iconFor(file) {
       if (!file) return 'lucide:file';
       if (file.kind === 'exec_summary') return 'lucide:file-text';
+      if (file.kind === 'dossier') return 'lucide:file-user';
       if (file.kind === 'theme') return 'lucide:tag';
       if (file.kind === 'distilled') return 'lucide:sparkles';
       return 'lucide:file-text';
@@ -1684,7 +1952,12 @@ function outputScreen() {
       }
       for (const f of data.output_files || []) {
         if (f.kind === 'exec_summary') continue; // listed above
-        files.push({ name: f.name, path: f.path, kind: f.kind, group: 'output' });
+        files.push({
+          name: this._basename(f.path),
+          path: f.path,
+          kind: f.kind,
+          group: f.kind === 'dossier' ? 'competitors' : 'output',
+        });
       }
       for (const t of data.theme_files || []) {
         files.push({
@@ -1752,6 +2025,11 @@ function outputScreen() {
     select(file) {
       this.selected = file;
       this._loadPreview(file);
+    },
+
+    provenanceStatus() {
+      if (!this.provenance) return '';
+      return (this.provenance.status || '').toUpperCase();
     },
 
     async reveal(file) {

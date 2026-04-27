@@ -273,10 +273,14 @@ iconify-icon {
 
 .schema-row {
   display: grid;
-  grid-template-columns: 14px 18ch auto minmax(10ch, 1fr) auto;
-  align-items: baseline;
+  grid-template-columns: 14px minmax(0, 1fr) max-content;
+  align-items: center;
   gap: var(--sp-2);
   padding: 4px 6px;
+  width: 100%;
+  min-width: 0;
+  align-self: stretch;
+  justify-self: stretch;
   background: transparent;
   color: var(--recon-body);
   border: none;
@@ -285,6 +289,7 @@ iconify-icon {
   text-align: left;
   cursor: pointer;
   min-height: 22px;
+  box-sizing: border-box;
 }
 .schema-row:hover,
 .schema-row.is-focused {
@@ -295,27 +300,23 @@ iconify-icon {
 
 .schema-row-check  { color: var(--recon-subdued); }
 .schema-row:not(.is-disabled) .schema-row-check { color: var(--recon-fg); }
-.schema-row-title  { color: var(--recon-fg); }
+.schema-row-title  {
+  color: var(--recon-fg);
+  min-width: 0;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  word-break: normal;
+}
 .schema-row.is-disabled .schema-row-title { color: var(--recon-body); }
 .schema-row-sep    { color: var(--recon-subdued); }
 .schema-row-desc   { color: var(--recon-body); }
-.schema-row-format { text-transform: lowercase; letter-spacing: 0.04em; }
-
-.schema-row--add {
-  grid-template-columns: 14px auto 1fr;
-  color: var(--recon-muted);
-  border-top: var(--border-w) dashed var(--recon-border);
-  margin-top: 4px;
-  padding-top: 8px;
-  cursor: pointer;
-}
-
-@media (max-width: 700px) {
-  .schema-row {
-    grid-template-columns: 14px 1fr auto;
-  }
-  .schema-row-sep,
-  .schema-row-desc { display: none; }
+.schema-row-format {
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+  justify-self: end;
 }
 
 /* ===================================================================
@@ -398,6 +399,10 @@ iconify-icon {
  * preview block flex-grow. Alpine renders it via <template>, so apply
  * the flex settings to its direct-child wrapper. */
 .output-preview > .stack { flex: 1 1 auto; min-height: 0; }
+
+.output-audit-card {
+  border-style: dashed;
+}
 
 .output-md {
   margin: 0;
