@@ -6,7 +6,7 @@ work to LLM agents. Supports configurable concurrency and error handling.
 
 import asyncio
 
-from recon.workers import WorkerPool
+from recon.workers import PipelineCancelledError, WorkerPool
 
 
 class TestWorkerPoolPause:
@@ -105,6 +105,32 @@ class TestWorkerPoolCancellation:
         # At least one task should have been cancelled
         cancelled = [o for o in outcomes if not o.success]
         assert len(cancelled) >= 1
+
+    async def test_cancel_event_cancels_inflight_tasks(self) -> None:
+        started = asyncio.Event()
+        task_cancelled = asyncio.Event()
+        event = asyncio.Event()
+
+        async def task(item: int) -> int:
+            started.set()
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                task_cancelled.set()
+                raise
+            return item
+
+        pool = WorkerPool(max_workers=1)
+        run_task = asyncio.create_task(pool.run(task, [1], cancel_event=event))
+
+        await started.wait()
+        event.set()
+        outcomes = await asyncio.wait_for(run_task, timeout=1)
+
+        assert task_cancelled.is_set()
+        assert len(outcomes) == 1
+        assert outcomes[0].success is False
+        assert isinstance(outcomes[0].error, PipelineCancelledError)
 
     async def test_no_cancel_event_all_tasks_run(self) -> None:
         ran: list[int] = []

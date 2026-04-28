@@ -29,6 +29,7 @@ async def _list_runs(ws: Workspace) -> RunListResponse:
 
     store = StateStore(db_path=ws.root / ".recon" / "state.db")
     await store.initialize()
+    await store.recover_interrupted_runs(max_age_seconds=60)
     rows = await store.list_runs()
     summaries: list[RunSummary] = []
     for row in rows:

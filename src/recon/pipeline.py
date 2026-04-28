@@ -206,6 +206,23 @@ class Pipeline:
         with contextlib.suppress(Exception):
             await self.progress_callback(stage, phase)
 
+    async def _mark_run_cancelled(self, run_id: str) -> None:
+        if self._provenance is not None:
+            self._provenance.write_yaml(
+                "run.yaml",
+                {
+                    "run_id": run_id,
+                    "workspace_root": str(self.workspace.root),
+                    "status": "cancelled",
+                    "cancelled_at": _now_iso(),
+                },
+            )
+        from recon.events import RunCancelled
+        from recon.events import publish as _publish
+
+        _publish(RunCancelled(run_id=run_id))
+        await self.state_store.update_run_status(run_id, RunStatus.CANCELLED)
+
     async def plan(self) -> str:
         """Create a run plan and return the run_id."""
         run_id = await self.state_store.create_run(
@@ -315,7 +332,6 @@ class Pipeline:
         stop_idx = _STAGE_ORDER.index(self.config.stop_after)
 
         from recon.events import (
-            RunCancelled,
             RunCompleted,
             RunFailed,
             RunStageCompleted,
@@ -328,20 +344,7 @@ class Pipeline:
                 await self._await_resume()
                 if self._cancelled:
                     await self._emit(stage.value, "cancelled")
-                    if self._provenance is not None:
-                        self._provenance.write_yaml(
-                            "run.yaml",
-                            {
-                                "run_id": run_id,
-                                "workspace_root": str(self.workspace.root),
-                                "status": "cancelled",
-                                "cancelled_at": _now_iso(),
-                            },
-                        )
-                    _publish(RunCancelled(run_id=run_id))
-                    await self.state_store.update_run_status(
-                        run_id, RunStatus.CANCELLED,
-                    )
+                    await self._mark_run_cancelled(run_id)
                     return
                 await self._emit(stage.value, "start")
                 _publish(RunStageStarted(run_id=run_id, stage=stage.value))
@@ -351,20 +354,7 @@ class Pipeline:
 
             if self._cancelled:
                 _log.info("pipeline execute run_id=%s -> CANCELLED", run_id)
-                _publish(RunCancelled(run_id=run_id))
-                if self._provenance is not None:
-                    self._provenance.write_yaml(
-                        "run.yaml",
-                        {
-                            "run_id": run_id,
-                            "workspace_root": str(self.workspace.root),
-                            "status": "cancelled",
-                            "cancelled_at": _now_iso(),
-                        },
-                    )
-                await self.state_store.update_run_status(
-                    run_id, RunStatus.CANCELLED,
-                )
+                await self._mark_run_cancelled(run_id)
                 return
 
             _log.info("pipeline execute run_id=%s -> COMPLETED", run_id)
@@ -385,6 +375,10 @@ class Pipeline:
                 )
             _publish(RunCompleted(run_id=run_id, total_cost_usd=total))
             await self.state_store.update_run_status(run_id, RunStatus.COMPLETED)
+        except asyncio.CancelledError:
+            _log.info("pipeline execute run_id=%s -> CANCELLED", run_id)
+            await self._mark_run_cancelled(run_id)
+            raise
         except Exception as exc:
             _log.exception("pipeline execute run_id=%s -> FAILED", run_id)
             if self._provenance is not None:

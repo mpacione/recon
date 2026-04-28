@@ -74,6 +74,60 @@ class TestRunManagement:
     async def test_get_missing_run_returns_none(self, store: StateStore) -> None:
         assert await store.get_run("nonexistent") is None
 
+    async def test_recovers_interrupted_runs(self, store: StateStore) -> None:
+        run_id = await store.create_run(operation="pipeline")
+        await store.update_run_status(run_id, RunStatus.RUNNING)
+
+        recovered = await store.recover_interrupted_runs()
+
+        run = await store.get_run(run_id)
+        assert recovered == [run_id]
+        assert run["status"] == RunStatus.CANCELLED.value
+
+    async def test_recover_interrupted_runs_honors_age_and_exclusions(
+        self, store: StateStore
+    ) -> None:
+        old_run = await store.create_run(operation="pipeline")
+        fresh_run = await store.create_run(operation="pipeline")
+        excluded_run = await store.create_run(operation="pipeline")
+        for run_id in (old_run, fresh_run, excluded_run):
+            await store.update_run_status(run_id, RunStatus.RUNNING)
+        await store._execute_write(
+            "UPDATE runs SET updated_at = datetime('now', '-2 minutes') "
+            "WHERE run_id IN (?, ?)",
+            (old_run, excluded_run),
+        )
+
+        recovered = await store.recover_interrupted_runs(
+            max_age_seconds=60,
+            exclude_run_ids={excluded_run},
+        )
+
+        assert recovered == [old_run]
+        assert (await store.get_run(old_run))["status"] == RunStatus.CANCELLED.value
+        assert (await store.get_run(fresh_run))["status"] == RunStatus.RUNNING.value
+        assert (await store.get_run(excluded_run))["status"] == RunStatus.RUNNING.value
+
+    async def test_recover_interrupted_runs_updates_run_yaml(
+        self, tmp_path: Path
+    ) -> None:
+        store = StateStore(tmp_path / ".recon" / "state.db")
+        await store.initialize()
+        run_id = await store.create_run(operation="pipeline")
+        await store.update_run_status(run_id, RunStatus.RUNNING)
+        run_dir = tmp_path / ".recon" / "runs" / run_id
+        run_dir.mkdir(parents=True)
+        (run_dir / "run.yaml").write_text(
+            f"run_id: {run_id}\nstatus: running\n",
+        )
+
+        await store.recover_interrupted_runs(reason="test recovery")
+
+        run_yaml = (run_dir / "run.yaml").read_text()
+        assert "status: cancelled" in run_yaml
+        assert "recovered_at:" in run_yaml
+        assert "recovery_reason: test recovery" in run_yaml
+
 
 class TestTaskManagement:
     async def test_creates_task(self, store: StateStore) -> None:

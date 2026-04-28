@@ -1032,6 +1032,10 @@ def create_app() -> FastAPI:
 
         store = StateStore(db_path=ws.root / ".recon" / "state.db")
         await store.initialize()
+        await store.recover_interrupted_runs(
+            max_age_seconds=60,
+            exclude_run_ids=set(_run_controls),
+        )
 
         plan_settings = _load_plan_settings_for_workspace(ws.root)
         workers = int(payload.workers or plan_settings.get("workers", 5))
@@ -1168,6 +1172,10 @@ def create_app() -> FastAPI:
         ws = _open_workspace(path)
         store = StateStore(db_path=ws.root / ".recon" / "state.db")
         await store.initialize()
+        await store.recover_interrupted_runs(
+            max_age_seconds=60,
+            exclude_run_ids=set(_run_controls),
+        )
 
         rows = await store.list_runs()
         summaries: list[RunSummary] = []

@@ -11,6 +11,7 @@ Top-level navigation is section-based:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from pathlib import Path  # noqa: TCH003 -- used at runtime
 
@@ -176,6 +177,31 @@ class ReconApp(App):
         except Exception:
             pass
 
+    async def _recover_interrupted_workspace_runs(self, workspace_path: Path) -> None:
+        """Recover old non-terminal runs when a workspace is opened."""
+        from recon.state import StateStore
+
+        try:
+            store = StateStore(workspace_path / ".recon" / "state.db")
+            await store.initialize()
+            recovered = await store.recover_interrupted_runs(max_age_seconds=60)
+        except Exception:
+            _log.exception("failed to recover interrupted runs")
+            return
+        if recovered:
+            _log.info("recovered interrupted runs: %s", ",".join(recovered))
+            self.refresh_workspace_context()
+
+    def _schedule_interrupted_run_recovery(self) -> None:
+        if self._workspace_path is None:
+            return
+        try:
+            asyncio.create_task(
+                self._recover_interrupted_workspace_runs(self._workspace_path),
+            )
+        except RuntimeError:
+            _log.exception("could not schedule interrupted run recovery")
+
     @property
     def workspace_path(self) -> Path | None:
         return self._workspace_path
@@ -208,6 +234,7 @@ class ReconApp(App):
         # Make sure we have a context populated for any screen that
         # mounts via the constructor (e.g. ReconApp(workspace_path=...))
         if self._workspace_path is not None:
+            self._schedule_interrupted_run_recovery()
             self.refresh_workspace_context()
         self.add_mode("dashboard", self._make_dashboard_screen)
         self.add_mode("run", RunScreen)
@@ -237,6 +264,7 @@ class ReconApp(App):
         _log.info("WorkspaceSelected path=%s", event.path)
         self._workspace_path = Path(event.path).expanduser()
         self._record_recent_project(self._workspace_path)
+        self._schedule_interrupted_run_recovery()
         self.refresh_workspace_context()
         self._rebuild_dashboard_mode()
         self.action_goto_tab("plan")

@@ -8,6 +8,7 @@ It tracks state via the StateStore and supports incremental/resumable runs.
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import pytest
 import yaml
 
 from recon.llm import LLMResponse
@@ -340,6 +341,52 @@ class TestPipelineCancellation:
 
         run_id = await pipeline.plan()
         await pipeline.execute(run_id)
+
+        run = await store.get_run(run_id)
+        assert run["status"] == RunStatus.CANCELLED.value
+
+    async def test_execute_task_cancellation_marks_run_cancelled(
+        self, tmp_workspace: Path
+    ) -> None:
+        import asyncio
+
+        from recon.state import RunStatus, StateStore
+        from recon.workspace import Workspace
+
+        ws = Workspace.open(tmp_workspace)
+        ws.create_profile("Alpha")
+        store = StateStore(tmp_workspace / ".recon" / "state.db")
+        await store.initialize()
+
+        stage_started = asyncio.Event()
+        pipeline = Pipeline(
+            workspace=ws,
+            state_store=store,
+            llm_client=_mock_llm(),
+            config=PipelineConfig(
+                verification_enabled=False,
+                start_from=PipelineStage.RESEARCH,
+                stop_after=PipelineStage.RESEARCH,
+            ),
+        )
+
+        async def slow_stage(
+            _run_id: str,
+            _stage: PipelineStage,
+            _cost_tracker: object,
+        ) -> None:
+            stage_started.set()
+            await asyncio.sleep(10)
+
+        pipeline._execute_stage = slow_stage  # type: ignore[method-assign]
+
+        run_id = await pipeline.plan()
+        execute_task = asyncio.create_task(pipeline.execute(run_id))
+
+        await stage_started.wait()
+        execute_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await execute_task
 
         run = await store.get_run(run_id)
         assert run["status"] == RunStatus.CANCELLED.value

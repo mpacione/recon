@@ -6,6 +6,7 @@ All operations are async via aiosqlite.
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from enum import StrEnum
 from pathlib import Path  # noqa: TCH003 -- used at runtime
@@ -150,6 +151,97 @@ class StateStore:
             "UPDATE runs SET status = ?, updated_at = datetime('now') WHERE run_id = ?",
             (status.value, run_id),
         )
+
+    async def recover_interrupted_runs(
+        self,
+        *,
+        max_age_seconds: int | None = None,
+        exclude_run_ids: set[str] | None = None,
+        reason: str = "Recovered after the previous process exited before finalizing the run.",
+    ) -> list[str]:
+        """Finalize non-terminal runs left behind by a dead process.
+
+        A run can be stranded as ``running`` if the terminal process is
+        killed, the app shuts down mid-worker, or a previous bug exits
+        before writing a terminal state. This method converts old
+        planning/running/paused/stopping rows to ``cancelled`` and, when
+        possible, updates the matching provenance ``run.yaml``.
+        """
+        statuses = (
+            RunStatus.PLANNING.value,
+            RunStatus.RUNNING.value,
+            RunStatus.PAUSED.value,
+            RunStatus.STOPPING.value,
+        )
+        params: list[Any] = list(statuses)
+        clauses = [f"status IN ({','.join('?' for _ in statuses)})"]
+
+        if max_age_seconds is not None:
+            seconds = max(0, int(max_age_seconds))
+            clauses.append("updated_at <= datetime('now', ?)")
+            params.append(f"-{seconds} seconds")
+
+        if exclude_run_ids:
+            excluded = sorted(exclude_run_ids)
+            clauses.append(f"run_id NOT IN ({','.join('?' for _ in excluded)})")
+            params.extend(excluded)
+
+        rows = await self._execute_returning_rows(
+            f"SELECT run_id FROM runs WHERE {' AND '.join(clauses)}",
+            tuple(params),
+        )
+        run_ids = [str(row["run_id"]) for row in rows]
+        if not run_ids:
+            return []
+
+        await self._execute_write(
+            f"UPDATE runs SET status = ?, updated_at = datetime('now') "
+            f"WHERE run_id IN ({','.join('?' for _ in run_ids)})",
+            (RunStatus.CANCELLED.value, *run_ids),
+        )
+        self._write_recovery_provenance(run_ids, reason=reason)
+        return run_ids
+
+    def _write_recovery_provenance(self, run_ids: list[str], *, reason: str) -> None:
+        """Best-effort update for ``.recon/runs/<id>/run.yaml`` files."""
+        workspace_root = self._workspace_root_from_db_path()
+        if workspace_root is None:
+            return
+
+        try:
+            import yaml
+        except Exception:
+            return
+
+        now = dt.datetime.now(dt.UTC).isoformat()
+        for run_id in run_ids:
+            run_path = workspace_root / ".recon" / "runs" / run_id / "run.yaml"
+            if not run_path.exists():
+                continue
+            try:
+                data = yaml.safe_load(run_path.read_text()) or {}
+                if not isinstance(data, dict):
+                    data = {}
+                data.update({
+                    "run_id": run_id,
+                    "workspace_root": str(workspace_root),
+                    "status": RunStatus.CANCELLED.value,
+                    "cancelled_at": now,
+                    "recovered_at": now,
+                    "recovery_reason": reason,
+                })
+                run_path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+            except Exception:
+                continue
+
+    def _workspace_root_from_db_path(self) -> Path | None:
+        """Infer workspace root for the default ``.recon/state.db`` layout."""
+        if self.db_path.name != "state.db":
+            return None
+        recon_dir = self.db_path.parent
+        if recon_dir.name != ".recon":
+            return None
+        return recon_dir.parent
 
     async def list_runs(self) -> list[dict[str, Any]]:
         """List all runs, most recent first.

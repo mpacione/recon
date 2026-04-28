@@ -9,6 +9,7 @@ pipelines can be stopped from the outside (e.g. the TUI Stop button).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable  # noqa: TCH003 -- used at runtime
 from dataclasses import dataclass
 from typing import Generic, TypeVar
@@ -48,9 +49,9 @@ class WorkerPool:
         Results preserve input order. Exceptions in ``task_fn`` become
         ``WorkResult(success=False, error=...)``.
 
-        If ``cancel_event`` is provided and becomes set before a task
-        starts, that task is marked cancelled (``success=False`` with a
-        :class:`PipelineCancelledError`) instead of running.
+        If ``cancel_event`` is provided and becomes set before or during
+        a task batch, tasks that have not completed are marked cancelled
+        (``success=False`` with a :class:`PipelineCancelledError`).
 
         If ``pause_event`` is provided, each worker waits for the event
         to be set before dispatching its task. The semantics are
@@ -103,6 +104,45 @@ class WorkerPool:
                         item=item, index=index, success=False, error=exc,
                     )
 
-        await asyncio.gather(*[_wrapped(i, item) for i, item in enumerate(items)])
+        task_handles = [
+            asyncio.create_task(_wrapped(i, item))
+            for i, item in enumerate(items)
+        ]
+
+        try:
+            if cancel_event is None:
+                await asyncio.gather(*task_handles)
+            else:
+                batch_done = asyncio.gather(*task_handles, return_exceptions=True)
+                cancel_waiter = asyncio.create_task(cancel_event.wait())
+                try:
+                    done, _pending = await asyncio.wait(
+                        {batch_done, cancel_waiter},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if cancel_waiter in done and cancel_event.is_set():
+                        for handle in task_handles:
+                            if not handle.done():
+                                handle.cancel()
+                    await batch_done
+                finally:
+                    cancel_waiter.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await cancel_waiter
+        except asyncio.CancelledError:
+            for handle in task_handles:
+                if not handle.done():
+                    handle.cancel()
+            await asyncio.gather(*task_handles, return_exceptions=True)
+            raise
+
+        for index, result in enumerate(results):
+            if result is None:
+                results[index] = WorkResult(
+                    item=items[index],
+                    index=index,
+                    success=False,
+                    error=PipelineCancelledError("cancelled during run"),
+                )
 
         return results

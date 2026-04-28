@@ -174,13 +174,12 @@ def build_pipeline_fn(
 
             # Defer heavy imports until we're actually going to run the pipeline
             from recon.client_factory import ClientCreationError, create_llm_client
+            from recon.cost import get_model_pricing
             from recon.pipeline import Pipeline
             from recon.state import StateStore
             from recon.workspace import Workspace
 
             # Resolve model ID from short name
-            from recon.cost import get_model_pricing
-
             _model_id = "claude-sonnet-4-5"
             if model_name:
                 try:
@@ -204,12 +203,22 @@ def build_pipeline_fn(
             ws = Workspace.open(workspace_path)
             store = StateStore(db_path=workspace_path / ".recon" / "state.db")
             await store.initialize()
+            recovered = await store.recover_interrupted_runs(max_age_seconds=60)
+            if recovered:
+                _log.info(
+                    "pipeline_fn: recovered interrupted runs before start: %s",
+                    ",".join(recovered),
+                )
 
             normalized_verification = (verification_mode or "standard").strip().lower()
             config = _pipeline_config_for_operation(
                 operation,
                 verification_enabled=(normalized_verification != "standard"),
-                verification_tier=normalized_verification if normalized_verification in {"verified", "deep"} else "verified",
+                verification_tier=(
+                    normalized_verification
+                    if normalized_verification in {"verified", "deep"}
+                    else "verified"
+                ),
             )
             if targets is not None:
                 from dataclasses import replace
